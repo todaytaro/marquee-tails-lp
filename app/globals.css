@@ -1,0 +1,148 @@
+@import "tailwindcss";
+
+/* ------------------------------------------------------------------ */
+/* Premiere Night design system — Marquee Tails                        */
+/* ------------------------------------------------------------------ */
+
+@theme {
+  /* Colors */
+  --color-night: #0b0a10; /* page background: near-black indigo */
+  --color-surface: #14121c; /* elevated surface */
+  --color-gold: #e8b64c; /* marquee gold */
+  --color-gold-bright: #f6d27e; /* bright gold */
+  --color-ivory: #f4f1e8; /* warm ivory text */
+  --color-muted: #a09aae; /* muted text */
+  --color-nebula: #4a3670; /* deep nebula accent */
+  --color-hairline: rgba(232, 182, 76, 0.15); /* hairline borders */
+
+  /* Radii */
+  --radius-card: 12px;
+  --radius-chip: 8px;
+}
+
+@theme inline {
+  /* next/font variables set on <html> in app/layout.tsx */
+  --font-sans: var(--font-inter);
+  --font-display: var(--font-bebas);
+}
+
+/* ---------------------------------------------------------------- */
+/* Base                                                              */
+/* ---------------------------------------------------------------- */
+
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+body {
+  background-color: var(--color-night);
+  color: var(--color-ivory);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background-color: var(--color-gold);
+  color: var(--color-night);
+}
+
+/* ---------------------------------------------------------------- */
+/* Utilities — marquee gold glow (use sparingly)                     */
+/* ---------------------------------------------------------------- */
+
+.gold-glow-text {
+  text-shadow: 0 0 40px rgba(232, 182, 76, 0.35);
+}
+
+.gold-glow-box {
+  box-shadow: 0 0 40px rgba(232, 182, 76, 0.35);
+}
+
+/* Primary CTA: gold plate, near-black text, glow on hover */
+.btn-marquee {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: var(--radius-chip);
+  background-color: var(--color-gold);
+  color: var(--color-night);
+  font-weight: 600;
+  transition:
+    box-shadow 200ms ease,
+    background-color 200ms ease;
+}
+
+.btn-marquee:hover,
+.btn-marquee:focus-visible {
+  background-color: var(--color-gold-bright);
+  box-shadow: 0 0 40px rgba(232, 182, 76, 0.35);
+}
+
+/* ---------------------------------------------------------------- */
+/* Utilities — film grain overlay (apply to a relative container)    */
+/* ---------------------------------------------------------------- */
+
+.film-grain {
+  position: relative;
+}
+
+.film-grain::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.07;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
+}
+
+/* ---------------------------------------------------------------- */
+/* Utilities — film-strip divider (sprocket holes)                   */
+/* ---------------------------------------------------------------- */
+
+.film-strip {
+  height: 14px;
+  background-image: radial-gradient(
+    circle at center,
+    rgba(232, 182, 76, 0.28) 0 3px,
+    transparent 3.5px
+  );
+  background-size: 28px 14px;
+  background-repeat: repeat-x;
+  background-position: center;
+  border-top: 1px solid var(--color-hairline);
+  border-bottom: 1px solid var(--color-hairline);
+}
+
+/* ---------------------------------------------------------------- */
+/* Utilities — ticket-stub notches (apply to a relative container)   */
+/* ---------------------------------------------------------------- */
+
+.ticket-stub {
+  position: relative;
+  /* punch semicircle notches out of the left and right edges */
+  mask-image:
+    radial-gradient(circle 12px at left center, transparent 98%, black 100%),
+    radial-gradient(circle 12px at right center, transparent 98%, black 100%);
+  mask-composite: intersect;
+  -webkit-mask-image:
+    radial-gradient(circle 12px at left center, transparent 98%, black 100%),
+    radial-gradient(circle 12px at right center, transparent 98%, black 100%);
+  -webkit-mask-composite: source-in;
+}
