@@ -1,3 +1,4 @@
+import { put } from "@vercel/blob";
 import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 
@@ -8,7 +9,11 @@ import path from "node:path";
  *    Subscribes the profile to the configured list via the Klaviyo JSON:API
  *    (profile-subscription-bulk-create-jobs). This is the production path.
  *
- * 2. Local JSONL fallback — appends one JSON object per line to
+ * 2. Vercel Blob — used when BLOB_READ_WRITE_TOKEN is set (private store,
+ *    one JSON file per signup under waitlist/). Durable interim storage
+ *    until Klaviyo is configured. Export: `npx vercel blob list`.
+ *
+ * 3. Local JSONL fallback — appends one JSON object per line to
  *    .waitlist/emails.jsonl at the repo root. Dev-only convenience:
  *    on serverless hosts (Vercel) the filesystem is EPHEMERAL and writes
  *    are lost on every cold start / redeploy. See WAITLIST-SETUP.md.
@@ -33,7 +38,23 @@ export async function addToWaitlist(entry: WaitlistEntry): Promise<void> {
     return;
   }
 
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    await saveToBlob(entry);
+    return;
+  }
+
   await appendToLocalJsonl(entry);
+}
+
+async function saveToBlob(entry: WaitlistEntry): Promise<void> {
+  // One small JSON file per signup; addRandomSuffix avoids collisions when
+  // two signups share a timestamp. The store is private, so blobs are only
+  // readable with the token (`npx vercel blob list` to export).
+  await put(`waitlist/${entry.ts}.json`, JSON.stringify(entry), {
+    access: "private",
+    addRandomSuffix: true,
+    contentType: "application/json",
+  });
 }
 
 async function subscribeViaKlaviyo(
