@@ -1,0 +1,73 @@
+// Marquee Tails — order state machine
+//
+// The 2-Gate system: statuses may ONLY move forward along ALLOWED_TRANSITIONS
+// (see lib/orders.ts — the single choke point for every status change).
+// Gate 1 = customer approves one concept still (before any video compute).
+// Gate 2 = admin approves the finished video (before delivery + POD).
+//
+// Prisma 7: connection URL lives in prisma.config.ts, client is generated
+// into /generated/prisma and constructed with a driver adapter (lib/db.ts).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum OrderStatus {
+  UPLOADING // initial: photos being uploaded
+  IMAGE_GENERATING // AI generating concept stills
+  AWAITING_CUSTOMER_APPROVAL // Gate 1: customer picks one still
+  VIDEO_GENERATING // video pipeline running (only after Gate 1)
+  AWAITING_ADMIN_APPROVAL // Gate 2: admin quality check
+  COMPLETED // delivered + POD ordered
+}
+
+model Order {
+  id             String      @id @default(cuid())
+  shopifyOrderId String      @unique
+  customerEmail  String
+  status         OrderStatus @default(UPLOADING)
+
+  // intake
+  petName           String?
+  world             String? // deepspace | storybook | noir
+  uploadedPhotoUrls String[] @default([])
+
+  // Gate 1 artifacts
+  conceptImageUrls String[] @default([]) // generated stills the customer picks from
+  selectedImageUrl String? // the approved still (set at Gate 1)
+
+  // Gate 2 artifacts
+  finalVideoUrl String? // set by the video pipeline, held until admin approval
+  adminNote     String?
+
+  // customer-facing approval links authenticate with this token, not a login
+  approveToken String @unique @default(cuid())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  statusEvents StatusEvent[]
+
+  @@index([status])
+}
+
+// Append-only audit log of every transition (chargeback/dispute evidence,
+// per requirements.md §5 監査ログ).
+model StatusEvent {
+  id      String      @id @default(cuid())
+  orderId String
+  order   Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  from    OrderStatus
+  to      OrderStatus
+  actor   String // "customer" | "admin" | "system"
+  note    String?
+
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
+}
