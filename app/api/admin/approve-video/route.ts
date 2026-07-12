@@ -1,16 +1,15 @@
 import { NextResponse } from "next/server";
-import { OrderStatus } from "@/generated/prisma/client";
-import { transitionOrder, TransitionError } from "@/lib/orders";
-import { sendDeliveryEmail, createPodOrder } from "@/lib/mocks";
+import { TransitionError } from "@/lib/orders";
+import { approveVideo } from "@/lib/approvals";
 
 /**
  * Gate 2 — the admin approves the finished video.
  *
  * POST { orderId, adminNote? }  with header  x-admin-secret: $ADMIN_API_SECRET
  *
- * Only after this transition commits do delivery email + POD order fire.
- * Scaffold auth = shared secret header; swap for real admin session auth
- * when app/admin gets built.
+ * Thin HTTP shell around lib/approvals.approveVideo() — the same domain logic
+ * the /admin dashboard's server action uses. Only after the transition
+ * commits do delivery email + POD order fire.
  */
 export async function POST(req: Request) {
   const secret = process.env.ADMIN_API_SECRET;
@@ -37,20 +36,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const updated = await transitionOrder(
-      orderId,
-      OrderStatus.AWAITING_ADMIN_APPROVAL,
-      OrderStatus.COMPLETED,
-      "admin",
-      adminNote ? { adminNote } : {},
-      "Gate 2: admin approved final video"
-    );
-
-    // Side effects fire only after the transition is committed, and cannot
-    // fire twice: a second call finds status=COMPLETED and 409s above.
-    await sendDeliveryEmail(updated);
-    await createPodOrder(updated);
-
+    const updated = await approveVideo(orderId, adminNote);
     return NextResponse.json({ ok: true, status: updated.status });
   } catch (err) {
     if (err instanceof TransitionError) {
