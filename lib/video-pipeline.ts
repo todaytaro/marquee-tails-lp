@@ -46,6 +46,16 @@ function publicImageUrl(url: string): string {
 }
 
 export async function kickVideoGeneration(order: Order): Promise<void> {
+  // Dev/e2e escape hatch: VIDEO_PIPELINE_MOCK=1 skips the real provider so
+  // the state machine can be tested for free. Set to 0 (or remove) to fire
+  // real fal generations.
+  if (process.env.VIDEO_PIPELINE_MOCK === "1") {
+    console.log(
+      `[video-pipeline:MOCK] kick order=${order.id} still=${order.selectedImageUrl} world=${order.world ?? "?"} — no compute spent`
+    );
+    return;
+  }
+
   const falKey = assertEnv("FAL_KEY");
   fal.config({ credentials: falKey });
 
