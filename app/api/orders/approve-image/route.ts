@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { OrderStatus } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { transitionOrder, TransitionError } from "@/lib/orders";
-import { kickVideoGeneration } from "@/lib/mocks";
+import { kickVideoGeneration } from "@/lib/video-pipeline";
 
 /**
  * Gate 1 — the customer approves one concept still.

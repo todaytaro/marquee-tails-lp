@@ -44,6 +44,7 @@ model Order {
   // Gate 2 artifacts
   finalVideoUrl String? // set by the video pipeline, held until admin approval
   adminNote     String?
+  falRequestId  String? // fal.ai queue request id (debugging / reconciliation)
 
   // customer-facing approval links authenticate with this token, not a login
   approveToken String @unique @default(cuid())
