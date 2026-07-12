@@ -65,8 +65,27 @@ export async function POST(req: Request) {
       "Gate 1: customer approved concept still"
     );
 
-    // Side effect fires only after the transition is committed.
-    await kickVideoGeneration(updated);
+    // Side effect fires only after the transition is committed. If the kick
+    // fails (provider down, balance exhausted), compensate: revert to
+    // AWAITING_CUSTOMER_APPROVAL so the order is never stranded waiting for
+    // a video that will never come, and let the customer retry.
+    try {
+      await kickVideoGeneration(updated);
+    } catch (kickErr) {
+      console.error(`[approve-image] pipeline kick failed, reverting order=${order.id}`, kickErr);
+      await transitionOrder(
+        order.id,
+        OrderStatus.VIDEO_GENERATING,
+        OrderStatus.AWAITING_CUSTOMER_APPROVAL,
+        "system",
+        {},
+        "pipeline kick failed — reverted for retry"
+      );
+      return NextResponse.json(
+        { ok: false, error: "We couldn't start production just now. Please try again in a moment." },
+        { status: 503 }
+      );
+    }
 
     return NextResponse.json({ ok: true, status: updated.status });
   } catch (err) {

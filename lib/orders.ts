@@ -11,7 +11,12 @@ const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   [OrderStatus.IMAGE_GENERATING]: [OrderStatus.AWAITING_CUSTOMER_APPROVAL],
   // Gate 1: customer approval is the ONLY way into video generation.
   [OrderStatus.AWAITING_CUSTOMER_APPROVAL]: [OrderStatus.VIDEO_GENERATING],
-  [OrderStatus.VIDEO_GENERATING]: [OrderStatus.AWAITING_ADMIN_APPROVAL],
+  // Forward to Gate 2 — or compensating revert when the pipeline kick fails
+  // (system actor only; keeps orders from being stranded with no video coming).
+  [OrderStatus.VIDEO_GENERATING]: [
+    OrderStatus.AWAITING_ADMIN_APPROVAL,
+    OrderStatus.AWAITING_CUSTOMER_APPROVAL,
+  ],
   // Gate 2: admin approval is the ONLY way into delivery.
   [OrderStatus.AWAITING_ADMIN_APPROVAL]: [OrderStatus.COMPLETED],
   [OrderStatus.COMPLETED]: [],
