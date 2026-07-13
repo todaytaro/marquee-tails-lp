@@ -11,6 +11,12 @@ import type { Order } from "@/generated/prisma/client";
  * Each mock logs a structured line so the flow is visible in dev.
  */
 
+export async function sendChooseStillEmail(order: Order): Promise<void> {
+  console.log(
+    `[mock:email] "choose your still" mail to=${order.customerEmail} order=${order.id} link=/approve/${order.approveToken} — real impl: Klaviyo/Resend`
+  );
+}
+
 export async function sendDeliveryEmail(order: Order): Promise<void> {
   console.log(
     `[mock:email] delivery mail to=${order.customerEmail} order=${order.id} video=${order.finalVideoUrl} — real impl: Klaviyo/Resend`

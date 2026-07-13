@@ -4,6 +4,7 @@ import Image from "next/image";
 import { OrderStatus, type Order } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import ConceptPicker from "@/components/ConceptPicker";
+import PhotoUploadForm from "@/components/PhotoUploadForm";
 
 /**
  * Customer approval page (Gate 1) — opened from the email link.
@@ -310,6 +311,25 @@ export default async function ApprovePage({
   let view: React.ReactNode;
   switch (order.status) {
     case OrderStatus.UPLOADING:
+      view = (
+        <section className="px-5 py-10">
+          <header className="mx-auto mb-10 max-w-2xl text-center">
+            <p className="font-display text-sm tracking-[0.3em] text-muted uppercase">
+              Pre-production
+            </p>
+            <h1 className="font-display gold-glow-text mt-2 text-4xl tracking-wide text-gold uppercase sm:text-5xl">
+              Casting call
+            </h1>
+            <p className="mt-4 leading-relaxed text-muted">
+              Send us your pet&apos;s photos and pick their world. Our
+              directors will paint three concept stills for you to choose
+              from — nothing goes to film until you approve one.
+            </p>
+          </header>
+          <PhotoUploadForm orderId={order.id} approveToken={order.approveToken} />
+        </section>
+      );
+      break;
     case OrderStatus.IMAGE_GENERATING:
       view = <WaitingView petName={petName} />;
       break;

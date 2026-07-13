@@ -8,7 +8,11 @@ import { prisma } from "./db";
  */
 const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   [OrderStatus.UPLOADING]: [OrderStatus.IMAGE_GENERATING],
-  [OrderStatus.IMAGE_GENERATING]: [OrderStatus.AWAITING_CUSTOMER_APPROVAL],
+  // Forward to Gate 1 — or compensating revert when stills generation fails.
+  [OrderStatus.IMAGE_GENERATING]: [
+    OrderStatus.AWAITING_CUSTOMER_APPROVAL,
+    OrderStatus.UPLOADING,
+  ],
   // Gate 1: customer approval is the ONLY way into video generation.
   [OrderStatus.AWAITING_CUSTOMER_APPROVAL]: [OrderStatus.VIDEO_GENERATING],
   // Forward to Gate 2 — or compensating revert when the pipeline kick fails
