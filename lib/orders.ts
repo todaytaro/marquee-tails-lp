@@ -53,7 +53,7 @@ export async function transitionOrder(
   to: OrderStatus,
   actor: "customer" | "admin" | "system",
   extraData: Partial<
-    Pick<Order, "selectedImageUrl" | "finalVideoUrl" | "adminNote">
+    Pick<Order, "selectedImageUrl" | "finalVideoUrl" | "socialVideoUrl" | "adminNote">
   > = {},
   note?: string
 ): Promise<Order> {

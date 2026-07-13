@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { OrderStatus } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { transitionOrder, TransitionError } from "@/lib/orders";
-import { kickVideoGeneration } from "@/lib/video-pipeline";
+import { kickFilmGeneration } from "@/lib/film-pipeline";
 
 /**
  * Gate 1 — the customer approves one concept still.
@@ -70,7 +70,7 @@ export async function POST(req: Request) {
     // AWAITING_CUSTOMER_APPROVAL so the order is never stranded waiting for
     // a video that will never come, and let the customer retry.
     try {
-      await kickVideoGeneration(updated);
+      await kickFilmGeneration(updated);
     } catch (kickErr) {
       console.error(`[approve-image] pipeline kick failed, reverting order=${order.id}`, kickErr);
       await transitionOrder(

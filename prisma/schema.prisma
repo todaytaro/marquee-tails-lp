@@ -42,13 +42,20 @@ model Order {
   selectedImageUrl String? // the approved still (set at Gate 1)
 
   // Gate 2 artifacts
-  finalVideoUrl String? // set by the video pipeline, held until admin approval
+  finalVideoUrl String? // 16:9 master, set by the film pipeline, held until admin approval
+  socialVideoUrl String? // 9:16 social cut, delivered alongside the master
   adminNote     String?
   falRequestId  String? // fal.ai queue request id (debugging / reconciliation)
 
   // identity lock (stills pipeline v2)
   petDescription      String? // VLM-extracted distinguishing features, injected into prompts
+  personality         String? // brave / easygoing / playful / timid — picks the story arc
   identityPortraitUrl String? // neutral close-up generated from photos; ref for all takes
+
+  // film pipeline checkpoints — lets a run resume after an upload/balance
+  // failure without re-spending compute on already-generated assets.
+  // { heroSheet?, shotStillUrls?, clipUrls?, scoreUrl? }
+  filmArtifacts Json?
 
   // customer-facing approval links authenticate with this token, not a login
   approveToken String @unique @default(cuid())

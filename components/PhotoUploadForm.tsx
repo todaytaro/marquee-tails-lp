@@ -8,6 +8,14 @@ const WORLDS = [
   { key: "noir", name: "Noir Detective", logline: "Rain-slick streets. A case nobody could crack." },
 ] as const;
 
+// Picks the story arc — same world, different film (12 structures total).
+const PERSONALITIES = [
+  { key: "brave", name: "Brave", blurb: "Fearless lead. Runs toward the adventure." },
+  { key: "easygoing", name: "Easygoing", blurb: "Cozy hero. The world can wait a nap." },
+  { key: "playful", name: "Playful", blurb: "Chaos star. The plot chases THEM." },
+  { key: "timid", name: "Timid", blurb: "Shy heart. Finds courage by the finale." },
+] as const;
+
 const MIN_PHOTOS = 4;
 const MAX_PHOTOS = 8;
 
@@ -25,6 +33,7 @@ export default function PhotoUploadForm({
   const [files, setFiles] = useState<File[]>([]);
   const [petName, setPetName] = useState("");
   const [world, setWorld] = useState<string>("");
+  const [personality, setPersonality] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -46,6 +55,7 @@ export default function PhotoUploadForm({
         fd.set("approveToken", approveToken);
         fd.set("petName", petName);
         fd.set("world", world);
+        fd.set("personality", personality);
         files.forEach((f) => fd.append("photos", f));
         const res = await fetch("/api/orders/submit-photos", { method: "POST", body: fd });
         const json = (await res.json()) as { ok: boolean; error?: string };
@@ -78,7 +88,11 @@ export default function PhotoUploadForm({
   }
 
   const canSubmit =
-    !pending && petName.trim().length > 0 && world !== "" && files.length >= MIN_PHOTOS;
+    !pending &&
+    petName.trim().length > 0 &&
+    world !== "" &&
+    personality !== "" &&
+    files.length >= MIN_PHOTOS;
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -120,6 +134,37 @@ export default function PhotoUploadForm({
                 {w.name}
               </span>
               <span className="mt-1 block text-xs leading-relaxed text-muted">{w.logline}</span>
+            </button>
+          ))}
+        </div>
+      </fieldset>
+
+      {/* Personality pick — chooses the story arc within the world */}
+      <fieldset className="mt-8">
+        <legend className="font-display text-sm tracking-[0.2em] text-gold uppercase">
+          Their personality
+        </legend>
+        <p className="mt-1 text-xs text-muted">
+          Shapes the story — same world, a different film.
+        </p>
+        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4" role="radiogroup">
+          {PERSONALITIES.map((p) => (
+            <button
+              key={p.key}
+              type="button"
+              role="radio"
+              aria-checked={personality === p.key}
+              onClick={() => setPersonality(p.key)}
+              className={`rounded-xl border p-4 text-left transition-colors ${
+                personality === p.key
+                  ? "border-gold bg-surface shadow-[0_0_24px_rgba(232,182,76,0.25)]"
+                  : "border-hairline bg-surface/50 hover:border-gold/40"
+              }`}
+            >
+              <span className="font-display block text-lg tracking-wide text-ivory uppercase">
+                {p.name}
+              </span>
+              <span className="mt-1 block text-xs leading-relaxed text-muted">{p.blurb}</span>
             </button>
           ))}
         </div>

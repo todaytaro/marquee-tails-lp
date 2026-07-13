@@ -273,13 +273,24 @@ function PremiereView({ order, petName }: { order: Order; petName: string }) {
       )}
       {videoUrl && (
         <div className="mt-8 flex flex-col items-center gap-4">
-          <a
-            href={videoUrl}
-            download={`${petName.toLowerCase()}-marquee-tails.mp4`}
-            className="btn-marquee px-6 py-3 text-base"
-          >
-            Download {petName}&apos;s film
-          </a>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <a
+              href={videoUrl}
+              download={`${petName.toLowerCase()}-marquee-tails.mp4`}
+              className="btn-marquee px-6 py-3 text-base"
+            >
+              Download {petName}&apos;s film
+            </a>
+            {order.socialVideoUrl && (
+              <a
+                href={order.socialVideoUrl}
+                download={`${petName.toLowerCase()}-marquee-tails-vertical.mp4`}
+                className="inline-flex items-center rounded-[var(--radius-chip)] border border-gold/50 px-6 py-3 text-base text-gold transition-colors hover:bg-gold/10"
+              >
+                Vertical cut for TikTok / Reels
+              </a>
+            )}
+          </div>
           <p className="max-w-md text-sm text-muted">
             {petName} earned the big screen — share the trailer with the rest
             of the fan club. Group chats, grandparents, the vet who always

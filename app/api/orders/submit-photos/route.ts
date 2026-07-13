@@ -21,6 +21,7 @@ const MAX_PHOTOS = 8;
 const MIN_PHOTOS = 4;
 const MAX_BYTES = 10 * 1024 * 1024;
 const WORLDS = new Set(["deepspace", "storybook", "noir"]);
+const PERSONALITIES = new Set(["brave", "easygoing", "playful", "timid"]);
 
 export async function POST(req: Request) {
   let form: FormData;
@@ -34,6 +35,7 @@ export async function POST(req: Request) {
   const approveToken = String(form.get("approveToken") ?? "");
   const petName = String(form.get("petName") ?? "").trim().slice(0, 40);
   const world = String(form.get("world") ?? "");
+  const personality = String(form.get("personality") ?? "");
   const photos = form.getAll("photos").filter((p): p is File => p instanceof File);
 
   if (!orderId || !approveToken) {
@@ -44,6 +46,9 @@ export async function POST(req: Request) {
   }
   if (!WORLDS.has(world)) {
     return NextResponse.json({ ok: false, error: "Please pick a world." }, { status: 400 });
+  }
+  if (!PERSONALITIES.has(personality)) {
+    return NextResponse.json({ ok: false, error: "Please pick a personality." }, { status: 400 });
   }
   if (photos.length < MIN_PHOTOS || photos.length > MAX_PHOTOS) {
     return NextResponse.json(
@@ -80,7 +85,7 @@ export async function POST(req: Request) {
 
     await prisma.order.update({
       where: { id: order.id },
-      data: { petName, world, uploadedPhotoUrls },
+      data: { petName, world, personality, uploadedPhotoUrls },
     });
 
     const updated = await transitionOrder(
