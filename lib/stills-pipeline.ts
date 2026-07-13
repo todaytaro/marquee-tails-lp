@@ -5,48 +5,158 @@ import { transitionOrder } from "./orders";
 import { sendChooseStillEmail } from "./mocks";
 
 /**
- * Concept-still generation (the step BEFORE Gate 1).
+ * Concept-still generation v2 — "identity lock" (the step BEFORE Gate 1).
  *
- * From the customer's uploaded pet photos, generate three concept stills —
- * each a DIFFERENT scene inside the chosen world (TAKE 1/2/3), so the
- * customer's pick meaningfully steers the film (variation design: shot
- * pools + personality arcs + scene-level takes).
+ * Likeness is THE conversion moment ("that's my pet!"), so instead of one
+ * transformation jump we run three stages:
  *
- * Model: fal-ai/nano-banana-pro/edit — multi-reference identity-preserving
- * editing, $0.15/image at 1-2K. 3 takes ≈ $0.45 per order.
+ *   Stage 0  describePet      VLM extracts the pet's distinguishing features
+ *                             as text (coat colors, cut, face) — injected into
+ *                             every downstream prompt so the model can't fall
+ *                             back to a generic breed prototype.
+ *   Stage 1  identityPortrait Neutral studio close-up from the photos — locks
+ *                             the face BEFORE any costume/scene transformation.
+ *   Stage 2  three takes      Scene generations referencing the portrait +
+ *                             originals, face-forward 3:4 compositions so the
+ *                             face carries the frame.
  *
- * Same operational pattern as video-pipeline: detached async in dev,
- * compensating revert to UPLOADING on failure so orders never strand.
+ * Cost: ~$0.01 (VLM) + $0.15 (portrait) + 3×$0.15 (takes) ≈ $0.61/order.
+ *
+ * Ops pattern unchanged: detached async in dev, compensating revert to
+ * UPLOADING on failure, VIDEO_PIPELINE_MOCK short-circuit for e2e.
  */
 
-const MODEL = "fal-ai/nano-banana-pro/edit";
+const EDIT_MODEL = "fal-ai/nano-banana-pro/edit";
+const VISION_MODEL = "openrouter/router/vision";
+const VISION_LLM = "google/gemini-2.5-flash";
 
-// TAKE 1 / 2 / 3 — three distinct scenes per world.
+// TAKE 1 / 2 / 3 — distinct scenes per world, framed face-forward
+// (medium shots; wide scenery shrinks the face and invites freelancing).
 const WORLD_SCENES: Record<string, string[]> = {
   deepspace: [
-    "standing proudly on the command bridge of a starship in a fitted astronaut suit, gazing out the giant viewport at a violet nebula, console lights glowing across its fur",
-    "floating gently on a spacewalk outside the ship in a sleek space suit, tether drifting, the blue curve of an alien planet and two moons behind",
-    "standing on the ridge of an alien desert at dusk in explorer gear, twin suns setting over crystalline rock spires, long heroic shadow",
+    "in a fitted astronaut suit on a starship bridge, medium shot from the chest up, a violet nebula glowing through the viewport behind them",
+    "in a sleek space suit during a spacewalk, medium close shot, helmet visor open, the blue curve of an alien planet behind",
+    "in explorer gear on an alien ridge at dusk, medium shot, twin suns setting behind crystalline rock spires",
   ],
   storybook: [
-    "standing regally on a storybook castle balcony in tiny ornate royal robes and a small crown, overlooking a painterly kingdom at golden hour",
-    "sitting on a velvet cushion in a candle-lit royal library, wearing a scholar's cape, ancient books and a glowing map spread open",
-    "walking bravely down an enchanted forest path in a small knight's cloak, fireflies and soft god-rays between giant mossy trees",
+    "in tiny ornate royal robes and a small crown on a castle balcony, medium shot from the chest up, a painterly kingdom soft-focused behind",
+    "in a scholar's cape beside candle-lit ancient books in a royal library, medium close shot, warm glow on the face",
+    "in a small knight's cloak on an enchanted forest path, medium shot, fireflies and god-rays soft in the background",
   ],
   noir: [
-    "standing under a flickering streetlamp in a rain-slicked 1940s alley, wearing a tiny trench coat and fedora, dramatic black-and-white with one warm gold light",
-    "sitting behind a detective's desk in a dim office, venetian-blind shadows across the fur, a case file and old telephone in frame, film noir style",
-    "on a foggy rooftop stakeout at night in a trench coat, city neon glowing faintly below, profile silhouette against the mist, film noir style",
+    "in a tiny trench coat and fedora under a flickering streetlamp in a rain-slicked 1940s alley, medium shot from the chest up, black-and-white with one warm gold light",
+    "in a detective's office behind a desk with a case file, medium close shot, venetian-blind shadows across the scene, film noir style",
+    "in a trench coat on a foggy rooftop at night, medium shot, city neon glowing soft below, film noir style",
   ],
 };
 
-const STILL_PROMPT = (scene: string) =>
-  `Using the pet from the reference photos as the main character, create ONE cinematic live-action film still: the exact same animal — identical breed, fur colors, markings and face — ${scene}. Blockbuster movie cinematography, dramatic lighting, shallow depth of field, film grain. The pet must be unmistakably the same pet as in the reference photos. No text, no watermark, no humans.`;
+const IDENTITY_RULES =
+  "Preserve this exact pet's identity from the reference photos: the same coat colors in the same places, the same fur texture and haircut, the same face structure, eyes, ears and proportions. Do NOT idealize, do NOT groom them differently, do NOT drift toward a generic breed look. No text, no watermark, no humans.";
+
+function assertEnv(name: string): string {
+  const v = process.env[name];
+  if (!v) throw new Error(`${name} is not set`);
+  return v;
+}
+
+/** Stage 0 — extract the pet's distinguishing features as prompt text. */
+async function describePet(photoUrls: string[]): Promise<string> {
+  const r = await fal.subscribe(VISION_MODEL, {
+    input: {
+      model: VISION_LLM,
+      image_urls: photoUrls.slice(0, 4),
+      prompt:
+        "These photos show one pet. In ONE dense sentence (max 60 words), describe this specific animal's distinguishing visual features for an image-generation prompt: exact coat colors and where they appear, fur texture/length/haircut, face shape, eye color and shape, ear shape and set, nose, muzzle/beard/eyebrow markings, body build. Only the features — no name, no story, no preamble.",
+    },
+  });
+  const d = r.data as { output?: string; text?: string };
+  const desc = (d.output ?? d.text ?? "").trim();
+  if (!desc) throw new Error("vision model returned no description");
+  return desc.slice(0, 500);
+}
+
+/** Stage 1 — neutral close-up that locks the face before any transformation. */
+async function generateIdentityPortrait(
+  photoUrls: string[],
+  description: string
+): Promise<string> {
+  const r = await fal.subscribe(EDIT_MODEL, {
+    input: {
+      prompt: `Photorealistic studio portrait photograph of this exact pet from the reference photos: ${description}. Head-and-chest close-up looking toward the camera, plain dark studio background, soft flattering key light, tack-sharp focus on the face. No clothing, no accessories. ${IDENTITY_RULES}`,
+      image_urls: photoUrls,
+      num_images: 1,
+      resolution: "2K",
+      aspect_ratio: "3:4",
+      output_format: "png",
+    },
+  });
+  const url = (r.data as { images?: { url?: string }[] })?.images?.[0]?.url;
+  if (!url) throw new Error("identity portrait result missing image url");
+  return url;
+}
+
+/** Stage 2 — one cinematic take. */
+async function generateTake(
+  refs: string[],
+  description: string,
+  scene: string
+): Promise<string> {
+  const r = await fal.subscribe(EDIT_MODEL, {
+    input: {
+      prompt: `This exact pet from the reference photos — ${description}. Create ONE cinematic live-action film still of THIS SAME pet ${scene}. The pet's face is large, well-lit and clearly recognizable. Blockbuster movie cinematography, dramatic lighting, shallow depth of field, film grain. ${IDENTITY_RULES}`,
+      image_urls: refs,
+      num_images: 1,
+      resolution: "2K",
+      aspect_ratio: "3:4",
+      output_format: "png",
+    },
+  });
+  const url = (r.data as { images?: { url?: string }[] })?.images?.[0]?.url;
+  if (!url) throw new Error("take result missing image url");
+  return url;
+}
+
+/**
+ * Full generation run — awaitable (scripts/tests), while kickStillsGeneration
+ * fires it detached for the request path.
+ */
+export async function runStillsGeneration(order: Order): Promise<void> {
+  const falKey = assertEnv("FAL_KEY");
+  fal.config({ credentials: falKey });
+
+  if (order.uploadedPhotoUrls.length === 0) {
+    throw new Error(`Order ${order.id} has no uploaded photos`);
+  }
+  const scenes = WORLD_SCENES[order.world ?? ""] ?? WORLD_SCENES.deepspace;
+
+  console.log(`[stills-pipeline] stage 0: describing pet order=${order.id}`);
+  const description = await describePet(order.uploadedPhotoUrls);
+  console.log(`[stills-pipeline] features: ${description}`);
+
+  console.log(`[stills-pipeline] stage 1: identity portrait order=${order.id}`);
+  const identityPortraitUrl = await generateIdentityPortrait(
+    order.uploadedPhotoUrls,
+    description
+  );
+
+  await prisma.order.update({
+    where: { id: order.id },
+    data: { petDescription: description, identityPortraitUrl },
+  });
+
+  console.log(`[stills-pipeline] stage 2: generating 3 takes order=${order.id} world=${order.world}`);
+  // Portrait first in refs — it is the cleanest identity signal.
+  const refs = [identityPortraitUrl, ...order.uploadedPhotoUrls.slice(0, 3)];
+  const urls = await Promise.all(
+    scenes.map((scene) => generateTake(refs, description, scene))
+  );
+
+  await completeStillsGeneration(order.id, urls);
+}
 
 export async function kickStillsGeneration(order: Order): Promise<void> {
   if (process.env.VIDEO_PIPELINE_MOCK === "1") {
     console.log(`[stills-pipeline:MOCK] kick order=${order.id} — no compute spent`);
-    // Mock path still completes the flow so dev/e2e can traverse states.
     await completeStillsGeneration(order.id, [
       "/assets/world-deepspace.png",
       "/assets/world-storybook.png",
@@ -55,18 +165,9 @@ export async function kickStillsGeneration(order: Order): Promise<void> {
     return;
   }
 
-  const falKey = process.env.FAL_KEY;
-  if (!falKey) throw new Error("FAL_KEY is not set");
-  fal.config({ credentials: falKey });
-
-  if (order.uploadedPhotoUrls.length === 0) {
-    throw new Error(`Order ${order.id} has no uploaded photos`);
-  }
-  const scenes = WORLD_SCENES[order.world ?? ""] ?? WORLD_SCENES.deepspace;
-
-  // Detached: generation takes ~30-90s for 3 stills. next dev is long-lived;
-  // on Vercel move this behind a queue/waitUntil (n8n phase).
-  void generateAll(order, scenes).catch(async (e) => {
+  // Detached: ~60-120s for the full chain. next dev is long-lived; on Vercel
+  // move behind a queue/waitUntil (n8n phase).
+  void runStillsGeneration(order).catch(async (e) => {
     console.error(`[stills-pipeline] failed order=${order.id}, reverting`, e);
     await transitionOrder(
       order.id,
@@ -81,39 +182,10 @@ export async function kickStillsGeneration(order: Order): Promise<void> {
   });
 }
 
-async function generateAll(order: Order, scenes: string[]): Promise<void> {
-  console.log(`[stills-pipeline] generating 3 takes order=${order.id} world=${order.world}`);
-  const results = await Promise.all(
-    scenes.map((scene) =>
-      fal.subscribe(MODEL, {
-        input: {
-          prompt: STILL_PROMPT(scene),
-          image_urls: order.uploadedPhotoUrls,
-          num_images: 1,
-          resolution: "2K",
-          aspect_ratio: "16:9",
-          output_format: "png",
-        },
-      })
-    )
-  );
-
-  const urls = results.map((r) => {
-    const url = (r.data as { images?: { url?: string }[] })?.images?.[0]?.url;
-    if (!url) throw new Error("nano-banana result missing image url");
-    return url;
-  });
-
-  await completeStillsGeneration(order.id, urls);
-}
-
 export async function completeStillsGeneration(
   orderId: string,
   conceptImageUrls: string[]
 ): Promise<void> {
-  // Store the stills, then transition. Two writes, but the gate lives on the
-  // transition: customers can only pick from whatever is stored when the
-  // status flips to AWAITING_CUSTOMER_APPROVAL.
   await prisma.order.update({ where: { id: orderId }, data: { conceptImageUrls } });
   const order = await transitionOrder(
     orderId,

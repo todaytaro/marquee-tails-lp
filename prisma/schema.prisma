@@ -46,6 +46,10 @@ model Order {
   adminNote     String?
   falRequestId  String? // fal.ai queue request id (debugging / reconciliation)
 
+  // identity lock (stills pipeline v2)
+  petDescription      String? // VLM-extracted distinguishing features, injected into prompts
+  identityPortraitUrl String? // neutral close-up generated from photos; ref for all takes
+
   // customer-facing approval links authenticate with this token, not a login
   approveToken String @unique @default(cuid())
 
