@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import ConceptPicker from "@/components/ConceptPicker";
 import PhotoUploadForm from "@/components/PhotoUploadForm";
 import StatusPoller from "@/components/StatusPoller";
+import ProductionProgress from "@/components/ProductionProgress";
 
 /**
  * Customer approval page (Gate 1) — opened from the email link.
@@ -125,29 +126,31 @@ function Timeline({ current }: { current: number }) {
 /* ---------------------------------------------------------------- */
 
 function WaitingView({ petName }: { petName: string }) {
+  const messages = [
+    `Casting ${petName} in the lead role…`,
+    "Fitting the costume…",
+    "Setting the lights…",
+    "The director is storyboarding the scenes…",
+    "Painting the opening shots…",
+  ];
   return (
-    <>
-      <div className="mx-auto max-w-2xl text-center">
-        <p className="text-sm uppercase tracking-[0.3em] text-muted">
-          Now in pre-production
-        </p>
-        <h1 className="mt-4 font-display text-5xl tracking-wide text-gold gold-glow-text sm:text-7xl">
-          SCENE 01: {petName.toUpperCase()} IS IN WARDROBE
-        </h1>
-        <p className="mt-6 text-lg text-muted">
-          Your concept stills are being painted right now. The moment
-          they&apos;re ready, we&apos;ll email you to come choose{" "}
-          {petName}&apos;s opening shot.
-        </p>
-        <p className="mt-8 inline-flex items-center gap-2 rounded-[var(--radius-chip)] border border-hairline bg-surface px-4 py-2 text-sm text-muted">
-          <span
-            aria-hidden
-            className="h-2 w-2 animate-pulse rounded-full bg-gold"
-          />
-          This page refreshes itself — no need to do anything.
-        </p>
-      </div>
-    </>
+    <div className="mx-auto max-w-2xl text-center">
+      <p className="text-sm uppercase tracking-[0.3em] text-muted">
+        Now in pre-production
+      </p>
+      <h1 className="mt-4 font-display text-5xl tracking-wide text-gold gold-glow-text sm:text-7xl">
+        SCENE 01: {petName.toUpperCase()} IS IN WARDROBE
+      </h1>
+      <p className="mt-6 text-lg text-muted">
+        Our directors are painting three concept stills of {petName} right
+        now — you&apos;ll choose your favorite in a moment.
+      </p>
+      <ProductionProgress messages={messages} />
+      <p className="mt-6 text-xs text-muted">
+        This updates on its own — no need to refresh. You can also close the
+        page; we&apos;ll email you the moment it&apos;s ready.
+      </p>
+    </div>
   );
 }
 
@@ -201,7 +204,16 @@ function FilmingView({ order, petName }: { order: Order; petName: string }) {
         </div>
       )}
       <Timeline current={1} />
-      <p className="mt-10 text-muted">
+      <ProductionProgress
+        messages={[
+          `Action! Rolling ${petName}'s scenes…`,
+          "Capturing the hero shot…",
+          "Scoring the soundtrack…",
+          "Color-grading the footage…",
+          "Cutting the trailer together…",
+        ]}
+      />
+      <p className="mt-6 text-muted">
         {petName}&apos;s film is in production. Expect your premiere within 48
         hours of approval — we&apos;ll email you the moment it&apos;s ready.
       </p>

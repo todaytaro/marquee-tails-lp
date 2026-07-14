@@ -131,6 +131,72 @@ body {
 }
 
 /* ---------------------------------------------------------------- */
+/* Utilities — production progress (indeterminate gold shimmer bar)  */
+/* ---------------------------------------------------------------- */
+
+.progress-track {
+  position: relative;
+  height: 4px;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(232, 182, 76, 0.14);
+}
+
+.progress-track::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--color-gold),
+    var(--color-gold-bright),
+    transparent
+  );
+  box-shadow: 0 0 16px rgba(232, 182, 76, 0.5);
+  animation: mt-progress-slide 1.6s ease-in-out infinite;
+}
+
+@keyframes mt-progress-slide {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+
+/* Cross-fade for the rotating production status line. */
+.status-line {
+  animation: mt-status-fade 0.5s ease;
+}
+
+@keyframes mt-status-fade {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-track::after {
+    animation: none;
+    width: 100%;
+    opacity: 0.6;
+  }
+  .status-line {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------- */
 /* Utilities — ticket-stub notches (apply to a relative container)   */
 /* ---------------------------------------------------------------- */
 
