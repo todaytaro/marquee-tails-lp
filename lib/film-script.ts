@@ -166,6 +166,22 @@ export const LOGLINES: WorldMap<{ intro: string; turn: string; tagline: string }
   },
 };
 
+/**
+ * Per-shot camera language. IDENTITY-FIRST: owners reject cuts where the
+ * face drifts, and heavy subject motion is what breaks likeness during
+ * animation. So the CAMERA does the work (gentle pushes/rises for a subtle
+ * build) while the PET holds a pose with only minimal natural motion. No
+ * fast push-ins, no circling, no morphing.
+ */
+export const SHOT_MOTIONS: string[] = [
+  "very slow, subtle camera push-in; the pet holds a calm hero pose facing camera, only a gentle head turn and breathing",
+  "slow gentle dolly move; the pet stays mostly still, minimal natural motion, soft background parallax",
+  "slow steady push-in; the pet looks toward camera, calm and alert, minimal body movement",
+  "slow cinematic rise revealing the scene; the pet stays composed, gentle breathing, atmosphere drifting behind",
+  "gentle slow push-in holding on the pet's face; dignified and mostly still, cinematic",
+  "slow triumphant push-in with a subtle upward crane; the pet holds a proud hero pose, minimal motion",
+];
+
 /** Static title-card copy rendered by the assembly step (never by image models). */
 export const TITLE_CARDS = {
   opening: "MARQUEE TAILS PRESENTS",
