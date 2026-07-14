@@ -215,7 +215,7 @@ async function generateShotClip(
   const { request_id } = await fal.queue.submit(KLING_MODEL, {
     input: {
       start_image_url: publicUrl(stillUrl),
-      prompt: `@Element1 ${camera}, ${atmosphere}. @Element1 moves naturally but stays exactly the same individual pet — identical face, markings and costume, no morphing, no distortion.`,
+      prompt: `${camera}, ${atmosphere}. The pet is @Element1 and must stay exactly the same individual throughout — identical face, coat markings and costume — lively and alive but never morphing or distorting into a different dog.`,
       elements: [character],
       duration: String(SHOT_SECONDS) as "8",
       generate_audio: false,
