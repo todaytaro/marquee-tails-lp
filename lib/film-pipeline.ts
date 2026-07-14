@@ -256,16 +256,24 @@ async function generateScore(world: string): Promise<string> {
  * trailer caption: gold lower-third text that fades in, holds, fades out —
  * over the live footage, so the story builds without cutting to black.
  */
-async function normaliseClip(input: string, output: string, caption?: string): Promise<void> {
+async function normaliseClip(
+  input: string,
+  output: string,
+  caption?: { text: string; font?: string; sup?: string }
+): Promise<void> {
   let vf = "scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,fps=24";
   if (caption) {
     // Gold caption over a soft scrim, shown 0.6s-7.4s of the 8s clip; text
     // fades via alpha, scrim toggles with enable. Robust (no nested exprs).
+    // Optional `sup` = a small superscript line above (e.g. "STARRING").
+    const font = caption.font ?? FONT_DISPLAY;
     const show = "between(t,0.6,7.4)";
     const alpha = "if(lt(t,0.6),0,if(lt(t,1.2),(t-0.6)/0.6,if(lt(t,6.8),1,if(lt(t,7.4),(7.4-t)/0.6,0))))";
-    vf +=
-      `,drawbox=x=0:y=ih-250:w=iw:h=250:color=black@0.4:t=fill:enable='${show}'` +
-      `,drawtext=fontfile='${FONT_DISPLAY}':text='${esc(caption)}':fontcolor=0xe8b64c:alpha='${alpha}':fontsize=62:x=(w-text_w)/2:y=h-165`;
+    vf += `,drawbox=x=0:y=ih-260:w=iw:h=260:color=black@0.4:t=fill:enable='${show}'`;
+    if (caption.sup) {
+      vf += `,drawtext=fontfile='${FONT_DISPLAY}':text='${esc(caption.sup)}':fontcolor=0xf4f1e8:alpha='${alpha}':fontsize=34:x=(w-text_w)/2:y=h-205`;
+    }
+    vf += `,drawtext=fontfile='${font}':text='${esc(caption.text)}':fontcolor=0xe8b64c:alpha='${alpha}':fontsize=64:x=(w-text_w)/2:y=h-160`;
   }
   await ffmpeg([
     "-i", input,
@@ -383,13 +391,19 @@ async function assemble(
   petName: string,
   clipUrls: string[],
   scoreUrl: string,
-  loglines: { intro: string; turn: string; tagline: string }
+  loglines: { intro: string; turn: string; rise: string; tagline: string }
 ): Promise<[string, string]> {
   const dir = await mkdtemp(path.join(tmpdir(), `mt-film-${orderId}-`));
   try {
-    // Download + normalise shots. Story text is burned onto the footage as
-    // captions (intro on shot 1, turn on shot 4) — no cut-to-black beats.
-    const captions: Record<number, string> = { 0: loglines.intro, 3: loglines.turn };
+    // Trailer captions burned onto the footage — announcement rhythm:
+    // shot0 intro · shot1 STARRING [name] · shot3 turn · shot4 rise.
+    // Shots 2 and 5 stay clean so the climax breathes.
+    const captions: Record<number, { text: string; font?: string; sup?: string }> = {
+      0: { text: loglines.intro },
+      1: { text: petName, font: FONT_NAME, sup: TITLE_CARDS.starring },
+      3: { text: loglines.turn },
+      4: { text: loglines.rise },
+    };
     const normShots: string[] = [];
     for (let i = 0; i < clipUrls.length; i++) {
       const raw = path.join(dir, `raw${i}.mp4`);
@@ -399,16 +413,17 @@ async function assemble(
       normShots.push(norm);
     }
 
-    // Cards: brand opening + tagline/name closing (kept as black cards).
+    // Cards: brand opening + name/tagline/COMING SOON closing (movie-poster feel).
     const openCard = path.join(dir, "open.mp4");
     const closeCard = path.join(dir, "close.mp4");
     await titleCard(openCard, OPEN_SECONDS, [
       { text: TITLE_CARDS.opening, size: 90, y: "(h-text_h)/2", font: FONT_DISPLAY },
     ]);
     await titleCard(closeCard, CLOSE_SECONDS, [
-      { text: loglines.tagline, size: 96, y: "h/2-210", font: FONT_DISPLAY },
-      { text: petName, size: 150, y: "h/2-80", font: FONT_NAME },
-      { text: TITLE_CARDS.closing, size: 56, y: "h/2+110", font: FONT_DISPLAY },
+      { text: petName, size: 156, y: "h/2-160", font: FONT_NAME },
+      { text: loglines.tagline, size: 84, y: "h/2+30", font: FONT_DISPLAY },
+      { text: TITLE_CARDS.closing, size: 44, y: "h/2+150", font: FONT_DISPLAY },
+      { text: TITLE_CARDS.comingSoon, size: 58, y: "h/2+215", font: FONT_DISPLAY },
     ]);
 
     // Trailer order: brand card, six captioned shots, name/tagline card.

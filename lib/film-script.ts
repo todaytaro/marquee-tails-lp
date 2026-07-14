@@ -144,25 +144,29 @@ export const FILM_SCRIPTS: WorldMap<string[]> = {
   },
 };
 
-/** Trailer copy: two interstitial beats + a closing tagline, per arc. */
-export const LOGLINES: WorldMap<{ intro: string; turn: string; tagline: string }> = {
+/**
+ * Trailer copy per arc — three escalating beats overlaid on the footage
+ * (intro -> turn -> rise) plus a closing tagline. Combined with a "STARRING
+ * [name]" beat and a COMING SOON close, this gives the movie-announcement feel.
+ */
+export const LOGLINES: WorldMap<{ intro: string; turn: string; rise: string; tagline: string }> = {
   deepspace: {
-    brave: { intro: "THE GALAXY CALLED FOR A HERO.", turn: "SIZE WAS NEVER THE QUESTION.", tagline: "TO THE STARS" },
-    easygoing: { intro: "OUT PAST THE LAST STAR...", turn: "...SOMEONE FINALLY RELAXED.", tagline: "NO RUSH OUT HERE" },
-    playful: { intro: "ZERO GRAVITY. ZERO RULES.", turn: "MISSION CONTROL LOST CONTROL.", tagline: "TROUBLE IN ORBIT" },
-    timid: { intro: "SPACE IS VERY, VERY BIG.", turn: "AND ONE SMALL HEART GREW BRAVE.", tagline: "THE LONG WAY HOME" },
+    brave: { intro: "THE GALAXY CALLED FOR A HERO.", turn: "SIZE WAS NEVER THE QUESTION.", rise: "THIS IS THEIR FINEST HOUR.", tagline: "TO THE STARS" },
+    easygoing: { intro: "OUT PAST THE LAST STAR...", turn: "...SOMEONE FINALLY RELAXED.", rise: "THE VIEW IS BETTER SLOW.", tagline: "NO RUSH OUT HERE" },
+    playful: { intro: "ZERO GRAVITY. ZERO RULES.", turn: "MISSION CONTROL LOST CONTROL.", rise: "NO SNACK IS SAFE.", tagline: "TROUBLE IN ORBIT" },
+    timid: { intro: "SPACE IS VERY, VERY BIG.", turn: "AND ONE SMALL HEART GREW BRAVE.", rise: "COURAGE FINDS THE QUIET ONES.", tagline: "THE LONG WAY HOME" },
   },
   storybook: {
-    brave: { intro: "A KINGDOM THAT FORGOT ITS COURAGE...", turn: "...FOUND IT IN THE SMALLEST KNIGHT.", tagline: "A TAIL OF VALOR" },
-    easygoing: { intro: "IN A KINGDOM OF QUESTS AND QUESTS...", turn: "...ONE HERO CHOSE THE SCENIC ROUTE.", tagline: "THE GENTLE REIGN" },
-    playful: { intro: "EVERY KINGDOM NEEDS A LEGEND.", turn: "THIS ONE GOT A MENACE.", tagline: "ROYAL MISCHIEF" },
-    timid: { intro: "THE FOREST WAS DARK AND DEEP...", turn: "...BUT NOT AS BRAVE AS THIS ONE.", tagline: "INTO THE WOODS" },
+    brave: { intro: "A KINGDOM THAT FORGOT ITS COURAGE...", turn: "...FOUND IT IN THE SMALLEST KNIGHT.", rise: "LEGENDS COME IN EVERY SIZE.", tagline: "A TAIL OF VALOR" },
+    easygoing: { intro: "IN A KINGDOM OF ENDLESS QUESTS...", turn: "...ONE HERO CHOSE THE SCENIC ROUTE.", rise: "EVERY REALM NEEDS A REST.", tagline: "THE GENTLE REIGN" },
+    playful: { intro: "EVERY KINGDOM NEEDS A LEGEND.", turn: "THIS ONE GOT A MENACE.", rise: "LOCK UP THE ROYAL TARTS.", tagline: "ROYAL MISCHIEF" },
+    timid: { intro: "THE FOREST WAS DARK AND DEEP...", turn: "...BUT NOT AS BRAVE AS THIS ONE.", rise: "THE SMALLEST STEP IS STILL A STEP.", tagline: "INTO THE WOODS" },
   },
   noir: {
-    brave: { intro: "THE CITY NEVER SLEEPS.", turn: "NEITHER DOES THE BEST DETECTIVE IN IT.", tagline: "CASE CLOSED" },
-    easygoing: { intro: "EVERY CITY HAS ITS SHADOWS...", turn: "...AND ONE GUMSHOE WHO TAKES IT SLOW.", tagline: "AFTER HOURS" },
-    playful: { intro: "A CITY FULL OF MYSTERIES.", turn: "AND A DETECTIVE FULL OF NONSENSE.", tagline: "THE USUAL SUSPECT" },
-    timid: { intro: "THE STREETS WERE COLD AND CRUEL...", turn: "...UNTIL A SHY HEART STEPPED UP.", tagline: "OUT OF THE FOG" },
+    brave: { intro: "THE CITY NEVER SLEEPS.", turn: "NEITHER DOES THE BEST DETECTIVE IN IT.", rise: "EVERY CASE MEETS ITS MATCH.", tagline: "CASE CLOSED" },
+    easygoing: { intro: "EVERY CITY HAS ITS SHADOWS...", turn: "...AND ONE GUMSHOE WHO TAKES IT SLOW.", rise: "THE TRUTH CAN WAIT FOR COFFEE.", tagline: "AFTER HOURS" },
+    playful: { intro: "A CITY FULL OF MYSTERIES.", turn: "AND A DETECTIVE FULL OF NONSENSE.", rise: "THE ONLY CLUE IS CHAOS.", tagline: "THE USUAL SUSPECT" },
+    timid: { intro: "THE STREETS WERE COLD AND CRUEL...", turn: "...UNTIL A SHY HEART STEPPED UP.", rise: "BRAVERY WEARS A SMALL COAT.", tagline: "OUT OF THE FOG" },
   },
 };
 
@@ -187,7 +191,9 @@ export const SHOT_MOTIONS: string[] = [
 /** Static title-card copy rendered by the assembly step (never by image models). */
 export const TITLE_CARDS = {
   opening: "MARQUEE TAILS PRESENTS",
+  starring: "STARRING",
   closing: "A MARQUEE TAILS FILM",
+  comingSoon: "COMING SOON",
 };
 
 export function getArc(world: string, personality: string | null): string[] {
