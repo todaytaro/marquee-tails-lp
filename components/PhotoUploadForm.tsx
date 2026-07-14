@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 
 const WORLDS = [
   { key: "deepspace", name: "Deep Space Explorer", logline: "One small crew, one vast galaxy." },
@@ -38,6 +39,7 @@ export default function PhotoUploadForm({
   const [done, setDone] = useState(false);
   const [pending, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
+  const router = useRouter();
 
   function addFiles(list: FileList | null) {
     if (!list) return;
@@ -63,7 +65,11 @@ export default function PhotoUploadForm({
           setError(json.error ?? "Something went wrong. Please try again.");
           return;
         }
+        // Order is now IMAGE_GENERATING — re-render the server tree so the
+        // waiting view (with its status poller) takes over and auto-advances
+        // to the picker when stills are ready. `done` is the brief fallback.
         setDone(true);
+        router.refresh();
       } catch {
         setError("Network hiccup — please try again.");
       }

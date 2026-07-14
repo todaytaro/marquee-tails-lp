@@ -5,6 +5,7 @@ import { OrderStatus, type Order } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import ConceptPicker from "@/components/ConceptPicker";
 import PhotoUploadForm from "@/components/PhotoUploadForm";
+import StatusPoller from "@/components/StatusPoller";
 
 /**
  * Customer approval page (Gate 1) — opened from the email link.
@@ -126,8 +127,6 @@ function Timeline({ current }: { current: number }) {
 function WaitingView({ petName }: { petName: string }) {
   return (
     <>
-      {/* React 19 hoists this into <head>: gentle auto-refresh while we paint */}
-      <meta httpEquiv="refresh" content="30" />
       <div className="mx-auto max-w-2xl text-center">
         <p className="text-sm uppercase tracking-[0.3em] text-muted">
           Now in pre-production
@@ -342,16 +341,31 @@ export default async function ApprovePage({
       );
       break;
     case OrderStatus.IMAGE_GENERATING:
-      view = <WaitingView petName={petName} />;
+      view = (
+        <>
+          <StatusPoller token={order.approveToken} currentStatus={order.status} />
+          <WaitingView petName={petName} />
+        </>
+      );
       break;
     case OrderStatus.AWAITING_CUSTOMER_APPROVAL:
       view = <Gate1View order={order} petName={petName} />;
       break;
     case OrderStatus.VIDEO_GENERATING:
-      view = <FilmingView order={order} petName={petName} />;
+      view = (
+        <>
+          <StatusPoller token={order.approveToken} currentStatus={order.status} />
+          <FilmingView order={order} petName={petName} />
+        </>
+      );
       break;
     case OrderStatus.AWAITING_ADMIN_APPROVAL:
-      view = <QualityCheckView order={order} petName={petName} />;
+      view = (
+        <>
+          <StatusPoller token={order.approveToken} currentStatus={order.status} />
+          <QualityCheckView order={order} petName={petName} />
+        </>
+      );
       break;
     case OrderStatus.COMPLETED:
       view = <PremiereView order={order} petName={petName} />;
