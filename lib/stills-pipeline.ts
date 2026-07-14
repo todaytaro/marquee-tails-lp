@@ -59,20 +59,39 @@ function assertEnv(name: string): string {
   return v;
 }
 
-/** Stage 0 — extract the pet's distinguishing features as prompt text. */
-async function describePet(photoUrls: string[]): Promise<string> {
+/**
+ * Stage 0 — one VLM pass over the uploads that both (a) extracts the pet's
+ * distinguishing features and (b) auto-sorts the photos by angle, so the
+ * cleanest FRONT-FACING shot seeds the identity portrait and Kling element.
+ * No per-photo labeling asked of the customer (auto-detect, not manual).
+ */
+async function analyzePhotos(
+  photoUrls: string[]
+): Promise<{ description: string; bestFrontalIndex: number; hasFrontal: boolean }> {
+  const n = Math.min(photoUrls.length, 6);
   const r = await fal.subscribe(VISION_MODEL, {
     input: {
       model: VISION_LLM,
-      image_urls: photoUrls.slice(0, 4),
+      image_urls: photoUrls.slice(0, n),
       prompt:
-        "These photos show one pet. In ONE dense sentence (max 60 words), describe this specific animal's distinguishing visual features for an image-generation prompt: exact coat colors and where they appear, fur texture/length/haircut, face shape, eye color and shape, ear shape and set, nose, muzzle/beard/eyebrow markings, body build. Only the features — no name, no story, no preamble.",
+        `These ${n} photos (indexed 0-${n - 1}) show ONE pet. Reply with ONLY minified JSON, no prose:\n` +
+        `{"description":"<one dense sentence, max 60 words: exact coat colors and where they appear, fur texture/length/haircut, face shape, eye color/shape, ear shape/set, nose, muzzle/beard/eyebrow markings, body build — features only, no name>",` +
+        `"best_frontal_index":<index of the photo with the clearest, sharpest FRONT-FACING view of the face, or -1 if none is front-facing>}`,
     },
   });
-  const d = r.data as { output?: string; text?: string };
-  const desc = (d.output ?? d.text ?? "").trim();
-  if (!desc) throw new Error("vision model returned no description");
-  return desc.slice(0, 500);
+  const raw = String((r.data as { output?: string; text?: string })?.output ?? (r.data as { text?: string })?.text ?? "");
+  try {
+    const json = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1));
+    const desc = String(json.description ?? "").trim().slice(0, 500);
+    const idx = Number.isInteger(json.best_frontal_index) ? json.best_frontal_index : -1;
+    if (!desc) throw new Error("empty description");
+    return { description: desc, bestFrontalIndex: idx >= 0 && idx < n ? idx : 0, hasFrontal: idx >= 0 };
+  } catch {
+    // Fallback: use whatever text came back as the description, keep order.
+    const desc = raw.replace(/[{}]/g, " ").trim().slice(0, 500);
+    if (!desc) throw new Error("vision model returned nothing usable");
+    return { description: desc, bestFrontalIndex: 0, hasFrontal: false };
+  }
 }
 
 /** Stage 1 — neutral close-up that locks the face before any transformation. */
@@ -129,24 +148,29 @@ export async function runStillsGeneration(order: Order): Promise<void> {
   }
   const scenes = WORLD_SCENES[order.world ?? ""] ?? WORLD_SCENES.deepspace;
 
-  console.log(`[stills-pipeline] stage 0: describing pet order=${order.id}`);
-  const description = await describePet(order.uploadedPhotoUrls);
+  console.log(`[stills-pipeline] stage 0: analyzing photos order=${order.id}`);
+  const { description, bestFrontalIndex, hasFrontal } = await analyzePhotos(order.uploadedPhotoUrls);
   console.log(`[stills-pipeline] features: ${description}`);
+  console.log(`[stills-pipeline] best frontal: #${bestFrontalIndex}${hasFrontal ? "" : " (no clear frontal detected)"}`);
+
+  // Put the clearest front-facing photo FIRST — it seeds the identity portrait
+  // (the anchor for every downstream generation and the Kling character element).
+  const orderedPhotos = [
+    order.uploadedPhotoUrls[bestFrontalIndex],
+    ...order.uploadedPhotoUrls.filter((_, i) => i !== bestFrontalIndex),
+  ].filter(Boolean) as string[];
 
   console.log(`[stills-pipeline] stage 1: identity portrait order=${order.id}`);
-  const identityPortraitUrl = await generateIdentityPortrait(
-    order.uploadedPhotoUrls,
-    description
-  );
+  const identityPortraitUrl = await generateIdentityPortrait(orderedPhotos, description);
 
   await prisma.order.update({
     where: { id: order.id },
-    data: { petDescription: description, identityPortraitUrl },
+    data: { petDescription: description, identityPortraitUrl, uploadedPhotoUrls: orderedPhotos },
   });
 
   console.log(`[stills-pipeline] stage 2: generating 3 takes order=${order.id} world=${order.world}`);
   // Portrait first in refs — it is the cleanest identity signal.
-  const refs = [identityPortraitUrl, ...order.uploadedPhotoUrls.slice(0, 3)];
+  const refs = [identityPortraitUrl, ...orderedPhotos.slice(0, 3)];
   const urls = await Promise.all(
     scenes.map((scene) => generateTake(refs, description, scene))
   );

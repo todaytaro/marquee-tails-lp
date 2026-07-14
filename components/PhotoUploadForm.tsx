@@ -176,8 +176,8 @@ export default function PhotoUploadForm({
           {MIN_PHOTOS}–{MAX_PHOTOS} photos of your pet
         </legend>
         <p className="mt-1 text-xs text-muted">
-          Clear face shots, good light, one pet only. Different angles help us
-          lock their look.
+          At least one clear front-facing face works best. Good light, one pet
+          only — a few different angles help us lock their look.
         </p>
         <button
           type="button"
