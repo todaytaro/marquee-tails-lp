@@ -125,7 +125,7 @@ function Timeline({ current }: { current: number }) {
 /* Per-status views                                                  */
 /* ---------------------------------------------------------------- */
 
-function WaitingView({ petName }: { petName: string }) {
+function WaitingView({ petName, elapsedSeconds }: { petName: string; elapsedSeconds: number }) {
   const messages = [
     `Casting ${petName} in the lead role…`,
     "Fitting the costume…",
@@ -145,7 +145,7 @@ function WaitingView({ petName }: { petName: string }) {
         Our directors are painting three concept stills of {petName} right
         now — you&apos;ll choose your favorite in a moment.
       </p>
-      <ProductionProgress messages={messages} />
+      <ProductionProgress messages={messages} elapsedSeconds={elapsedSeconds} estimateSeconds={90} />
       <p className="mt-6 text-xs text-muted">
         This updates on its own — no need to refresh. You can also close the
         page; we&apos;ll email you the moment it&apos;s ready.
@@ -182,7 +182,7 @@ function Gate1View({ order, petName }: { order: Order; petName: string }) {
   );
 }
 
-function FilmingView({ order, petName }: { order: Order; petName: string }) {
+function FilmingView({ order, petName, elapsedSeconds }: { order: Order; petName: string; elapsedSeconds: number }) {
   return (
     <div className="text-center">
       <p className="text-sm uppercase tracking-[0.3em] text-muted">
@@ -212,6 +212,8 @@ function FilmingView({ order, petName }: { order: Order; petName: string }) {
           "Color-grading the footage…",
           "Cutting the trailer together…",
         ]}
+        elapsedSeconds={elapsedSeconds}
+        estimateSeconds={240}
       />
       <p className="mt-6 text-muted">
         {petName}&apos;s film is in production. Expect your premiere within 48
@@ -327,8 +329,22 @@ export default async function ApprovePage({
     where: { approveToken: decodeURIComponent(token) },
   });
   if (!order) notFound();
+  const ord = order; // non-null binding for use inside nested closures
 
-  const petName = order.petName ?? "Your Star";
+  const petName = ord.petName ?? "Your Star";
+
+  // Seconds since generation started (the transition INTO the current status),
+  // for the ETA countdown on the waiting screens. updatedAt is unreliable —
+  // it moves on artifact saves — so use the audit log's transition time.
+  async function elapsedInStatus(): Promise<number> {
+    const ev = await prisma.statusEvent.findFirst({
+      where: { orderId: ord.id, to: ord.status },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true },
+    });
+    const since = ev?.createdAt ?? ord.updatedAt;
+    return Math.max(0, Math.round((Date.now() - since.getTime()) / 1000));
+  }
 
   let view: React.ReactNode;
   switch (order.status) {
@@ -356,7 +372,7 @@ export default async function ApprovePage({
       view = (
         <>
           <StatusPoller token={order.approveToken} currentStatus={order.status} />
-          <WaitingView petName={petName} />
+          <WaitingView petName={petName} elapsedSeconds={await elapsedInStatus()} />
         </>
       );
       break;
@@ -367,7 +383,7 @@ export default async function ApprovePage({
       view = (
         <>
           <StatusPoller token={order.approveToken} currentStatus={order.status} />
-          <FilmingView order={order} petName={petName} />
+          <FilmingView order={order} petName={petName} elapsedSeconds={await elapsedInStatus()} />
         </>
       );
       break;
