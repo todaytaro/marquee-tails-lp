@@ -161,32 +161,41 @@ async function scoreIdentity(portraitUrl: string, candidateUrl: string): Promise
   }
 }
 
-const IDENTITY_THRESHOLD = 72;
+const IDENTITY_THRESHOLD = 80;
 const MAX_STILL_REROLLS = 2;
+// A stable base seed shared across shots so nano-banana renders "sibling"
+// faces (same seed + same references => less cross-shot face variance).
+const STILL_SEED = 77021;
 
-/** Generate a shot still, re-rolling until it clears the identity gate. */
+/**
+ * Generate a shot still, re-rolling until it matches `anchorUrl` (the identity
+ * reference to stay consistent with). For shot 0 the anchor is the portrait;
+ * for shots 1-5 the anchor is shot 0's still, so every shot converges on ONE
+ * concrete rendered face — the fix for cross-shot face variability.
+ */
 async function generateShotStill(
   refs: string[],
   description: string,
   costume: string,
   scene: string,
-  portraitUrl: string,
+  anchorUrl: string,
   shotIndex: number
 ): Promise<string> {
   let best = "";
   let bestScore = -1;
   for (let attempt = 0; attempt <= MAX_STILL_REROLLS; attempt++) {
-    const url = await generateShotStillOnce(refs, description, costume, scene, attempt === 0 ? undefined : 1000 + attempt);
-    const score = await scoreIdentity(portraitUrl, url);
-    console.log(`[film] shot ${shotIndex} still attempt ${attempt}: identity ${score}`);
+    // Same seed across shots on the first try; offset only on re-rolls.
+    const seed = STILL_SEED + attempt * 1000;
+    const url = await generateShotStillOnce(refs, description, costume, scene, seed);
+    const score = await scoreIdentity(anchorUrl, url);
+    console.log(`[film] shot ${shotIndex} still attempt ${attempt}: consistency ${score}`);
     if (score > bestScore) {
       bestScore = score;
       best = url;
     }
     if (score >= IDENTITY_THRESHOLD) return url;
   }
-  // None cleared the bar — ship the best of the attempts.
-  console.warn(`[film] shot ${shotIndex}: best identity ${bestScore} (< ${IDENTITY_THRESHOLD}), using best attempt`);
+  console.warn(`[film] shot ${shotIndex}: best consistency ${bestScore} (< ${IDENTITY_THRESHOLD}), using best attempt`);
   return best;
 }
 
@@ -234,13 +243,14 @@ async function generateShotClip(
   stillUrl: string,
   world: string,
   shotIndex: number,
-  character: { frontal_image_url: string; reference_image_urls: string[] }
+  character: { frontal_image_url: string; reference_image_urls: string[] },
+  durationSec: number = SHOT_SECONDS
 ): Promise<string> {
   const camera = SHOT_MOTIONS[shotIndex] ?? SHOT_MOTIONS[0];
   const atmosphere = WORLD_ATMOSPHERE[world] ?? "";
   const base = {
     start_image_url: publicUrl(stillUrl),
-    duration: String(SHOT_SECONDS) as "8",
+    duration: String(durationSec) as "8",
     generate_audio: false,
     cfg_scale: 0.4,
     negative_prompt: CLIP_NEGATIVE,
@@ -339,19 +349,38 @@ async function saveArtifacts(orderId: string, patch: FilmArtifacts): Promise<Fil
   return merged;
 }
 
-export async function runFilmGeneration(order: Order): Promise<void> {
+/** Thin export of generateShotClip for the stills/clip test script. */
+export function generateShotClipForTest(
+  stillUrl: string,
+  world: string,
+  shotIndex: number,
+  character: { frontal_image_url: string; reference_image_urls: string[] },
+  durationSec: number
+): Promise<string> {
+  return generateShotClip(stillUrl, world, shotIndex, character, durationSec);
+}
+
+/**
+ * Stages A+B — hero sheet + the 6 chained-to-shot-0 stills. Exported so a
+ * cheap stills-only test can exercise exactly the production path. Resumable
+ * via filmArtifacts. Returns the hero sheet, the 6 stills, and the Kling
+ * character element built from portrait + hero sheet.
+ */
+export async function prepareStills(order: Order): Promise<{
+  heroSheet: string;
+  shotStillUrls: string[];
+  character: { frontal_image_url: string; reference_image_urls: string[] };
+}> {
   assertEnv("FAL_KEY");
   fal.config({ credentials: process.env.FAL_KEY });
 
-  if (!order.selectedImageUrl) throw new Error(`order ${order.id} has no selectedImageUrl`);
   const description = order.petDescription ?? "the pet shown in the reference images";
   const world = order.world ?? "deepspace";
   const costume = getCostume(world);
   const arc = getArc(world, order.personality).slice(0, NUM_SHOTS);
-  const loglines = getLoglines(world, order.personality);
-  const petName = order.petName ?? "Your Star";
+  const portraitUrl = order.identityPortraitUrl;
+  if (!portraitUrl) throw new Error(`order ${order.id} has no identityPortraitUrl`);
 
-  // Resume from any checkpoint saved by a previous (failed) run.
   let art: FilmArtifacts = (order.filmArtifacts as FilmArtifacts) ?? {};
 
   // Stage A: lock the costumed hero look ONCE.
@@ -367,39 +396,56 @@ export async function runFilmGeneration(order: Order): Promise<void> {
     console.log(`[film] resume: hero sheet cached order=${order.id}`);
   }
 
-  // The identity portrait is the anchor for the QC gate and the Kling
-  // character element — required for the fidelity pipeline.
-  const portraitUrl = order.identityPortraitUrl;
-  if (!portraitUrl) throw new Error(`order ${order.id} has no identityPortraitUrl`);
-
-  // Stage B: shots reference the hero sheet FIRST, then re-roll each still
-  // until it clears the identity gate (fix for "not my dog" cuts).
+  // Stage B: shot 0 anchored to the portrait; shots 1-5 lead-referenced to and
+  // anchored to shot 0, so every shot converges on one concrete rendered face.
   if (!art.shotStillUrls) {
-    console.log(`[film] stills: 6 shots (identity-gated) order=${order.id} arc=${order.personality}`);
-    const shotRefs = [art.heroSheet!, portraitUrl, ...order.uploadedPhotoUrls.slice(0, 1)]
-      .filter((u): u is string => !!u)
-      .map(publicUrl);
-    art = await saveArtifacts(order.id, {
-      shotStillUrls: await Promise.all(
-        arc.map((scene, i) => generateShotStill(shotRefs, description, costume, scene, portraitUrl, i))
-      ),
-    });
+    console.log(`[film] stills: 6 shots (chained to shot 0) order=${order.id} arc=${order.personality}`);
+    const photo0 = order.uploadedPhotoUrls[0] ? publicUrl(order.uploadedPhotoUrls[0]) : undefined;
+    const heroRef = publicUrl(art.heroSheet!);
+    const portraitRef = publicUrl(portraitUrl);
+
+    const shot0Refs = [heroRef, portraitRef, photo0].filter((u): u is string => !!u);
+    const shot0 = await generateShotStill(shot0Refs, description, costume, arc[0], portraitRef, 0);
+
+    const restRefs = [shot0, heroRef, portraitRef];
+    const rest = await Promise.all(
+      arc.slice(1).map((scene, k) =>
+        generateShotStill(restRefs, description, costume, scene, shot0, k + 1)
+      )
+    );
+    art = await saveArtifacts(order.id, { shotStillUrls: [shot0, ...rest] });
   } else {
     console.log(`[film] resume: ${art.shotStillUrls.length} stills cached order=${order.id}`);
   }
 
-  // Kling character element: frontal portrait + costumed hero sheet, locks
-  // identity (incl. mouth/tail/ears) through the animation.
-  const character = {
-    frontal_image_url: publicUrl(portraitUrl),
-    reference_image_urls: [publicUrl(art.heroSheet!)],
+  return {
+    heroSheet: art.heroSheet!,
+    shotStillUrls: art.shotStillUrls!,
+    character: {
+      frontal_image_url: publicUrl(portraitUrl),
+      reference_image_urls: [publicUrl(art.heroSheet!)],
+    },
   };
+}
+
+export async function runFilmGeneration(order: Order): Promise<void> {
+  if (!order.selectedImageUrl) throw new Error(`order ${order.id} has no selectedImageUrl`);
+  const world = order.world ?? "deepspace";
+  const loglines = getLoglines(world, order.personality);
+  const petName = order.petName ?? "Your Star";
+
+  // Stages A+B (hero sheet + chained stills + character element).
+  const { shotStillUrls, character } = await prepareStills(order);
+
+  // Re-read artifacts (prepareStills just persisted stills/hero sheet).
+  const fresh = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+  let art: FilmArtifacts = (fresh.filmArtifacts as FilmArtifacts) ?? {};
 
   // Stage C: animate + score (only what's missing).
   if (!art.clipUrls || !art.scoreUrl) {
     console.log(`[film] animating 6 shots + score order=${order.id}`);
     const [clipUrls, scoreUrl] = await Promise.all([
-      art.clipUrls ?? Promise.all(art.shotStillUrls!.map((s, i) => generateShotClip(s, world, i, character))),
+      art.clipUrls ?? Promise.all(shotStillUrls.map((s, i) => generateShotClip(s, world, i, character))),
       art.scoreUrl ?? generateScore(world),
     ]);
     art = await saveArtifacts(order.id, { clipUrls, scoreUrl });
