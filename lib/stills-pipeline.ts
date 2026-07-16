@@ -75,16 +75,30 @@ async function analyzePhotos(
       image_urls: photoUrls.slice(0, n),
       prompt:
         `These ${n} photos (indexed 0-${n - 1}) show ONE pet. Reply with ONLY minified JSON, no prose:\n` +
-        `{"description":"<one dense sentence, max 60 words: exact coat colors and where they appear, fur texture/length/haircut, face shape, eye color/shape, ear shape/set, nose, muzzle/beard/eyebrow markings, body build — features only, no name>",` +
+        `{"description":"<one dense sentence, max 70 words: exact coat colors and where they appear, fur texture/length/haircut, face shape, eye color/shape, nose, muzzle/beard/eyebrow markings, body build — features only, no name>",` +
+        // These three drift the most and owners notice them, so pin each one
+        // explicitly and inject verbatim into every generation prompt.
+        `"mouth":"<color of the inside of the mouth/tongue and lips, e.g. pink tongue, black lips>",` +
+        `"tail":"<tail length and shape, e.g. short docked stub, long feathered, curled over back>",` +
+        `"ears":"<ear carriage exactly, e.g. floppy triangular drop ears, upright pointed, semi-erect>",` +
         `"best_frontal_index":<index of the photo with the clearest, sharpest FRONT-FACING view of the face, or -1 if none is front-facing>}`,
     },
   });
   const raw = String((r.data as { output?: string; text?: string })?.output ?? (r.data as { text?: string })?.text ?? "");
   try {
     const json = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1));
-    const desc = String(json.description ?? "").trim().slice(0, 500);
+    const base = String(json.description ?? "").trim().slice(0, 480);
     const idx = Number.isInteger(json.best_frontal_index) ? json.best_frontal_index : -1;
-    if (!desc) throw new Error("empty description");
+    if (!base) throw new Error("empty description");
+    // Pin the three details owners notice most, verbatim, into the description
+    // that flows to every downstream prompt (hero sheet, stills, clips).
+    const locked: string[] = [];
+    if (json.mouth) locked.push(`mouth/tongue: ${String(json.mouth).trim()}`);
+    if (json.tail) locked.push(`tail: ${String(json.tail).trim()}`);
+    if (json.ears) locked.push(`ears: ${String(json.ears).trim()}`);
+    const desc = locked.length
+      ? `${base} MUST MATCH EXACTLY — ${locked.join("; ")}.`
+      : base;
     return { description: desc, bestFrontalIndex: idx >= 0 && idx < n ? idx : 0, hasFrontal: idx >= 0 };
   } catch {
     // Fallback: use whatever text came back as the description, keep order.

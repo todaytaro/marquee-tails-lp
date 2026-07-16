@@ -196,35 +196,17 @@ const WORLD_ATMOSPHERE: Record<string, string> = {
   noir: "drifting fog and flickering light",
 };
 
-/**
- * Animate a still into an 8s silent clip with a per-shot camera move.
- *
- * `character` locks identity THROUGH the animation via Kling's elements:
- * frontal_image_url = the clean identity portrait, reference_image_urls =
- * the costumed hero sheet. Referenced as @Element1 in the prompt so Kling
- * keeps the same individual pet as it moves (the fix for mid-clip morphing).
- */
-async function generateShotClip(
-  stillUrl: string,
-  world: string,
-  shotIndex: number,
-  character: { frontal_image_url: string; reference_image_urls: string[] }
-): Promise<string> {
-  const camera = SHOT_MOTIONS[shotIndex] ?? SHOT_MOTIONS[0];
-  const atmosphere = WORLD_ATMOSPHERE[world] ?? "";
+const CLIP_NEGATIVE =
+  "blur, distort, low quality, deformed face, extra limbs, warped anatomy, morphing, changing costume, different dog, wrong tongue color, wrong tail length, wrong ear shape, ears changing, tail changing, text, watermark";
+
+/** Submit one Kling clip and poll to completion within `capMs`. */
+async function submitClip(input: Record<string, unknown>, capMs: number): Promise<string> {
+  // Input is built dynamically (elements optional); fal's per-model input
+  // union is too wide to satisfy structurally, so submit with a narrow cast.
   const { request_id } = await fal.queue.submit(KLING_MODEL, {
-    input: {
-      start_image_url: publicUrl(stillUrl),
-      prompt: `${camera}, ${atmosphere}. The pet is @Element1 and must stay exactly the same individual throughout — identical face, coat markings and costume — lively and alive but never morphing or distorting into a different dog.`,
-      elements: [character],
-      duration: String(SHOT_SECONDS) as "8",
-      generate_audio: false,
-      cfg_scale: 0.4,
-      negative_prompt: "blur, distort, low quality, deformed face, extra limbs, warped anatomy, morphing, changing costume, different dog, text, watermark",
-    },
+    input: input as never,
   });
-  // Poll (in-process; dev worker is long-lived).
-  const deadline = Date.now() + 12 * 60 * 1000;
+  const deadline = Date.now() + capMs;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 8000));
     const s = await fal.queue.status(KLING_MODEL, { requestId: request_id, logs: false });
@@ -236,6 +218,52 @@ async function generateShotClip(
     }
   }
   throw new Error(`kling request ${request_id} timed out`);
+}
+
+/**
+ * Animate a still into an 8s silent clip with a per-shot camera move.
+ *
+ * Identity through the clip is held by (a) a high-identity gated start frame,
+ * (b) calm low-morph motion, and (c) Kling's `elements` character lock —
+ * frontal portrait + hero sheet as @Element1 — which keeps the same
+ * individual as it moves (verified sharper than start-frame alone). If the
+ * elements request stalls (rare queue hangs), we retry once WITHOUT elements
+ * so a film never dies on a flaky queue.
+ */
+async function generateShotClip(
+  stillUrl: string,
+  world: string,
+  shotIndex: number,
+  character: { frontal_image_url: string; reference_image_urls: string[] }
+): Promise<string> {
+  const camera = SHOT_MOTIONS[shotIndex] ?? SHOT_MOTIONS[0];
+  const atmosphere = WORLD_ATMOSPHERE[world] ?? "";
+  const base = {
+    start_image_url: publicUrl(stillUrl),
+    duration: String(SHOT_SECONDS) as "8",
+    generate_audio: false,
+    cfg_scale: 0.4,
+    negative_prompt: CLIP_NEGATIVE,
+  };
+  try {
+    return await submitClip(
+      {
+        ...base,
+        prompt: `@Element1 ${camera}, ${atmosphere}. @Element1 stays exactly the same individual — identical face, mouth/tongue color, tail length and ear carriage, coat markings and costume — lively and alive but never morphing into a different dog.`,
+        elements: [character],
+      },
+      8 * 60 * 1000
+    );
+  } catch (e) {
+    console.warn(`[film] shot ${shotIndex} elements clip failed (${(e as Error).message}); retrying without elements`);
+    return submitClip(
+      {
+        ...base,
+        prompt: `${camera}, ${atmosphere}. The pet stays exactly the same individual — identical face, mouth/tongue color, tail length and ear carriage, coat markings and costume — lively but never morphing into a different dog.`,
+      },
+      15 * 60 * 1000
+    );
+  }
 }
 
 async function generateScore(world: string): Promise<string> {
@@ -360,7 +388,8 @@ export async function runFilmGeneration(order: Order): Promise<void> {
     console.log(`[film] resume: ${art.shotStillUrls.length} stills cached order=${order.id}`);
   }
 
-  // Kling character element: locks identity through the animation itself.
+  // Kling character element: frontal portrait + costumed hero sheet, locks
+  // identity (incl. mouth/tail/ears) through the animation.
   const character = {
     frontal_image_url: publicUrl(portraitUrl),
     reference_image_urls: [publicUrl(art.heroSheet!)],
