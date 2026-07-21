@@ -16,14 +16,27 @@ const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   // Gate 1: customer approval is the ONLY way into video generation.
   [OrderStatus.AWAITING_CUSTOMER_APPROVAL]: [OrderStatus.VIDEO_GENERATING],
   // Forward to Gate 2 — or compensating revert when the pipeline kick fails
-  // (system actor only; keeps orders from being stranded with no video coming).
+  // (system actor only; keeps orders from being stranded with no video coming)
+  // — or FAILED when film generation fails after Trigger.dev exhausts retries.
   [OrderStatus.VIDEO_GENERATING]: [
     OrderStatus.AWAITING_ADMIN_APPROVAL,
     OrderStatus.AWAITING_CUSTOMER_APPROVAL,
+    OrderStatus.FAILED,
   ],
-  // Gate 2: admin approval is the ONLY way into delivery.
-  [OrderStatus.AWAITING_ADMIN_APPROVAL]: [OrderStatus.COMPLETED],
+  // Gate 2: admin approval is the ONLY way into delivery — or the admin sends
+  // a bad shot back to production (single-shot re-render), which returns the
+  // order to VIDEO_GENERATING until the fixed film comes back for review.
+  [OrderStatus.AWAITING_ADMIN_APPROVAL]: [
+    OrderStatus.COMPLETED,
+    OrderStatus.VIDEO_GENERATING,
+  ],
   [OrderStatus.COMPLETED]: [],
+  // The only way out of FAILED is an admin-triggered retry, back into video
+  // generation (see app/admin/actions.ts#retryFilmAction).
+  [OrderStatus.FAILED]: [OrderStatus.VIDEO_GENERATING],
+  // Reserved enum value — currently unused (no transitions in or out). Kept
+  // because the DB enum + migration already have it; not part of any flow.
+  [OrderStatus.CANCELLED]: [],
 };
 
 export class TransitionError extends Error {
@@ -53,7 +66,16 @@ export async function transitionOrder(
   to: OrderStatus,
   actor: "customer" | "admin" | "system",
   extraData: Partial<
-    Pick<Order, "selectedImageUrl" | "finalVideoUrl" | "socialVideoUrl" | "adminNote">
+    Pick<
+      Order,
+      | "selectedImageUrl"
+      | "finalVideoUrl"
+      | "socialVideoUrl"
+      | "adminNote"
+      | "chosenStills"
+      | "posterCutIndex"
+      | "failureReason"
+    >
   > = {},
   note?: string
 ): Promise<Order> {

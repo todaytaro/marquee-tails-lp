@@ -24,38 +24,78 @@ enum OrderStatus {
   VIDEO_GENERATING // video pipeline running (only after Gate 1)
   AWAITING_ADMIN_APPROVAL // Gate 2: admin quality check
   COMPLETED // delivered + POD ordered
+  FAILED // film generation failed after retries — awaiting admin retry
+  CANCELLED // reserved — currently unused (no flow transitions in/out)
 }
 
 model Order {
-  id             String      @id @default(cuid())
-  shopifyOrderId String      @unique
-  customerEmail  String
-  status         OrderStatus @default(UPLOADING)
+  id               String      @id @default(cuid())
+  stripeSessionId  String      @unique
+  customerEmail    String
+  status           OrderStatus @default(UPLOADING)
+  tier             String? // "digital" | "feature" | "collector" — Stripe決済完了時に確定
+  amountPaidCents  Int? // 監査用: 実際にStripeで決済された金額（session.amount_total）
 
   // intake
   petName           String?
   world             String? // deepspace | storybook | noir
   uploadedPhotoUrls String[] @default([])
 
-  // Gate 1 artifacts
-  conceptImageUrls String[] @default([]) // generated stills the customer picks from
-  selectedImageUrl String? // the approved still (set at Gate 1)
+  // Gate 1 artifacts — the storyboard the customer approves (6 cuts × 3 takes).
+  // storyboardOptions: [{ scene, options: [url,url,url] }] in cut order; the
+  // wizard shows one page per cut. conceptImageUrls keeps the FLAT list of all
+  // 18 takes (approval-API whitelist + backwards compatibility).
+  storyboardOptions Json?    // [{ scene: string; options: string[] }] — the 6-cut picker
+  chosenStills      String[] @default([]) // the 6 approved takes, one per cut, in cut order
+  conceptImageUrls  String[] @default([]) // flat list of every generated take (whitelist)
+  selectedImageUrl  String? // cut 1's approved take (poster for filming/QC views)
+
+  // Poster (the hero product): at Gate 1 the customer marks which approved cut
+  // becomes the poster scene; 3 finished poster candidates (2:3 key art with
+  // typography composited locally) generate alongside the film; the customer
+  // picks ONE while the cameras roll. posterUrl is the deliverable (POD).
+  posterCutIndex Int? // which chosenStills index seeds the poster scene
+  posterOptions  String[] @default([]) // 3 finished poster candidates
+  posterUrl      String? // the customer's pick (text-free art) — the on-screen product
+  posterPrintUrl String? // flattened print-ready PNG of posterUrl (title block baked in via satori), rendered at Gate 2 approval — this is what ships to POD
 
   // Gate 2 artifacts
   finalVideoUrl String? // 16:9 master, set by the film pipeline, held until admin approval
   socialVideoUrl String? // 9:16 social cut, delivered alongside the master
   adminNote     String?
   falRequestId  String? // fal.ai queue request id (debugging / reconciliation)
+  failureReason String? // set when status=FAILED; cleared on retry
+
+  // Per-shot identity audit (film pipeline) — the video identity gate scores
+  // each animated clip against the identity portrait so drift ("this cut isn't
+  // my dog") is caught automatically and surfaced to the admin at Gate 2.
+  shotClipUrls       String[] @default([]) // the 6 per-shot clips, in cut order (admin spot-check)
+  shotIdentityScores Int[]    @default([]) // per-shot clip identity score 0-100, in cut order
 
   // identity lock (stills pipeline v2)
   petDescription      String? // VLM-extracted distinguishing features, injected into prompts
   personality         String? // brave / easygoing / playful / timid — picks the story arc
   identityPortraitUrl String? // neutral close-up generated from photos; ref for all takes
+  heroSheetUrl        String? // costumed reference sheet — anchor for takes & admin re-shoots
 
   // film pipeline checkpoints — lets a run resume after an upload/balance
   // failure without re-spending compute on already-generated assets.
   // { heroSheet?, shotStillUrls?, clipUrls?, scoreUrl? }
   filmArtifacts Json?
+
+  // Shipping — Feature Film / Collector's Edition のみ埋まる(Digitalは物理商品なし)。
+  // Stripe Checkout の shipping_address_collection から埋める想定(§4参照)。
+  shippingName       String?
+  shippingLine1      String?
+  shippingLine2      String?
+  shippingCity       String?
+  shippingRegion     String? // state/province
+  shippingPostalCode String?
+  shippingCountry    String? // ISO 3166-1 alpha-2 (e.g. "US")
+
+  // Printify連携の監査用
+  podOrderId String? // PrintifyのオーダーID（サポート対応・突合用）
+  podStatus  String? // Printifyから最後に確認できたステータス(任意のキャッシュ、無くても動く)
 
   // customer-facing approval links authenticate with this token, not a login
   approveToken String @unique @default(cuid())

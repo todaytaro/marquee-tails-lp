@@ -3,7 +3,10 @@ import { notFound } from "next/navigation";
 import Image from "next/image";
 import { OrderStatus, type Order } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
-import ConceptPicker from "@/components/ConceptPicker";
+import StoryboardWizard from "@/components/StoryboardWizard";
+import PosterPicker from "@/components/PosterPicker";
+import type { StoryboardCut } from "@/lib/stills-pipeline";
+import { getLoglines } from "@/lib/film-script";
 import PhotoUploadForm from "@/components/PhotoUploadForm";
 import StatusPoller from "@/components/StatusPoller";
 import ProductionProgress from "@/components/ProductionProgress";
@@ -142,8 +145,9 @@ function WaitingView({ petName, elapsedSeconds }: { petName: string; elapsedSeco
         SCENE 01: {petName.toUpperCase()} IS IN WARDROBE
       </h1>
       <p className="mt-6 text-lg text-muted">
-        Our directors are painting three concept stills of {petName} right
-        now — you&apos;ll choose your favorite in a moment.
+        Our directors are storyboarding {petName}&apos;s film right now — six
+        scenes, three takes each. You&apos;ll pick your favorite of every scene
+        in a moment.
       </p>
       <ProductionProgress messages={messages} elapsedSeconds={elapsedSeconds} estimateSeconds={90} />
       <p className="mt-6 text-xs text-muted">
@@ -155,31 +159,56 @@ function WaitingView({ petName, elapsedSeconds }: { petName: string; elapsedSeco
 }
 
 function Gate1View({ order, petName }: { order: Order; petName: string }) {
+  const storyboard = (order.storyboardOptions as StoryboardCut[] | null) ?? [];
+  // Defensive: an order can only reach Gate 1 with a storyboard, but guard
+  // against a legacy/empty row rather than rendering a dead wizard.
+  if (storyboard.length === 0) {
+    return (
+      <div className="mx-auto max-w-xl text-center">
+        <h1 className="font-display text-4xl tracking-wide text-gold gold-glow-text">
+          ONE MOMENT
+        </h1>
+        <p className="mt-4 text-muted">
+          {petName}&apos;s storyboard is still coming together — refresh in a
+          few moments, or check back from the link in your email.
+        </p>
+      </div>
+    );
+  }
   return (
     <div>
       <div className="text-center">
         <p className="text-sm uppercase tracking-[0.3em] text-muted">
-          Gate 1 · Director&apos;s choice
+          Gate 1 · Storyboard approval
         </p>
         <h1 className="mt-4 font-display text-5xl tracking-wide text-gold gold-glow-text sm:text-7xl">
-          CHOOSE {petName.toUpperCase()}&apos;S OPENING SHOT
+          DIRECT {petName.toUpperCase()}&apos;S FILM
         </h1>
         <p className="mx-auto mt-6 max-w-2xl text-lg text-muted">
-          We painted {order.conceptImageUrls.length} concept stills of{" "}
-          {petName}. Pick the one that&apos;s unmistakably them — it becomes
-          the first frame of the film.
+          {storyboard.length} scenes, each with three takes of {petName}. Pick
+          the take that&apos;s unmistakably them for every scene — your choices
+          become the film, frame for frame.
         </p>
       </div>
       <div className="mt-12">
-        <ConceptPicker
+        <StoryboardWizard
           orderId={order.id}
           approveToken={order.approveToken}
           petName={petName}
-          images={order.conceptImageUrls}
+          storyboard={storyboard}
         />
       </div>
     </div>
   );
+}
+
+/**
+ * Poster copy reuses the same per-world/personality loglines as the film's
+ * title cards — no separate authoring, and it reads as one connected story.
+ */
+function posterCopy(order: Order, petName: string): { tagline: string; subtitle: string } {
+  const loglines = getLoglines(order.world ?? "deepspace", order.personality, petName);
+  return { tagline: loglines.intro, subtitle: loglines.tagline };
 }
 
 function FilmingView({ order, petName, elapsedSeconds }: { order: Order; petName: string; elapsedSeconds: number }) {
@@ -192,7 +221,7 @@ function FilmingView({ order, petName, elapsedSeconds }: { order: Order; petName
         NOW FILMING
       </h1>
       {order.selectedImageUrl && (
-        <div className="relative mx-auto mt-10 aspect-[4/5] w-full max-w-sm overflow-hidden rounded-[var(--radius-card)] border border-gold/40">
+        <div className="relative mx-auto mt-10 aspect-video w-full max-w-md overflow-hidden rounded-[var(--radius-card)] border border-gold/40">
           <Still
             src={order.selectedImageUrl}
             alt={`${petName} — approved opening shot`}
@@ -219,6 +248,16 @@ function FilmingView({ order, petName, elapsedSeconds }: { order: Order; petName
         {petName}&apos;s film is in production. Expect your premiere within 48
         hours of approval — we&apos;ll email you the moment it&apos;s ready.
       </p>
+      {order.posterOptions.length > 0 && (
+        <PosterPicker
+          orderId={order.id}
+          approveToken={order.approveToken}
+          petName={petName}
+          posterOptions={order.posterOptions}
+          chosenPosterUrl={order.posterUrl}
+          {...posterCopy(order, petName)}
+        />
+      )}
     </div>
   );
 }
@@ -235,7 +274,7 @@ function QualityCheckView({ order, petName }: { order: Order; petName: string })
         QUALITY CHECK
       </h1>
       {order.selectedImageUrl && (
-        <div className="relative mx-auto mt-10 aspect-[4/5] w-full max-w-sm overflow-hidden rounded-[var(--radius-card)] border border-gold/40">
+        <div className="relative mx-auto mt-10 aspect-video w-full max-w-md overflow-hidden rounded-[var(--radius-card)] border border-gold/40">
           <Still
             src={order.selectedImageUrl}
             alt={`${petName} — approved opening shot`}
@@ -248,6 +287,16 @@ function QualityCheckView({ order, petName }: { order: Order; petName: string })
         {petName}&apos;s film before it premieres — expect it in your inbox
         within 48 hours of approval.
       </p>
+      {order.posterOptions.length > 0 && (
+        <PosterPicker
+          orderId={order.id}
+          approveToken={order.approveToken}
+          petName={petName}
+          posterOptions={order.posterOptions}
+          chosenPosterUrl={order.posterUrl}
+          {...posterCopy(order, petName)}
+        />
+      )}
     </div>
   );
 }
@@ -343,6 +392,7 @@ export default async function ApprovePage({
       select: { createdAt: true },
     });
     const since = ev?.createdAt ?? ord.updatedAt;
+    // eslint-disable-next-line react-hooks/purity -- server component rendered per-request; wall-clock read is intentional (ETA countdown age)
     return Math.max(0, Math.round((Date.now() - since.getTime()) / 1000));
   }
 

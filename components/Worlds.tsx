@@ -14,24 +14,24 @@ const WORLDS: World[] = [
     name: "Deep Space Explorer",
     logline:
       "One small crew, one vast galaxy — and a captain who never left your side.",
-    image: "/assets/world-deepspace.png",
-    alt: "A golden retriever in a gold astronaut suit stands on a starship bridge, looking out a large viewport at a purple-and-orange nebula, with crew members at glowing consoles behind; letterboxed title reads STAR PAWS: ODYSSEY.",
+    image: "/assets/world-deepspace-hero.jpg",
+    alt: "Camyu, a miniature schnauzer in a white-and-orange astronaut suit and glass helmet, stands on a starship bridge with a vivid purple-and-red nebula filling the viewport behind him.",
   },
   {
     key: "storybook",
     name: "Storybook Kingdom",
     logline:
       "An enchanted realm in peril calls for its bravest knight. The knight is napping on your couch.",
-    image: "/assets/world-storybook.png",
-    alt: "A regal ginger cat in tiny crimson-and-gold royal robes and a jeweled crown stands on a mossy stone castle balcony, overlooking a painterly fairytale kingdom of hills, a winding river, and villages at golden hour.",
+    image: "/assets/world-storybook-hero.jpg",
+    alt: "A French Bulldog in a tiny crimson-and-gold royal robe and a jeweled crown stands on a mossy stone castle balcony, overlooking a painterly fairytale kingdom of hills, a winding river, and villages at golden hour.",
   },
   {
     key: "noir",
     name: "Noir Detective",
     logline:
       "Rain-slick streets. A case nobody could crack. A detective who works for belly rubs.",
-    image: "/assets/world-noir.png",
-    alt: "A dachshund in a tiny belted trench coat and fedora stands in a rain-slicked 1940s cobblestone alley in dramatic black and white, lit by a single warm golden streetlamp cutting through the mist.",
+    image: "/assets/world-noir-hero.jpg",
+    alt: "A Golden Retriever in a tiny belted trench coat and fedora stands in a rain-slicked 1940s cobblestone alley in dramatic black and white, lit by a single warm streetlamp cutting through the mist.",
   },
 ];
 

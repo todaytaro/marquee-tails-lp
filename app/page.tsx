@@ -1,4 +1,5 @@
 import Hero from "@/components/Hero";
+import ShowcaseFilm from "@/components/ShowcaseFilm";
 import HowItWorks from "@/components/HowItWorks";
 import Worlds from "@/components/Worlds";
 import PricingTeaser from "@/components/PricingTeaser";
@@ -12,6 +13,7 @@ export default function Home() {
     <>
       <main>
         <Hero />
+        <ShowcaseFilm />
         <HowItWorks />
         <Worlds />
         <PricingTeaser />

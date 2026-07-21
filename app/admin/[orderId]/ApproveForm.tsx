@@ -32,7 +32,7 @@ export function ApproveForm({ orderId }: { orderId: string }) {
           htmlFor="adminNote"
           className="mb-1 block text-[10px] uppercase tracking-widest text-muted"
         >
-          Admin note (optional)
+          管理メモ（任意）
         </label>
         <textarea
           id="adminNote"
@@ -41,7 +41,7 @@ export function ApproveForm({ orderId }: { orderId: string }) {
           value={adminNote}
           onChange={(e) => setAdminNote(e.target.value)}
           disabled={isPending}
-          placeholder="QC notes, re-render context, anything for the record…"
+          placeholder="QCメモ・作り直しの経緯など、記録に残すことがあれば…"
           className="w-full rounded-[var(--radius-chip)] border border-hairline bg-night px-3 py-2 text-sm text-ivory placeholder:text-muted/60 focus:border-gold/50 focus:outline-none disabled:opacity-50"
         />
       </div>
@@ -60,7 +60,7 @@ export function ApproveForm({ orderId }: { orderId: string }) {
         disabled={isPending}
         className="btn-marquee px-6 py-2.5 text-sm tracking-wider disabled:pointer-events-none disabled:opacity-60"
       >
-        {isPending ? "APPROVING…" : "APPROVE & DELIVER"}
+        {isPending ? "承認中…" : "承認して納品"}
       </button>
     </form>
   );

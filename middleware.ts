@@ -1,46 +1,54 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { ADMIN_COOKIE, verifySessionToken } from "@/lib/admin-session";
 
 /**
  * Admin gate — protects /admin (dashboard) and /api/admin (API routes).
  *
- * Three ways in:
- * 1. x-admin-secret header equal to ADMIN_API_SECRET — existing API clients
- *    and e2e tests pass through unchanged (routes still do their own check).
- * 2. HTTP Basic auth, user "admin", password ADMIN_API_SECRET — humans in a
- *    browser get the native login prompt.
- * 3. admin_secret cookie equal to ADMIN_API_SECRET — for environments where
- *    the Basic-auth dialog is unavailable (embedded browsers). Set once via
- *    devtools: document.cookie = "admin_secret=<SECRET>; path=/". Interim
- *    until real session auth ships with the admin app.
+ * - /admin/login is always let through unauthenticated (no redirect loop).
+ * - /api/admin/*: x-admin-secret header equal to ADMIN_API_SECRET, unchanged
+ *   from before — existing API clients and e2e tests keep working as-is.
+ * - /admin/*: requires a valid admin_session cookie (signed JWT, see
+ *   lib/admin-session.ts). Missing/invalid -> 307 redirect to /admin/login.
+ *   A correct x-admin-secret header is also accepted here as a back-compat
+ *   bypass for API tooling that drives the dashboard directly.
  *
- * Edge runtime: header string checks only, no Prisma / Node APIs.
+ * Basic auth and the raw-secret cookie paths from the interim version are
+ * gone — see ADMIN-AUTH-SPEC.md.
+ *
+ * Edge runtime: jose's jwtVerify runs on Web Crypto, no Prisma / Node APIs.
  */
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+
+  // Login page itself must stay reachable while unauthenticated.
+  if (pathname.startsWith("/admin/login")) {
+    return NextResponse.next();
+  }
+
   const secret = process.env.ADMIN_API_SECRET;
+  const hasValidApiSecret = Boolean(
+    secret && req.headers.get("x-admin-secret") === secret
+  );
 
-  // Exception: valid shared-secret header passes through unchanged.
-  if (secret && req.headers.get("x-admin-secret") === secret) {
-    return NextResponse.next();
-  }
-
-  // Cookie session (manual, interim).
-  if (secret && req.cookies.get("admin_secret")?.value === secret) {
-    return NextResponse.next();
-  }
-
-  // Otherwise require Basic auth (admin:SECRET). If the secret is not
-  // configured at all, fail closed.
-  if (secret) {
-    const expected = `Basic ${btoa(`admin:${secret}`)}`;
-    if (req.headers.get("authorization") === expected) {
+  if (pathname.startsWith("/api/admin")) {
+    if (hasValidApiSecret) {
       return NextResponse.next();
     }
+    return new NextResponse("Authentication required.", { status: 401 });
   }
 
-  return new NextResponse("Authentication required.", {
-    status: 401,
-    headers: { "WWW-Authenticate": 'Basic realm="Marquee Tails Admin"' },
-  });
+  // /admin/* — session cookie, with the shared-secret header as a bypass.
+  if (hasValidApiSecret) {
+    return NextResponse.next();
+  }
+
+  const sessionCookie = req.cookies.get(ADMIN_COOKIE)?.value;
+  if (await verifySessionToken(sessionCookie)) {
+    return NextResponse.next();
+  }
+
+  const loginUrl = new URL("/admin/login", req.url);
+  return NextResponse.redirect(loginUrl, 307);
 }
 
 export const config = {

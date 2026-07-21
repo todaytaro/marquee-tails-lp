@@ -13,11 +13,20 @@ async function main() {
   const [token, personality = "brave"] = process.argv.slice(2);
   const src = await prisma.order.findUniqueOrThrow({ where: { approveToken: token } });
 
+  // The film pipeline now animates the 6 stills the customer chose. Reuse the
+  // source order's chosenStills if it has them; otherwise fall back to its
+  // conceptImageUrls / selected still, padded to 6 so the test always has a
+  // full storyboard to animate.
+  const pool = (src.chosenStills.length ? src.chosenStills : src.conceptImageUrls).filter(Boolean);
+  const seed = pool.length ? pool : (src.selectedImageUrl ? [src.selectedImageUrl] : []);
+  if (!seed.length) throw new Error("source order has no stills to animate");
+  const chosenStills = Array.from({ length: 6 }, (_, i) => seed[i % seed.length]);
+
   // Resume the most recent unfinished film-test for these assets if one exists
   // (it carries cached artifacts) — otherwise start a fresh test order.
   let order = await prisma.order.findFirst({
     where: {
-      shopifyOrderId: { startsWith: "film-test-" },
+      stripeSessionId: { startsWith: "film-test-" },
       status: OrderStatus.VIDEO_GENERATING,
       selectedImageUrl: src.selectedImageUrl,
     },
@@ -29,7 +38,7 @@ async function main() {
   } else {
     order = await prisma.order.create({
       data: {
-        shopifyOrderId: "film-test-" + Math.floor(Math.random() * 1e6),
+        stripeSessionId: "film-test-" + Math.floor(Math.random() * 1e6),
         customerEmail: src.customerEmail,
         status: OrderStatus.VIDEO_GENERATING,
         petName: src.petName,
@@ -39,7 +48,8 @@ async function main() {
         petDescription: src.petDescription,
         identityPortraitUrl: src.identityPortraitUrl,
         conceptImageUrls: src.conceptImageUrls,
-        selectedImageUrl: src.selectedImageUrl,
+        chosenStills,
+        selectedImageUrl: chosenStills[0],
       },
     });
   }

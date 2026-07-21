@@ -18,12 +18,12 @@ export const metadata: Metadata = {
   title:
     "Marquee Tails — Your Pet, Starring in a Cinematic Trailer | Join the Waitlist",
   description:
-    "From 5–8 photos, we produce a 60–90 second cinematic movie trailer starring your actual pet — recognizably them in every shot — plus a matching movie poster. Made with AI, finished by humans. Join the waitlist for Founding Member perks.",
+    "From 5–8 photos, we produce a 60-second cinematic movie trailer starring your actual pet — recognizably them in every shot — plus a matching movie poster. Made with AI, finished by humans. Join the waitlist for Founding Member perks.",
   openGraph: {
     title:
       "Marquee Tails — Your Pet, Starring in a Cinematic Trailer | Join the Waitlist",
     description:
-      "From 5–8 photos, we produce a 60–90 second cinematic movie trailer starring your actual pet — recognizably them in every shot — plus a matching movie poster. Made with AI, finished by humans. Join the waitlist for Founding Member perks.",
+      "From 5–8 photos, we produce a 60-second cinematic movie trailer starring your actual pet — recognizably them in every shot — plus a matching movie poster. Made with AI, finished by humans. Join the waitlist for Founding Member perks.",
     images: ["/assets/hero.png"],
     type: "website",
   },

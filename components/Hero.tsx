@@ -62,9 +62,9 @@ export default function Hero() {
 
         {/* Subhead */}
         <p className="mt-5 max-w-2xl text-[clamp(1rem,2.5vw,1.125rem)] leading-relaxed text-pretty text-muted">
-          Send us 5–8 photos. We turn them into a 60–90 second movie trailer —
-          8 to 12 shots, one epic world, and your pet recognizably themselves
-          in every single frame. Poster included.{" "}
+          Send us 5–8 photos. We turn them into a 60-second movie trailer —
+          six cinematic shots, one epic world, and your pet recognizably
+          themselves in every single frame. Poster included.{" "}
           <span className="text-ivory">Every pet deserves top billing.</span>
         </p>
 
@@ -77,10 +77,13 @@ export default function Hero() {
             Join the waitlist
           </a>
           <a
-            href="#worlds"
-            className="inline-flex w-full items-center justify-center rounded-chip border border-hairline px-8 py-3.5 text-base font-semibold text-ivory transition-colors hover:border-gold/50 hover:text-gold-bright focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold-bright sm:w-auto"
+            href="#showcase"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-chip border border-hairline px-8 py-3.5 text-base font-semibold text-ivory transition-colors hover:border-gold/50 hover:text-gold-bright focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold-bright sm:w-auto"
           >
-            See the three worlds
+            <svg viewBox="0 0 24 24" fill="currentColor" className="size-4" aria-hidden="true">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+            See a real premiere
           </a>
         </div>
 

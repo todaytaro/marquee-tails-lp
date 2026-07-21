@@ -3,52 +3,54 @@ import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import ffmpegPath from "ffmpeg-static";
+import { tasks } from "@trigger.dev/sdk";
+import type { generateFilmTask } from "@/trigger/film"; // type-only: task code stays out of the Next bundle
+import type { rerenderShotTask } from "@/trigger/rerender"; // type-only: ditto
 import { fal } from "@fal-ai/client";
 import { OrderStatus, type Order } from "@/generated/prisma/client";
 import { prisma } from "./db";
 import { transitionOrder } from "./orders";
-import { getArc, getCostume, getLoglines, SHOT_MOTIONS, WORLD_SCORES, TITLE_CARDS } from "./film-script";
+import { getLoglines, SHOT_MOTIONS, WORLD_SCORES, TITLE_CARDS } from "./film-script";
+import { publicUrl, scoreFrame } from "./identity";
+import { reshootCutStill } from "./stills-pipeline";
 
 /**
- * Film pipeline — the 60-second trailer (replaces the single-shot MVP).
+ * Film pipeline — the trailer assembler.
  *
- * Kicked at Gate 1 approval. Runs the whole chain in-process:
- *   1. six 16:9 shot stills (identity-lock: portrait + selected still + desc)
- *   2. each still -> 8s Kling clip (i2v, silent — music is a separate track)
- *   3. original score via Stable Audio 2.5
- *   4. ffmpeg assembly: title cards + 6 shots + score -> 16:9 master
- *   5. centre-crop -> 9:16 social cut
- *   6. upload both to fal storage, -> AWAITING_ADMIN_APPROVAL
+ * Kicked at Gate 1 approval. By the time we get here the customer has already
+ * picked one take per cut in the storyboard wizard (lib/stills-pipeline.ts
+ * generates the 18 candidates BEFORE Gate 1), so this pipeline no longer
+ * generates any stills — it just animates the six the customer chose:
+ *   1. each chosen still (order.chosenStills) -> SHOT_SECONDS Kling clip (i2v, silent)
+ *   2. original score via Stable Audio 2.5
+ *   3. ffmpeg assembly: title cards + 6 shots + score -> 16:9 master
+ *   4. centre-crop -> 9:16 social cut
+ *   5. upload both to fal storage, -> AWAITING_ADMIN_APPROVAL
  *
- * Structure: [3s opening card][6×8s shots = 48s][9s closing card] = 60s.
- * Shot order follows the personality arc (getArc); the customer's selected
- * still seeds shot 1 for visual continuity with their Gate-1 pick.
+ * Structure: [3s opening card][6×SHOT_SECONDS shots][9s closing card].
+ * Cut order follows the personality arc used at storyboard time; chosenStills[0]
+ * (cut 1) is the customer's opening shot. Drift within a longer cut is held by
+ * the storyboard's per-cut human pick + the post-animation identity gate.
  *
- * Cost ~ $1.05 stills + ~$4.0 video + $0.20 music ≈ $5.3 + retries.
- *
- * Dev/localhost only (heavy, long-running). On Vercel this moves behind a
- * queue/worker (n8n phase). VIDEO_PIPELINE_MOCK=1 short-circuits for e2e.
+ * Cost ~ 6×SHOT_SECONDS×$0.084 video + $0.20 music (≈ $4.2 at 8s) + gate
+ * re-rolls; stills were already spent at Gate 1. Dev/localhost only (heavy,
+ * long-running); on Vercel this moves behind a queue/worker (n8n phase).
+ * VIDEO_PIPELINE_MOCK=1 short-circuits e2e.
  */
 
-const EDIT_MODEL = "fal-ai/nano-banana-pro/edit";
 const KLING_MODEL = "fal-ai/kling-video/v3/standard/image-to-video";
 const MUSIC_MODEL = "fal-ai/stable-audio-25/text-to-audio";
-const VISION_MODEL = "openrouter/router/vision";
-const VISION_LLM = "google/gemini-2.5-flash";
 
+// House setting: 8s cuts (Kling duration enum is 3-15s) → a 60s trailer.
 const SHOT_SECONDS = 8;
-const NUM_SHOTS = 6;
 const OPEN_SECONDS = 3;
 const CLOSE_SECONDS = 9;
-// open + 6×8 shots + close = 3 + 48 + 9 = 60. Story text is now overlaid on
-// the footage (captions), not cut to black cards — keeps the pet on screen.
-const TOTAL_SECONDS = OPEN_SECONDS + NUM_SHOTS * SHOT_SECONDS + CLOSE_SECONDS;
+// open + 6×shots + close. Story text is overlaid on the footage (captions),
+// not cut to black cards — keeps the pet on screen. At 8s: 3 + 48 + 9 = 60s.
+const TOTAL_SECONDS = OPEN_SECONDS + 6 * SHOT_SECONDS + CLOSE_SECONDS;
 
 const FONT_DISPLAY = path.join(process.cwd(), "public/fonts/BebasNeue-Regular.ttf");
 const FONT_NAME = path.join(process.cwd(), "public/fonts/NotoSansJP-Bold.ttf");
-
-const IDENTITY_RULES =
-  "Preserve this exact pet's identity from the reference images: same coat colors in the same places, same fur texture and haircut, same face, eyes, ears and proportions. Do not idealize or drift to a generic breed look. No text, no watermark, no humans.";
 
 function assertEnv(name: string): string {
   const v = process.env[name];
@@ -56,15 +58,14 @@ function assertEnv(name: string): string {
   return v;
 }
 
-function publicUrl(url: string): string {
-  if (url.startsWith("http")) return url;
-  const base = process.env.PUBLIC_ASSET_BASE ?? "https://marquee-tails-lp.vercel.app";
-  return new URL(url, base).toString();
-}
+// Local dev: ffmpeg-static's bundled binary. On Trigger.dev: the ffmpeg()
+// build extension installs a system binary and sets FFMPEG_PATH — prefer
+// that when present (see trigger.config.ts).
+const FFMPEG_BIN = process.env.FFMPEG_PATH ?? (ffmpegPath as string);
 
 function ffmpeg(args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(ffmpegPath as string, ["-y", ...args], { stdio: ["ignore", "ignore", "pipe"] });
+    const proc = spawn(FFMPEG_BIN, ["-y", ...args], { stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "";
     proc.stderr.on("data", (d) => (stderr += d.toString()));
     proc.on("close", (code) =>
@@ -85,120 +86,6 @@ function esc(text: string): string {
   return text.replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
 }
 
-/**
- * Hero sheet — the pet in the film's LOCKED costume, neutral full-body pose.
- * Generated once and referenced by every shot, so costume, tail and face
- * stay identical across cuts (the fix for shot-to-shot drift).
- */
-async function generateHeroSheet(refs: string[], description: string, costume: string): Promise<string> {
-  const r = await fal.subscribe(EDIT_MODEL, {
-    input: {
-      prompt: `Full-body character reference of this exact pet from the reference images — ${description} — ${costume}. Standing in a neutral three-quarter pose, facing the camera, plain neutral studio background, even soft lighting, the whole body and tail visible and in focus. This is the definitive costumed look of the character. ${IDENTITY_RULES}`,
-      image_urls: refs,
-      num_images: 1,
-      resolution: "2K",
-      aspect_ratio: "16:9",
-      output_format: "png",
-    },
-  });
-  const url = (r.data as { images?: { url?: string }[] })?.images?.[0]?.url;
-  if (!url) throw new Error("hero sheet missing url");
-  return url;
-}
-
-// Face-forward framing keeps identity legible — owners reject far/profile
-// cuts where "it could be any dog". Enforced on every shot regardless of arc.
-const FRAMING =
-  "Framed as a medium shot with the pet's face large, sharp and clearly toward the camera, the head and chest filling much of the frame";
-
-/** One raw 16:9 cinematic shot still — same character, same costume, new action. */
-async function generateShotStillOnce(
-  refs: string[],
-  description: string,
-  costume: string,
-  scene: string,
-  seed?: number
-): Promise<string> {
-  const r = await fal.subscribe(EDIT_MODEL, {
-    input: {
-      prompt: `The FIRST reference image is the definitive look of this character — match its costume, fur colors and markings, tail and face EXACTLY. This exact pet (${description}), ${costume}, ${scene}. ${FRAMING}. One cinematic live-action film still, unmistakably the same individual pet, same outfit as the reference, blockbuster cinematography, dramatic lighting, shallow depth of field, film grain. ${IDENTITY_RULES}`,
-      image_urls: refs,
-      num_images: 1,
-      resolution: "2K",
-      aspect_ratio: "16:9",
-      output_format: "png",
-      ...(seed !== undefined ? { seed } : {}),
-    },
-  });
-  const url = (r.data as { images?: { url?: string }[] })?.images?.[0]?.url;
-  if (!url) throw new Error("shot still missing url");
-  return url;
-}
-
-/**
- * Identity gate — VLM checks a generated still against the identity portrait
- * ("same individual pet? same markings?") and returns 0-100. Stills below the
- * threshold are re-rolled before they ever reach the (costly) animation step.
- * This is the direct fix for "some cuts aren't my dog".
- */
-async function scoreIdentity(portraitUrl: string, candidateUrl: string): Promise<number> {
-  try {
-    const r = await fal.subscribe(VISION_MODEL, {
-      input: {
-        model: VISION_LLM,
-        image_urls: [publicUrl(portraitUrl), candidateUrl],
-        prompt:
-          "Image 1 is the REAL pet. Image 2 is an AI render of the same pet in costume. How confidently is the render the SAME INDIVIDUAL animal — same breed, same coat colors in the same places, same facial markings (beard, eyebrows), same proportions? Ignore costume, background and pose. Reply with ONLY an integer 0-100 (100 = unmistakably the same individual).",
-      },
-    });
-    const txt = String((r.data as { output?: string; text?: string })?.output ?? (r.data as { text?: string })?.text ?? "");
-    const n = parseInt(txt.replace(/[^0-9]/g, "").slice(0, 3), 10);
-    return Number.isFinite(n) ? Math.min(100, n) : 0;
-  } catch (e) {
-    // A failed check must not block the pipeline — treat as pass, log it.
-    console.warn("[film] identity check errored, passing still through:", e);
-    return 100;
-  }
-}
-
-const IDENTITY_THRESHOLD = 80;
-const MAX_STILL_REROLLS = 2;
-// A stable base seed shared across shots so nano-banana renders "sibling"
-// faces (same seed + same references => less cross-shot face variance).
-const STILL_SEED = 77021;
-
-/**
- * Generate a shot still, re-rolling until it matches `anchorUrl` (the identity
- * reference to stay consistent with). For shot 0 the anchor is the portrait;
- * for shots 1-5 the anchor is shot 0's still, so every shot converges on ONE
- * concrete rendered face — the fix for cross-shot face variability.
- */
-async function generateShotStill(
-  refs: string[],
-  description: string,
-  costume: string,
-  scene: string,
-  anchorUrl: string,
-  shotIndex: number
-): Promise<string> {
-  let best = "";
-  let bestScore = -1;
-  for (let attempt = 0; attempt <= MAX_STILL_REROLLS; attempt++) {
-    // Same seed across shots on the first try; offset only on re-rolls.
-    const seed = STILL_SEED + attempt * 1000;
-    const url = await generateShotStillOnce(refs, description, costume, scene, seed);
-    const score = await scoreIdentity(anchorUrl, url);
-    console.log(`[film] shot ${shotIndex} still attempt ${attempt}: consistency ${score}`);
-    if (score > bestScore) {
-      bestScore = score;
-      best = url;
-    }
-    if (score >= IDENTITY_THRESHOLD) return url;
-  }
-  console.warn(`[film] shot ${shotIndex}: best consistency ${bestScore} (< ${IDENTITY_THRESHOLD}), using best attempt`);
-  return best;
-}
-
 const WORLD_ATMOSPHERE: Record<string, string> = {
   deepspace: "drifting particles and console light",
   storybook: "drifting leaves and warm light",
@@ -206,12 +93,12 @@ const WORLD_ATMOSPHERE: Record<string, string> = {
 };
 
 const CLIP_NEGATIVE =
-  "blur, distort, low quality, deformed face, extra limbs, warped anatomy, morphing, changing costume, different dog, wrong tongue color, wrong tail length, wrong ear shape, ears changing, tail changing, text, watermark";
+  "blur, distort, low quality, deformed face, extra limbs, warped anatomy, morphing, changing costume, different dog, wrong tongue color, wrong tail length, wrong ear shape, ears changing, tail changing, cartoon, cel shading, 3d render, cgi, plastic sheen, illustration, stylized animation, text, watermark";
 
 /** Submit one Kling clip and poll to completion within `capMs`. */
 async function submitClip(input: Record<string, unknown>, capMs: number): Promise<string> {
-  // Input is built dynamically (elements optional); fal's per-model input
-  // union is too wide to satisfy structurally, so submit with a narrow cast.
+  // fal's per-model input union is too wide to satisfy structurally; submit
+  // with a narrow cast.
   const { request_id } = await fal.queue.submit(KLING_MODEL, {
     input: input as never,
   });
@@ -230,50 +117,115 @@ async function submitClip(input: Record<string, unknown>, capMs: number): Promis
 }
 
 /**
- * Animate a still into an 8s silent clip with a per-shot camera move.
+ * Animate a chosen still into an 8s silent clip with a per-shot camera move.
  *
- * Identity through the clip is held by (a) a high-identity gated start frame,
- * (b) calm low-morph motion, and (c) Kling's `elements` character lock —
- * frontal portrait + hero sheet as @Element1 — which keeps the same
- * individual as it moves (verified sharper than start-frame alone). If the
- * elements request stalls (rare queue hangs), we retry once WITHOUT elements
- * so a film never dies on a flaky queue.
+ * Identity through the clip is held by (a) the customer's hand-picked,
+ * identity-gated start frame and (b) calm low-morph motion. We deliberately do
+ * NOT use Kling's `elements` character lock — measured to add queue flakiness
+ * without improving on a strong start frame, and the storyboard picks already
+ * give us six high-identity frames to animate.
  */
 async function generateShotClip(
   stillUrl: string,
   world: string,
   shotIndex: number,
-  character: { frontal_image_url: string; reference_image_urls: string[] },
-  durationSec: number = SHOT_SECONDS
+  durationSec: number = SHOT_SECONDS,
+  directorNote?: string
 ): Promise<string> {
   const camera = SHOT_MOTIONS[shotIndex] ?? SHOT_MOTIONS[0];
   const atmosphere = WORLD_ATMOSPHERE[world] ?? "";
-  const base = {
-    start_image_url: publicUrl(stillUrl),
-    duration: String(durationSec) as "8",
-    generate_audio: false,
-    cfg_scale: 0.4,
-    negative_prompt: CLIP_NEGATIVE,
-  };
+  const note = directorNote?.trim() ? ` Director's note, follow it strictly: ${directorNote.trim()}.` : "";
+  return submitClip(
+    {
+      start_image_url: publicUrl(stillUrl),
+      duration: String(durationSec) as "8",
+      generate_audio: false,
+      cfg_scale: 0.4,
+      negative_prompt: CLIP_NEGATIVE,
+      prompt: `${camera}, ${atmosphere}.${note} The pet stays exactly the same individual — identical face, mouth/tongue color, tail length and ear carriage, coat markings and costume — lively but never morphing into a different dog.`,
+    },
+    15 * 60 * 1000
+  );
+}
+
+// The video identity gate. Clips can hold a strong start frame yet drift into
+// "a different dog" mid-motion, so after each clip we sample frames and score
+// them against the identity portrait; a clip below the threshold is re-rolled.
+// Clips are inherently a touch below stills, so this bar is a little lower than
+// the still gate (80). One re-roll caps the added spend (2 animations/shot max).
+const CLIP_IDENTITY_THRESHOLD = 75;
+const MAX_CLIP_REROLLS = 1;
+
+/** Grab a single frame using ffmpeg seek args (placed before -i for fast seek). */
+async function extractFrame(input: string, seek: string[], output: string): Promise<void> {
+  await ffmpeg([...seek, "-i", input, "-frames:v", "1", "-q:v", "2", output]);
+}
+
+async function uploadImage(filePath: string, name: string): Promise<string> {
+  const buf = await readFile(filePath);
+  const file = new File([new Uint8Array(buf)], name, { type: "image/png" });
+  return fal.storage.upload(file);
+}
+
+/**
+ * Score an animated clip on BOTH identity and realism: sample an early frame,
+ * a ~2.5s frame (style drift — the "Disneyfication" — typically sets in a
+ * couple of seconds in) and a near-end frame, score each against the portrait,
+ * and return the LOWEST of all axes — one bad frame is enough to make an owner
+ * say "that's not my dog" or "that's a cartoon".
+ *
+ * Sampling is RELATIVE to the actual clip, not the configured shot length:
+ * `-ss` offsets exist in any 3-15s Kling cut and `-sseof -1` grabs ~1s before
+ * the end, so no duration probe is needed. Never blocks the pipeline: any
+ * error scores 100 (pass).
+ */
+async function scoreClip(clipUrl: string, portraitUrl: string): Promise<number> {
+  const dir = await mkdtemp(path.join(tmpdir(), "mt-clipscore-"));
   try {
-    return await submitClip(
-      {
-        ...base,
-        prompt: `@Element1 ${camera}, ${atmosphere}. @Element1 stays exactly the same individual — identical face, mouth/tongue color, tail length and ear carriage, coat markings and costume — lively and alive but never morphing into a different dog.`,
-        elements: [character],
-      },
-      8 * 60 * 1000
-    );
+    const raw = path.join(dir, "clip.mp4");
+    await download(clipUrl, raw);
+    const samples: string[][] = [["-ss", "1"], ["-ss", "2.5"], ["-sseof", "-1"]];
+    const scores: number[] = [];
+    for (let i = 0; i < samples.length; i++) {
+      const frame = path.join(dir, `f${i}.png`);
+      await extractFrame(raw, samples[i], frame);
+      const url = await uploadImage(frame, `identity-frame-${i}.png`);
+      const s = await scoreFrame(portraitUrl, url);
+      scores.push(s.identity, s.realism);
+    }
+    return Math.min(...scores);
   } catch (e) {
-    console.warn(`[film] shot ${shotIndex} elements clip failed (${(e as Error).message}); retrying without elements`);
-    return submitClip(
-      {
-        ...base,
-        prompt: `${camera}, ${atmosphere}. The pet stays exactly the same individual — identical face, mouth/tongue color, tail length and ear carriage, coat markings and costume — lively but never morphing into a different dog.`,
-      },
-      15 * 60 * 1000
-    );
+    console.warn("[film] clip scoring errored, passing clip through:", e);
+    return 100;
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
+}
+
+/**
+ * Animate a shot and gate it on identity: re-roll a drifting clip once, keep
+ * the best attempt regardless so a film never stalls. Returns the clip URL and
+ * its identity score (persisted for the admin drift view at Gate 2).
+ */
+async function generateGatedClip(
+  stillUrl: string,
+  world: string,
+  shotIndex: number,
+  portraitUrl?: string,
+  directorNote?: string
+): Promise<{ url: string; score: number }> {
+  let best = { url: "", score: -1 };
+  for (let attempt = 0; attempt <= MAX_CLIP_REROLLS; attempt++) {
+    const url = await generateShotClip(stillUrl, world, shotIndex, SHOT_SECONDS, directorNote);
+    const score = portraitUrl ? await scoreClip(url, portraitUrl) : 100;
+    console.log(`[film] shot ${shotIndex} clip attempt ${attempt}: identity ${score}`);
+    if (score > best.score) best = { url, score };
+    if (score >= CLIP_IDENTITY_THRESHOLD) return { url, score };
+  }
+  console.warn(
+    `[film] shot ${shotIndex}: best clip identity ${best.score} (< ${CLIP_IDENTITY_THRESHOLD}), using best attempt`
+  );
+  return best;
 }
 
 async function generateScore(world: string): Promise<string> {
@@ -301,17 +253,25 @@ async function normaliseClip(
 ): Promise<void> {
   let vf = "scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,fps=24";
   if (caption) {
-    // Gold caption over a soft scrim, shown 0.6s-7.4s of the 8s clip; text
-    // fades via alpha, scrim toggles with enable. Robust (no nested exprs).
+    // Gold caption over a soft scrim; text fades in over 0.6s after a 0.6s hold,
+    // holds, then fades out over the last 0.6s (ending 0.6s before the cut).
+    // Timings are RELATIVE to the clip length so they stay correct at any cut
+    // duration (5s → shown 0.6-4.4s; 8s → 0.6-7.4s). Robust (no nested exprs).
     // Optional `sup` = a small superscript line above (e.g. "STARRING").
     const font = caption.font ?? FONT_DISPLAY;
-    const show = "between(t,0.6,7.4)";
-    const alpha = "if(lt(t,0.6),0,if(lt(t,1.2),(t-0.6)/0.6,if(lt(t,6.8),1,if(lt(t,7.4),(7.4-t)/0.6,0))))";
+    // Auto-fit: drawtext doesn't wrap, so shrink the font for long lines (or a
+    // long pet name) rather than letting text run off-frame. The display font
+    // (Bebas, condensed) fits more chars per line than the JP font (Noto).
+    const budget = font === FONT_DISPLAY ? 38 : 26;
+    const fontSize = Math.max(40, Math.min(64, Math.round((64 * budget) / Math.max(caption.text.length, budget))));
+    const inA = 0.6, inB = 1.2, outA = SHOT_SECONDS - 1.2, outB = SHOT_SECONDS - 0.6;
+    const show = `between(t,${inA},${outB})`;
+    const alpha = `if(lt(t,${inA}),0,if(lt(t,${inB}),(t-${inA})/0.6,if(lt(t,${outA}),1,if(lt(t,${outB}),(${outB}-t)/0.6,0))))`;
     vf += `,drawbox=x=0:y=ih-260:w=iw:h=260:color=black@0.4:t=fill:enable='${show}'`;
     if (caption.sup) {
       vf += `,drawtext=fontfile='${FONT_DISPLAY}':text='${esc(caption.sup)}':fontcolor=0xf4f1e8:alpha='${alpha}':fontsize=34:x=(w-text_w)/2:y=h-205`;
     }
-    vf += `,drawtext=fontfile='${font}':text='${esc(caption.text)}':fontcolor=0xe8b64c:alpha='${alpha}':fontsize=64:x=(w-text_w)/2:y=h-160`;
+    vf += `,drawtext=fontfile='${font}':text='${esc(caption.text)}':fontcolor=0xe8b64c:alpha='${alpha}':fontsize=${fontSize}:x=(w-text_w)/2:y=h-160`;
   }
   await ffmpeg([
     "-i", input,
@@ -336,9 +296,8 @@ async function titleCard(output: string, seconds: number, lines: { text: string;
 
 /** Persisted intermediate results, so a run resumes without re-spending. */
 type FilmArtifacts = {
-  heroSheet?: string;
-  shotStillUrls?: string[];
   clipUrls?: string[];
+  clipScores?: number[]; // per-shot identity score, parallel to clipUrls
   scoreUrl?: string;
 };
 
@@ -349,114 +308,70 @@ async function saveArtifacts(orderId: string, patch: FilmArtifacts): Promise<Fil
   return merged;
 }
 
-/** Thin export of generateShotClip for the stills/clip test script. */
+/** Thin export of generateShotClip for the clip test script. */
 export function generateShotClipForTest(
   stillUrl: string,
   world: string,
   shotIndex: number,
-  character: { frontal_image_url: string; reference_image_urls: string[] },
   durationSec: number
 ): Promise<string> {
-  return generateShotClip(stillUrl, world, shotIndex, character, durationSec);
-}
-
-/**
- * Stages A+B — hero sheet + the 6 chained-to-shot-0 stills. Exported so a
- * cheap stills-only test can exercise exactly the production path. Resumable
- * via filmArtifacts. Returns the hero sheet, the 6 stills, and the Kling
- * character element built from portrait + hero sheet.
- */
-export async function prepareStills(order: Order): Promise<{
-  heroSheet: string;
-  shotStillUrls: string[];
-  character: { frontal_image_url: string; reference_image_urls: string[] };
-}> {
-  assertEnv("FAL_KEY");
-  fal.config({ credentials: process.env.FAL_KEY });
-
-  const description = order.petDescription ?? "the pet shown in the reference images";
-  const world = order.world ?? "deepspace";
-  const costume = getCostume(world);
-  const arc = getArc(world, order.personality).slice(0, NUM_SHOTS);
-  const portraitUrl = order.identityPortraitUrl;
-  if (!portraitUrl) throw new Error(`order ${order.id} has no identityPortraitUrl`);
-
-  let art: FilmArtifacts = (order.filmArtifacts as FilmArtifacts) ?? {};
-
-  // Stage A: lock the costumed hero look ONCE.
-  if (!art.heroSheet) {
-    console.log(`[film] hero sheet order=${order.id} world=${world}`);
-    const idRefs = [
-      order.identityPortraitUrl,
-      order.selectedImageUrl,
-      ...order.uploadedPhotoUrls.slice(0, 2),
-    ].filter((u): u is string => !!u).map(publicUrl);
-    art = await saveArtifacts(order.id, { heroSheet: await generateHeroSheet(idRefs, description, costume) });
-  } else {
-    console.log(`[film] resume: hero sheet cached order=${order.id}`);
-  }
-
-  // Stage B: shot 0 anchored to the portrait; shots 1-5 lead-referenced to and
-  // anchored to shot 0, so every shot converges on one concrete rendered face.
-  if (!art.shotStillUrls) {
-    console.log(`[film] stills: 6 shots (chained to shot 0) order=${order.id} arc=${order.personality}`);
-    const photo0 = order.uploadedPhotoUrls[0] ? publicUrl(order.uploadedPhotoUrls[0]) : undefined;
-    const heroRef = publicUrl(art.heroSheet!);
-    const portraitRef = publicUrl(portraitUrl);
-
-    const shot0Refs = [heroRef, portraitRef, photo0].filter((u): u is string => !!u);
-    const shot0 = await generateShotStill(shot0Refs, description, costume, arc[0], portraitRef, 0);
-
-    const restRefs = [shot0, heroRef, portraitRef];
-    const rest = await Promise.all(
-      arc.slice(1).map((scene, k) =>
-        generateShotStill(restRefs, description, costume, scene, shot0, k + 1)
-      )
-    );
-    art = await saveArtifacts(order.id, { shotStillUrls: [shot0, ...rest] });
-  } else {
-    console.log(`[film] resume: ${art.shotStillUrls.length} stills cached order=${order.id}`);
-  }
-
-  return {
-    heroSheet: art.heroSheet!,
-    shotStillUrls: art.shotStillUrls!,
-    character: {
-      frontal_image_url: publicUrl(portraitUrl),
-      reference_image_urls: [publicUrl(art.heroSheet!)],
-    },
-  };
+  return generateShotClip(stillUrl, world, shotIndex, durationSec);
 }
 
 export async function runFilmGeneration(order: Order): Promise<void> {
-  if (!order.selectedImageUrl) throw new Error(`order ${order.id} has no selectedImageUrl`);
+  assertEnv("FAL_KEY");
+  fal.config({ credentials: process.env.FAL_KEY });
+
+  const shotStillUrls = order.chosenStills;
+  if (!shotStillUrls || shotStillUrls.length === 0) {
+    throw new Error(`order ${order.id} has no chosenStills to animate`);
+  }
   const world = order.world ?? "deepspace";
-  const loglines = getLoglines(world, order.personality);
   const petName = order.petName ?? "Your Star";
+  const loglines = getLoglines(world, order.personality, petName);
 
-  // Stages A+B (hero sheet + chained stills + character element).
-  const { shotStillUrls, character } = await prepareStills(order);
+  const portraitUrl = order.identityPortraitUrl ?? undefined;
+  let art: FilmArtifacts = (order.filmArtifacts as FilmArtifacts) ?? {};
 
-  // Re-read artifacts (prepareStills just persisted stills/hero sheet).
-  const fresh = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
-  let art: FilmArtifacts = (fresh.filmArtifacts as FilmArtifacts) ?? {};
-
-  // Stage C: animate + score (only what's missing).
-  if (!art.clipUrls || !art.scoreUrl) {
-    console.log(`[film] animating 6 shots + score order=${order.id}`);
-    const [clipUrls, scoreUrl] = await Promise.all([
-      art.clipUrls ?? Promise.all(shotStillUrls.map((s, i) => generateShotClip(s, world, i, character))),
-      art.scoreUrl ?? generateScore(world),
-    ]);
-    art = await saveArtifacts(order.id, { clipUrls, scoreUrl });
-  } else {
-    console.log(`[film] resume: clips + score cached order=${order.id}`);
+  // Stage C. Three independent, separately-cached steps so a resume only redoes
+  // what's missing — crucially, clip GENERATION (Kling, expensive) is decoupled
+  // from clip SCORING (VLM, cheap), so a scoring failure never forces a costly
+  // re-animate. generateGatedClip scores as it generates (for the re-roll);
+  // scoreClip re-scores already-cached clips on resume.
+  if (!art.clipUrls) {
+    console.log(`[film] animating ${shotStillUrls.length} shots (identity-gated) order=${order.id}`);
+    const gated = await Promise.all(shotStillUrls.map((s, i) => generateGatedClip(s, world, i, portraitUrl)));
+    art = await saveArtifacts(order.id, {
+      clipUrls: gated.map((g) => g.url),
+      clipScores: gated.map((g) => g.score),
+    });
+  }
+  if (!art.clipScores) {
+    console.log(`[film] scoring ${art.clipUrls!.length} cached clips order=${order.id}`);
+    const scores = await Promise.all(
+      art.clipUrls!.map((u) => (portraitUrl ? scoreClip(u, portraitUrl) : Promise.resolve(100)))
+    );
+    art = await saveArtifacts(order.id, { clipScores: scores });
+  }
+  if (!art.scoreUrl) {
+    art = await saveArtifacts(order.id, { scoreUrl: await generateScore(world) });
   }
   const clipUrls = art.clipUrls!;
+  const clipScores = art.clipScores!;
   const scoreUrl = art.scoreUrl!;
+
+  const lowest = clipScores.length ? Math.min(...clipScores) : 100;
+  console.log(`[film] clip identity scores order=${order.id}: [${clipScores.join(", ")}] (lowest ${lowest})`);
 
   console.log(`[film] assembling order=${order.id}`);
   const [masterUrl, socialUrl] = await assemble(order.id, petName, clipUrls, scoreUrl, loglines);
+
+  // Persist the per-shot audit into dedicated fields (filmArtifacts is cleared
+  // on completion) so the admin drift view has it at Gate 2.
+  await prisma.order.update({
+    where: { id: order.id },
+    data: { shotClipUrls: clipUrls, shotIdentityScores: clipScores.map((s) => Math.round(s)) },
+  });
 
   await completeFilmGeneration(order.id, masterUrl, socialUrl);
 }
@@ -473,10 +388,14 @@ async function assemble(
     // Trailer captions burned onto the footage — announcement rhythm:
     // shot0 intro · shot1 STARRING [name] · shot3 turn · shot4 rise.
     // Shots 2 and 5 stay clean so the climax breathes.
+    // The "turn" beat now carries the pet's name; a non-Latin name (e.g. カミュ)
+    // must use the JP font or ffmpeg renders tofu. Latin names keep the display
+    // font for the full cinematic look.
+    const asciiName = /^[\x00-\x7F]*$/.test(petName);
     const captions: Record<number, { text: string; font?: string; sup?: string }> = {
       0: { text: loglines.intro },
       1: { text: petName, font: FONT_NAME, sup: TITLE_CARDS.starring },
-      3: { text: loglines.turn },
+      3: { text: loglines.turn, ...(asciiName ? {} : { font: FONT_NAME }) },
       4: { text: loglines.rise },
     };
     const normShots: string[] = [];
@@ -558,29 +477,146 @@ export async function completeFilmGeneration(
     { finalVideoUrl: masterUrl, socialVideoUrl: socialUrl },
     "film assembled (6-shot 60s trailer)"
   );
-  // Checkpoints served their purpose — clear so a future re-render starts fresh.
-  await prisma.order.update({ where: { id: orderId }, data: { filmArtifacts: {} } });
+  // Keep filmArtifacts (clips + music): the admin's single-shot re-render
+  // reuses them so fixing one cut never re-spends on the other five or the score.
   console.log(`[film] order=${orderId} -> AWAITING_ADMIN_APPROVAL`);
 }
 
-/** Entry point from Gate 1 approval (mirrors kickVideoGeneration). */
+/**
+ * Single-shot re-render — the admin's Gate-2 fix for "this one cut is off".
+ * Re-animates ONE clip from its customer-approved still (identity-gated, with
+ * the strengthened anti-CG negative prompt), reuses the other five clips and
+ * the music from filmArtifacts, reassembles, and returns the order to
+ * AWAITING_ADMIN_APPROVAL. Cost ≈ one clip (~$0.67) + scoring; never re-spends
+ * on the rest of the film.
+ */
+export type ShotFixOptions = {
+  /** true = regenerate the STILL first (look/style problems), then animate. */
+  reshoot?: boolean;
+  /** Admin's note on WHY — injected into the generation prompts to steer the retry. */
+  reason?: string;
+};
+
+export async function runShotRerender(
+  order: Order,
+  shotIndex: number,
+  opts: ShotFixOptions = {}
+): Promise<void> {
+  assertEnv("FAL_KEY");
+  fal.config({ credentials: process.env.FAL_KEY });
+
+  let still = order.chosenStills[shotIndex];
+  if (!still) throw new Error(`order ${order.id} has no chosen still for shot ${shotIndex}`);
+  const world = order.world ?? "deepspace";
+  const petName = order.petName ?? "Your Star";
+  const loglines = getLoglines(world, order.personality, petName);
+  const portraitUrl = order.identityPortraitUrl ?? undefined;
+
+  // Working set from artifacts, falling back to the persisted per-shot fields
+  // (orders completed before artifacts were kept only have the latter).
+  const art: FilmArtifacts = (order.filmArtifacts as FilmArtifacts) ?? {};
+  const clipUrls = [...(art.clipUrls ?? order.shotClipUrls)];
+  const clipScores = [...(art.clipScores ?? order.shotIdentityScores)];
+  if (!clipUrls[shotIndex]) throw new Error(`order ${order.id} has no clip to replace at shot ${shotIndex}`);
+
+  if (opts.reshoot) {
+    // Look/style problem: the still itself is retaken (reason steers it),
+    // then animated fresh.
+    still = await reshootCutStill(order, shotIndex, opts.reason);
+  }
+
+  console.log(
+    `[film] re-render shot ${shotIndex} order=${order.id} mode=${opts.reshoot ? "reshoot" : "reanimate"}${opts.reason ? ` reason="${opts.reason}"` : ""}`
+  );
+  const fixed = await generateGatedClip(still, world, shotIndex, portraitUrl, opts.reason);
+  clipUrls[shotIndex] = fixed.url;
+  clipScores[shotIndex] = fixed.score;
+
+  const scoreUrl = art.scoreUrl ?? (await generateScore(world));
+  await saveArtifacts(order.id, { clipUrls, clipScores, scoreUrl });
+
+  console.log(`[film] assembling (shot ${shotIndex} fixed) order=${order.id}`);
+  const [masterUrl, socialUrl] = await assemble(order.id, petName, clipUrls, scoreUrl, loglines);
+
+  await prisma.order.update({
+    where: { id: order.id },
+    data: { shotClipUrls: clipUrls, shotIdentityScores: clipScores.map((s) => Math.round(s)) },
+  });
+
+  await completeFilmGeneration(order.id, masterUrl, socialUrl);
+}
+
+/**
+ * Kick for the admin dashboard's single-shot fix (mirrors kickFilmGeneration's
+ * 3-way branch — see FILM-ASYNC-SPEC.md §3):
+ *   1. MOCK — no-op, order stays VIDEO_GENERATING.
+ *   2. No TRIGGER_SECRET_KEY (local dev) — run inline, same as before Trigger.dev.
+ *   3. Otherwise (Vercel/production) — offload to Trigger.dev.
+ */
+export async function kickShotRerender(
+  order: Order,
+  shotIndex: number,
+  opts: ShotFixOptions = {}
+): Promise<void> {
+  if (process.env.VIDEO_PIPELINE_MOCK === "1") {
+    console.log(`[film:MOCK] re-render shot ${shotIndex} (${opts.reshoot ? "reshoot" : "reanimate"}) order=${order.id} — no compute spent, order stays VIDEO_GENERATING`);
+    return;
+  }
+  if (!process.env.TRIGGER_SECRET_KEY) {
+    void runShotRerender(order, shotIndex, opts).catch(async (e) => {
+      console.error(`[film] shot ${shotIndex} re-render failed order=${order.id}`, e);
+      // The previously finished film is untouched — return the order to review
+      // instead of stranding it in VIDEO_GENERATING.
+      await transitionOrder(
+        order.id,
+        OrderStatus.VIDEO_GENERATING,
+        OrderStatus.AWAITING_ADMIN_APPROVAL,
+        "system",
+        {},
+        `shot ${shotIndex + 1} re-render failed — original film kept`
+      ).catch((err) => console.error(`[film] re-render revert failed order=${order.id}`, err));
+    });
+    return;
+  }
+  await tasks.trigger<typeof rerenderShotTask>("rerender-shot", {
+    orderId: order.id,
+    shotIndex,
+    reshoot: opts.reshoot,
+    reason: opts.reason,
+  });
+}
+
+/**
+ * Entry point from Gate 1 approval — kicks the film pipeline. 3-way branch
+ * (see FILM-ASYNC-SPEC.md §3):
+ *   1. MOCK — no-op, order stays VIDEO_GENERATING (drives e2e/tests for free).
+ *   2. No TRIGGER_SECRET_KEY (local dev) — run inline, same as before
+ *      Trigger.dev (the owner's localhost real-generation workflow).
+ *   3. Otherwise (Vercel/production) — offload to Trigger.dev (Hobby's 60s
+ *      limit can't run this in-process).
+ */
 export async function kickFilmGeneration(order: Order): Promise<void> {
   if (process.env.VIDEO_PIPELINE_MOCK === "1") {
     // No-op: leave the order in VIDEO_GENERATING so the state machine can be
-    // driven by tests / a manual callback without spending compute. (Matches
-    // the original single-shot mock's contract.)
+    // driven by tests / a manual callback without spending compute.
     console.log(`[film:MOCK] kick order=${order.id} — no compute spent, order stays VIDEO_GENERATING`);
     return;
   }
-  void runFilmGeneration(order).catch(async (e) => {
-    console.error(`[film] failed order=${order.id}, reverting`, e);
-    await transitionOrder(
-      order.id,
-      OrderStatus.VIDEO_GENERATING,
-      OrderStatus.AWAITING_CUSTOMER_APPROVAL,
-      "system",
-      {},
-      "film generation failed — reverted for retry"
-    ).catch((err) => console.error(`[film] revert failed order=${order.id}`, err));
-  });
+  if (!process.env.TRIGGER_SECRET_KEY) {
+    void runFilmGeneration(order).catch(async (e) => {
+      console.error(`[film] local run failed order=${order.id}`, e);
+      // Don't send a paid/approved customer back to Gate 1 — surface it to
+      // the admin as FAILED (see FAILED-STATE-SPEC.md) for a one-click retry.
+      await transitionOrder(
+        order.id,
+        OrderStatus.VIDEO_GENERATING,
+        OrderStatus.FAILED,
+        "system",
+        { failureReason: String(e).slice(0, 500) },
+        "film generation failed after retries"
+      ).catch((err) => console.error(`[film] revert failed order=${order.id}`, err));
+    });
+    return;
+  }
+  await tasks.trigger<typeof generateFilmTask>("generate-film", { orderId: order.id });
 }

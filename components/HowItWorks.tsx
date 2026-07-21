@@ -6,13 +6,13 @@ const steps = [
   },
   {
     scene: "02",
-    title: "Approve your star",
-    body: 'You review the character sheet and pick their world: Deep Space Explorer, Storybook Kingdom, or Noir Detective. Nothing goes into production until you say "that’s my pet."',
+    title: "Direct your star",
+    body: 'You pick their world — Deep Space Explorer, Storybook Kingdom, or Noir Detective — then approve the storyboard shot by shot, choosing your favorite take of every scene. Nothing gets filmed until you say "that’s my pet."',
   },
   {
     scene: "03",
     title: "Premiere in 48 hours",
-    body: "Our human directors produce, check, and finish every shot. Two days after approval, your 60–90 second trailer arrives — with a movie poster worthy of the lobby wall.",
+    body: "Our human directors produce, check, and finish every shot. Two days after you approve the storyboard, your 60-second trailer arrives — with a movie poster worthy of the lobby wall.",
   },
 ] as const;
 

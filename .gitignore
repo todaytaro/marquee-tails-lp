@@ -50,3 +50,9 @@ next-env.d.ts
 # waitlist local fallback storage (contains emails — never commit)
 /.waitlist/
 /generated
+
+# trigger.dev local dev runtime state
+/.trigger/
+
+# claude code local launch config
+/.claude/

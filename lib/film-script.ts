@@ -70,7 +70,7 @@ export const FILM_SCRIPTS: WorldMap<string[]> = {
       "hiding behind the pilot seat with only eyes and ears showing over the backrest",
       "taking one careful step into the airlock, breath fogging the visor",
       "clinging to the tether on a first spacewalk, wide-eyed, the planet turning below",
-      "pausing alone on the alien ridge at sunset, then slowly straightening up, ears rising",
+      "walking across the pale grey lunar surface under harsh, neutral sunlight, small footprints trailing in the dust behind it, ears lifting with quiet new resolve, Earth hanging small and blue in the black sky above — no fantasy color, no sunset, true photographic moon-mission lighting",
       "standing tall at the viewport facing the great nebula head-on, no longer afraid",
     ],
   },
@@ -149,24 +149,28 @@ export const FILM_SCRIPTS: WorldMap<string[]> = {
  * (intro -> turn -> rise) plus a closing tagline. Combined with a "STARRING
  * [name]" beat and a COMING SOON close, this gives the movie-announcement feel.
  */
+// {name} is filled with the pet's name at render time (see getLoglines) — woven
+// into the "turn" beat so the trailer names the star mid-story, not only on the
+// cards. Authored in caps (the display font is uppercase-only) and kept punchy;
+// taglines stay name-free (the closing card shows the name right above them).
 export const LOGLINES: WorldMap<{ intro: string; turn: string; rise: string; tagline: string }> = {
   deepspace: {
-    brave: { intro: "THE GALAXY CALLED FOR A HERO.", turn: "SIZE WAS NEVER THE QUESTION.", rise: "THIS IS THEIR FINEST HOUR.", tagline: "TO THE STARS" },
-    easygoing: { intro: "OUT PAST THE LAST STAR...", turn: "...SOMEONE FINALLY RELAXED.", rise: "THE VIEW IS BETTER SLOW.", tagline: "NO RUSH OUT HERE" },
-    playful: { intro: "ZERO GRAVITY. ZERO RULES.", turn: "MISSION CONTROL LOST CONTROL.", rise: "NO SNACK IS SAFE.", tagline: "TROUBLE IN ORBIT" },
-    timid: { intro: "SPACE IS VERY, VERY BIG.", turn: "AND ONE SMALL HEART GREW BRAVE.", rise: "COURAGE FINDS THE QUIET ONES.", tagline: "THE LONG WAY HOME" },
+    brave: { intro: "THE GALAXY CRIED OUT FOR A HERO.", turn: "IT NEVER EXPECTED {name}.", rise: "COURAGE NEVER ASKED YOUR SIZE.", tagline: "TO THE STARS AND BACK" },
+    easygoing: { intro: "OUT PAST THE LAST STAR...", turn: "...{name} FOUND THE SLOW LANE.", rise: "THE VIEW IS BETTER SLOW.", tagline: "NO RUSH OUT HERE" },
+    playful: { intro: "ZERO GRAVITY. ZERO RULES.", turn: "THEN {name} FLOATED IN.", rise: "NO SNACK IN ORBIT IS SAFE.", tagline: "TROUBLE IN ORBIT" },
+    timid: { intro: "SPACE IS VERY, VERY BIG.", turn: "AND {name} IS VERY SMALL.", rise: "BUT COURAGE FINDS THE QUIET ONES.", tagline: "THE LONG WAY HOME" },
   },
   storybook: {
-    brave: { intro: "A KINGDOM THAT FORGOT ITS COURAGE...", turn: "...FOUND IT IN THE SMALLEST KNIGHT.", rise: "LEGENDS COME IN EVERY SIZE.", tagline: "A TAIL OF VALOR" },
-    easygoing: { intro: "IN A KINGDOM OF ENDLESS QUESTS...", turn: "...ONE HERO CHOSE THE SCENIC ROUTE.", rise: "EVERY REALM NEEDS A REST.", tagline: "THE GENTLE REIGN" },
-    playful: { intro: "EVERY KINGDOM NEEDS A LEGEND.", turn: "THIS ONE GOT A MENACE.", rise: "LOCK UP THE ROYAL TARTS.", tagline: "ROYAL MISCHIEF" },
-    timid: { intro: "THE FOREST WAS DARK AND DEEP...", turn: "...BUT NOT AS BRAVE AS THIS ONE.", rise: "THE SMALLEST STEP IS STILL A STEP.", tagline: "INTO THE WOODS" },
+    brave: { intro: "A KINGDOM THAT FORGOT ITS COURAGE...", turn: "...UNTIL {name} STOOD UP.", rise: "LEGENDS COME IN EVERY SIZE.", tagline: "A TAIL OF VALOR" },
+    easygoing: { intro: "IN A KINGDOM OF ENDLESS QUESTS...", turn: "...{name} CHOSE THE SCENIC ROUTE.", rise: "EVERY REALM NEEDS A REST.", tagline: "THE GENTLE REIGN" },
+    playful: { intro: "EVERY KINGDOM NEEDS A LEGEND.", turn: "THIS ONE GOT {name}.", rise: "LOCK UP THE ROYAL TARTS.", tagline: "ROYAL MISCHIEF" },
+    timid: { intro: "THE FOREST WAS DARK AND DEEP...", turn: "...BUT NOT {name}.", rise: "THE SMALLEST STEP IS STILL A STEP.", tagline: "INTO THE WOODS" },
   },
   noir: {
-    brave: { intro: "THE CITY NEVER SLEEPS.", turn: "NEITHER DOES THE BEST DETECTIVE IN IT.", rise: "EVERY CASE MEETS ITS MATCH.", tagline: "CASE CLOSED" },
-    easygoing: { intro: "EVERY CITY HAS ITS SHADOWS...", turn: "...AND ONE GUMSHOE WHO TAKES IT SLOW.", rise: "THE TRUTH CAN WAIT FOR COFFEE.", tagline: "AFTER HOURS" },
-    playful: { intro: "A CITY FULL OF MYSTERIES.", turn: "AND A DETECTIVE FULL OF NONSENSE.", rise: "THE ONLY CLUE IS CHAOS.", tagline: "THE USUAL SUSPECT" },
-    timid: { intro: "THE STREETS WERE COLD AND CRUEL...", turn: "...UNTIL A SHY HEART STEPPED UP.", rise: "BRAVERY WEARS A SMALL COAT.", tagline: "OUT OF THE FOG" },
+    brave: { intro: "THE CITY NEVER SLEEPS.", turn: "NEITHER DOES {name}.", rise: "EVERY CASE MEETS ITS MATCH.", tagline: "CASE CLOSED" },
+    easygoing: { intro: "EVERY CITY HAS ITS SHADOWS...", turn: "...{name} TAKES IT SLOW.", rise: "THE TRUTH CAN WAIT FOR COFFEE.", tagline: "AFTER HOURS" },
+    playful: { intro: "A CITY FULL OF MYSTERIES.", turn: "AND {name}: PURE NONSENSE.", rise: "THE ONLY CLUE IS CHAOS.", tagline: "THE USUAL SUSPECT" },
+    timid: { intro: "THE STREETS WERE COLD AND CRUEL...", turn: "...UNTIL {name} STEPPED UP.", rise: "BRAVERY WEARS A SMALL COAT.", tagline: "OUT OF THE FOG" },
   },
 };
 
@@ -188,6 +192,33 @@ export const SHOT_MOTIONS: string[] = [
   "the pet raises its head proudly, ears up and tail high, a small triumphant shift of weight; slow upward crane",
 ];
 
+/**
+ * Per-cut camera framing — the fix for "every shot looks the same". A single
+ * face-forward medium framing kept likeness perfect but made all six cuts
+ * compositionally identical (only the background changed). This varies distance
+ * and angle per cut for a real trailer rhythm, while keeping the face legible
+ * enough for the identity gate (cuts 1 & 4 stay tight/face-forward as the
+ * strongest likeness anchors; the wide/profile cut 5 is the boldest and leans
+ * on the gate to reject any take where the pet stops reading as itself).
+ * Parallel to SHOT_MOTIONS and the 6 arc beats.
+ */
+export const SHOT_FRAMINGS: string[] = [
+  // 1 — opening shot / poster: safest, face-forward medium hero
+  "Framed as a medium hero shot, the pet's face large, sharp and turned toward the camera, head and chest filling much of the frame",
+  // 2 — full-body three-quarter action: shows costume + movement
+  "Framed as a full-body three-quarter action shot showing the whole costumed body in motion, the face still turned toward the camera and in sharp focus",
+  // 3 — dramatic low angle: heroic scale
+  "Framed as a dramatic low-angle shot looking up at the pet so it towers heroically, its face tilted down toward the camera and well lit",
+  // 4 — tight face close-up: maximum variety AND maximum likeness
+  "Framed as a tight close-up on the pet's face, the eyes and expression filling the frame in razor-sharp focus",
+  // 5 — medium establishing: the world reads, but the pet stays prominent so
+  //     identity holds (was a full wide — too small in frame, drifted; the gate
+  //     kept scoring it low, so we pulled the pet forward).
+  "Framed as a medium establishing shot — the pet prominent with its face large and sharp, the environment suggested behind it rather than dominating the frame",
+  // 6 — triumphant low-angle medium-wide: the climax
+  "Framed as a triumphant low-angle medium-wide shot, the pet head-high and heroic against the backdrop, its face lit and toward the camera",
+];
+
 /** Static title-card copy rendered by the assembly step (never by image models). */
 export const TITLE_CARDS = {
   opening: "MARQUEE TAILS PRESENTS",
@@ -205,7 +236,11 @@ export function getCostume(world: string): string {
   return WORLD_COSTUMES[world] ?? WORLD_COSTUMES.deepspace;
 }
 
-export function getLoglines(world: string, personality: string | null) {
+export function getLoglines(world: string, personality: string | null, petName?: string) {
   const w = LOGLINES[world] ?? LOGLINES.deepspace;
-  return w[(personality as Personality) ?? "easygoing"] ?? w.easygoing;
+  const l = w[(personality as Personality) ?? "easygoing"] ?? w.easygoing;
+  // Caps to match the trailer style (Japanese names are unaffected by upcasing).
+  const name = (petName ?? "").trim().toUpperCase() || "OUR HERO";
+  const fill = (s: string) => s.replace(/\{name\}/g, name);
+  return { intro: fill(l.intro), turn: fill(l.turn), rise: fill(l.rise), tagline: fill(l.tagline) };
 }

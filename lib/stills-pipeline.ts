@@ -3,55 +3,62 @@ import { OrderStatus, type Order } from "@/generated/prisma/client";
 import { prisma } from "./db";
 import { transitionOrder } from "./orders";
 import { sendChooseStillEmail } from "./mocks";
+import { getArc, getCostume, SHOT_FRAMINGS } from "./film-script";
+import { VISION_MODEL, VISION_LLM, publicUrl, scoreIdentity } from "./identity";
 
 /**
- * Concept-still generation v2 — "identity lock" (the step BEFORE Gate 1).
+ * Storyboard generation — the whole Gate-1 payload, generated BEFORE approval.
  *
- * Likeness is THE conversion moment ("that's my pet!"), so instead of one
- * transformation jump we run three stages:
+ * Likeness is THE conversion moment ("that's my pet!"), and the fix for
+ * "cuts 2-6 don't look like my dog" is to put a HUMAN pick on every cut, not
+ * just the first. So we front-load the entire storyboard here and let the
+ * customer pick one take per cut in the Gate-1 wizard:
  *
- *   Stage 0  describePet      VLM extracts the pet's distinguishing features
- *                             as text (coat colors, cut, face) — injected into
- *                             every downstream prompt so the model can't fall
- *                             back to a generic breed prototype.
- *   Stage 1  identityPortrait Neutral studio close-up from the photos — locks
- *                             the face BEFORE any costume/scene transformation.
- *   Stage 2  three takes      Scene generations referencing the portrait +
- *                             originals, face-forward 3:4 compositions so the
- *                             face carries the frame.
+ *   Stage 0  describePet      VLM extracts distinguishing features as text
+ *                             (coat, mouth/tongue, tail, ears) — injected into
+ *                             every downstream prompt so the model can't drift
+ *                             to a generic breed prototype.
+ *   Stage 1  identityPortrait Neutral studio close-up — locks the face BEFORE
+ *                             any costume/scene transformation.
+ *   Stage 2  heroSheet        The pet in the film's LOCKED costume — the shared
+ *                             anchor for all 18 takes (keeps costume identical).
+ *   Stage 3  storyboard       6 cuts × 3 takes = 18 stills. Every take is
+ *                             referenced to hero sheet + portrait, gated at 80
+ *                             against the portrait, and rendered with a DISTINCT
+ *                             seed so the three takes are genuinely different
+ *                             ("similar-to-my-pet" is a real axis to choose on).
  *
- * Cost: ~$0.01 (VLM) + $0.15 (portrait) + 3×$0.15 (takes) ≈ $0.61/order.
+ * The film pipeline (lib/film-pipeline.ts) no longer generates stills — it just
+ * animates the six the customer picked.
  *
- * Ops pattern unchanged: detached async in dev, compensating revert to
- * UPLOADING on failure, VIDEO_PIPELINE_MOCK short-circuit for e2e.
+ * Cost: ~$0.01 (VLM) + $0.15 (portrait) + $0.15 (hero) + 18×$0.15 (takes) ≈
+ * $3.0/order. Ops pattern unchanged: detached async in dev, compensating
+ * revert to UPLOADING on failure, VIDEO_PIPELINE_MOCK short-circuit for e2e.
  */
 
 const EDIT_MODEL = "fal-ai/nano-banana-pro/edit";
-const VISION_MODEL = "openrouter/router/vision";
-const VISION_LLM = "google/gemini-2.5-flash";
 
-// TAKE 1 / 2 / 3 — distinct scenes per world, framed face-forward
-// (medium shots; wide scenery shrinks the face and invites freelancing).
-const WORLD_SCENES: Record<string, string[]> = {
-  deepspace: [
-    "in a fitted astronaut suit on a starship bridge, medium shot from the chest up, a violet nebula glowing through the viewport behind them",
-    "in a sleek space suit during a spacewalk, medium close shot, helmet visor open, the blue curve of an alien planet behind",
-    "in explorer gear on an alien ridge at dusk, medium shot, twin suns setting behind crystalline rock spires",
-  ],
-  storybook: [
-    "in tiny ornate royal robes and a small crown on a castle balcony, medium shot from the chest up, a painterly kingdom soft-focused behind",
-    "in a scholar's cape beside candle-lit ancient books in a royal library, medium close shot, warm glow on the face",
-    "in a small knight's cloak on an enchanted forest path, medium shot, fireflies and god-rays soft in the background",
-  ],
-  noir: [
-    "in a tiny trench coat and fedora under a flickering streetlamp in a rain-slicked 1940s alley, medium shot from the chest up, black-and-white with one warm gold light",
-    "in a detective's office behind a desk with a case file, medium close shot, venetian-blind shadows across the scene, film noir style",
-    "in a trench coat on a foggy rooftop at night, medium shot, city neon glowing soft below, film noir style",
-  ],
-};
+const NUM_CUTS = 6;
+const TAKES_PER_CUT = 3;
 
-const IDENTITY_RULES =
+export const IDENTITY_RULES =
   "Preserve this exact pet's identity from the reference photos: the same coat colors in the same places, the same fur texture and haircut, the same face structure, eyes, ears and proportions. Do NOT idealize, do NOT groom them differently, do NOT drift toward a generic breed look. No text, no watermark, no humans.";
+
+// Style lock — deepspace especially drifts toward a Pixar/CG look, which owners
+// read as "not a real photo of my dog". Injected into every take and hero sheet.
+export const STYLE_RULES =
+  "Strictly photorealistic live-action photography: real fur texture, natural skin of the nose, true-to-life lighting and lens optics. NOT cartoon, NOT CGI, NOT 3D render, NOT illustration, NOT stylized animation.";
+
+// Per-cut framing lives in film-script (SHOT_FRAMINGS) so each cut has its own
+// composition (wide/close/low-angle/…) instead of one identical medium shot.
+
+// Identity gate: takes below this score against the portrait are re-rolled
+// before they ever reach the customer.
+const IDENTITY_THRESHOLD = 80;
+const MAX_TAKE_REROLLS = 2;
+// Base seed; each (cut, take, reroll) gets a distinct offset so the three
+// takes of a cut are genuinely different renders, not near-duplicates.
+const STILL_SEED = 77021;
 
 function assertEnv(name: string): string {
   const v = process.env[name];
@@ -62,7 +69,7 @@ function assertEnv(name: string): string {
 /**
  * Stage 0 — one VLM pass over the uploads that both (a) extracts the pet's
  * distinguishing features and (b) auto-sorts the photos by angle, so the
- * cleanest FRONT-FACING shot seeds the identity portrait and Kling element.
+ * cleanest FRONT-FACING shot seeds the identity portrait.
  * No per-photo labeling asked of the customer (auto-detect, not manual).
  */
 async function analyzePhotos(
@@ -91,7 +98,7 @@ async function analyzePhotos(
     const idx = Number.isInteger(json.best_frontal_index) ? json.best_frontal_index : -1;
     if (!base) throw new Error("empty description");
     // Pin the three details owners notice most, verbatim, into the description
-    // that flows to every downstream prompt (hero sheet, stills, clips).
+    // that flows to every downstream prompt (hero sheet, stills).
     const locked: string[] = [];
     if (json.mouth) locked.push(`mouth/tongue: ${String(json.mouth).trim()}`);
     if (json.tail) locked.push(`tail: ${String(json.tail).trim()}`);
@@ -128,26 +135,89 @@ async function generateIdentityPortrait(
   return url;
 }
 
-/** Stage 2 — one cinematic take. */
-async function generateTake(
-  refs: string[],
-  description: string,
-  scene: string
-): Promise<string> {
+/**
+ * Stage 2 — hero sheet: the pet in the film's LOCKED costume, neutral pose.
+ * Generated once and referenced by every take, so costume, tail and face stay
+ * identical across cuts (the fix for shot-to-shot drift).
+ */
+async function generateHeroSheet(refs: string[], description: string, costume: string): Promise<string> {
   const r = await fal.subscribe(EDIT_MODEL, {
     input: {
-      prompt: `This exact pet from the reference photos — ${description}. Create ONE cinematic live-action film still of THIS SAME pet ${scene}. The pet's face is large, well-lit and clearly recognizable. Blockbuster movie cinematography, dramatic lighting, shallow depth of field, film grain. ${IDENTITY_RULES}`,
+      prompt: `Full-body character reference of this exact pet from the reference images — ${description} — ${costume}. Standing in a neutral three-quarter pose, facing the camera, plain neutral studio background, even soft lighting, the whole body and tail visible and in focus. This is the definitive costumed look of the character. ${STYLE_RULES} ${IDENTITY_RULES}`,
       image_urls: refs,
       num_images: 1,
       resolution: "2K",
-      aspect_ratio: "3:4",
+      // 16:9 — these stills ARE the film frames (the master trailer is 16:9),
+      // so they must be shot landscape or the assembly crop lops off top/bottom.
+      aspect_ratio: "16:9",
       output_format: "png",
     },
   });
   const url = (r.data as { images?: { url?: string }[] })?.images?.[0]?.url;
-  if (!url) throw new Error("take result missing image url");
+  if (!url) throw new Error("hero sheet missing url");
   return url;
 }
+
+/** One raw 16:9 cinematic take — same character, same costume, one scene, one seed. */
+async function generateTakeOnce(
+  refs: string[],
+  description: string,
+  costume: string,
+  scene: string,
+  framing: string,
+  seed: number
+): Promise<string> {
+  const r = await fal.subscribe(EDIT_MODEL, {
+    input: {
+      prompt: `The FIRST reference image is the definitive look of this character — match its costume, fur colors and markings, tail and face EXACTLY. This exact pet (${description}), ${costume}, ${scene}. ${framing}. One cinematic live-action film still, unmistakably the same individual pet, same outfit as the reference, blockbuster cinematography, dramatic lighting, shallow depth of field, film grain. ${STYLE_RULES} ${IDENTITY_RULES}`,
+      image_urls: refs,
+      num_images: 1,
+      resolution: "2K",
+      // 16:9 — this take becomes a film frame; the master trailer is 16:9.
+      aspect_ratio: "16:9",
+      output_format: "png",
+      seed,
+    },
+  });
+  const url = (r.data as { images?: { url?: string }[] })?.images?.[0]?.url;
+  if (!url) throw new Error("take result missing url");
+  return url;
+}
+
+/**
+ * One gated take: render, score against the portrait, re-roll (with a fresh
+ * seed) until it clears the threshold or we run out of attempts. Returns the
+ * best attempt regardless, so a cut always has three takes to choose from.
+ */
+async function generateGatedTake(
+  refs: string[],
+  description: string,
+  costume: string,
+  scene: string,
+  framing: string,
+  portraitUrl: string,
+  baseSeed: number,
+  label: string
+): Promise<string> {
+  let best = "";
+  let bestScore = -1;
+  for (let attempt = 0; attempt <= MAX_TAKE_REROLLS; attempt++) {
+    // 7919 (prime) keeps re-roll seeds far from other takes' base seeds.
+    const seed = baseSeed + attempt * 7919;
+    const url = await generateTakeOnce(refs, description, costume, scene, framing, seed);
+    const score = await scoreIdentity(portraitUrl, url);
+    console.log(`[stills] ${label} attempt ${attempt}: consistency ${score}`);
+    if (score > bestScore) {
+      bestScore = score;
+      best = url;
+    }
+    if (score >= IDENTITY_THRESHOLD) return url;
+  }
+  console.warn(`[stills] ${label}: best consistency ${bestScore} (< ${IDENTITY_THRESHOLD}), using best attempt`);
+  return best;
+}
+
+export type StoryboardCut = { scene: string; options: string[] };
 
 /**
  * Full generation run — awaitable (scripts/tests), while kickStillsGeneration
@@ -160,53 +230,166 @@ export async function runStillsGeneration(order: Order): Promise<void> {
   if (order.uploadedPhotoUrls.length === 0) {
     throw new Error(`Order ${order.id} has no uploaded photos`);
   }
-  const scenes = WORLD_SCENES[order.world ?? ""] ?? WORLD_SCENES.deepspace;
+  const world = order.world ?? "deepspace";
+  const costume = getCostume(world);
+  const arc = getArc(world, order.personality).slice(0, NUM_CUTS);
 
-  console.log(`[stills-pipeline] stage 0: analyzing photos order=${order.id}`);
-  const { description, bestFrontalIndex, hasFrontal } = await analyzePhotos(order.uploadedPhotoUrls);
-  console.log(`[stills-pipeline] features: ${description}`);
-  console.log(`[stills-pipeline] best frontal: #${bestFrontalIndex}${hasFrontal ? "" : " (no clear frontal detected)"}`);
+  // Stage 0/1 are resumable: if this order already carries an extracted feature
+  // description AND an identity portrait (e.g. a re-run, or a seed reusing a
+  // known-good pet), reuse them instead of re-spending on the VLM + portrait.
+  // A fresh customer order has neither, so it runs the full path.
+  let description: string;
+  let identityPortraitUrl: string;
+  let orderedPhotos = order.uploadedPhotoUrls;
 
-  // Put the clearest front-facing photo FIRST — it seeds the identity portrait
-  // (the anchor for every downstream generation and the Kling character element).
-  const orderedPhotos = [
-    order.uploadedPhotoUrls[bestFrontalIndex],
-    ...order.uploadedPhotoUrls.filter((_, i) => i !== bestFrontalIndex),
-  ].filter(Boolean) as string[];
+  if (order.petDescription && order.identityPortraitUrl) {
+    description = order.petDescription;
+    identityPortraitUrl = order.identityPortraitUrl;
+    console.log(`[stills] reuse cached description + portrait order=${order.id} (skip stage 0/1)`);
+  } else {
+    console.log(`[stills] stage 0: analyzing photos order=${order.id}`);
+    const a = await analyzePhotos(order.uploadedPhotoUrls);
+    description = a.description;
+    console.log(`[stills] features: ${description}`);
+    console.log(`[stills] best frontal: #${a.bestFrontalIndex}${a.hasFrontal ? "" : " (no clear frontal detected)"}`);
 
-  console.log(`[stills-pipeline] stage 1: identity portrait order=${order.id}`);
-  const identityPortraitUrl = await generateIdentityPortrait(orderedPhotos, description);
+    // Put the clearest front-facing photo FIRST — it seeds the identity portrait
+    // (the anchor for every downstream generation).
+    orderedPhotos = [
+      order.uploadedPhotoUrls[a.bestFrontalIndex],
+      ...order.uploadedPhotoUrls.filter((_, i) => i !== a.bestFrontalIndex),
+    ].filter(Boolean) as string[];
 
-  await prisma.order.update({
-    where: { id: order.id },
-    data: { petDescription: description, identityPortraitUrl, uploadedPhotoUrls: orderedPhotos },
-  });
+    console.log(`[stills] stage 1: identity portrait order=${order.id}`);
+    identityPortraitUrl = await generateIdentityPortrait(orderedPhotos, description);
 
-  console.log(`[stills-pipeline] stage 2: generating 3 takes order=${order.id} world=${order.world}`);
-  // Portrait first in refs — it is the cleanest identity signal.
-  const refs = [identityPortraitUrl, ...orderedPhotos.slice(0, 3)];
-  const urls = await Promise.all(
-    scenes.map((scene) => generateTake(refs, description, scene))
+    await prisma.order.update({
+      where: { id: order.id },
+      data: { petDescription: description, identityPortraitUrl, uploadedPhotoUrls: orderedPhotos },
+    });
+  }
+
+  console.log(`[stills] stage 2: hero sheet order=${order.id} world=${world}`);
+  const heroRefs = [identityPortraitUrl, ...orderedPhotos.slice(0, 2)].map(publicUrl);
+  const heroSheet = await generateHeroSheet(heroRefs, description, costume);
+  // Persist — the admin's Gate-2 re-shoot needs the same costume anchor later.
+  await prisma.order.update({ where: { id: order.id }, data: { heroSheetUrl: heroSheet } });
+
+  // Stage 3: 6 cuts × 3 takes, every take anchored to hero sheet + portrait
+  // (no shot-0 chaining — the hero sheet is the single shared anchor). Cuts run
+  // sequentially so at most TAKES_PER_CUT (3) renders are in flight at once.
+  console.log(`[stills] stage 3: ${NUM_CUTS}×${TAKES_PER_CUT} storyboard order=${order.id} arc=${order.personality}`);
+  const photo0 = orderedPhotos[0] ? publicUrl(orderedPhotos[0]) : undefined;
+  const heroRef = publicUrl(heroSheet);
+  const portraitRef = publicUrl(identityPortraitUrl);
+  const refs = [heroRef, portraitRef, photo0].filter((u): u is string => !!u);
+
+  const storyboard: StoryboardCut[] = [];
+  for (let cut = 0; cut < arc.length; cut++) {
+    const options = await Promise.all(
+      Array.from({ length: TAKES_PER_CUT }, (_, take) =>
+        generateGatedTake(
+          refs,
+          description,
+          costume,
+          arc[cut],
+          SHOT_FRAMINGS[cut] ?? SHOT_FRAMINGS[0],
+          portraitRef,
+          STILL_SEED + cut * 100 + take * 1000,
+          `cut ${cut} take ${take}`
+        )
+      )
+    );
+    storyboard.push({ scene: arc[cut], options });
+  }
+
+  await completeStillsGeneration(order.id, storyboard);
+}
+
+/**
+ * Gate-2 re-shoot — regenerate ONE cut's still because its LOOK is off (the
+ * admin's reason steers the retake, e.g. "too CGI, make it photoreal"). Same
+ * scene/framing/costume as the customer-approved cut, fresh seed, identity
+ * gate, style rules enforced. Refs prefer the persisted hero sheet; orders
+ * from before it was persisted fall back to another approved cut as the
+ * costume anchor. Persists the swap (chosenStills + whitelist) and returns
+ * the new still URL for the film pipeline to animate.
+ */
+export async function reshootCutStill(
+  order: Order,
+  cutIndex: number,
+  reason?: string
+): Promise<string> {
+  assertEnv("FAL_KEY");
+  fal.config({ credentials: process.env.FAL_KEY });
+
+  const portrait = order.identityPortraitUrl;
+  if (!portrait) throw new Error(`order ${order.id} has no identityPortraitUrl`);
+  const storyboard = (order.storyboardOptions as StoryboardCut[] | null) ?? [];
+  const world = order.world ?? "deepspace";
+  const scene = storyboard[cutIndex]?.scene ?? getArc(world, order.personality)[cutIndex];
+  if (!scene) throw new Error(`order ${order.id} has no scene for cut ${cutIndex}`);
+  const description = order.petDescription ?? "the pet shown in the reference images";
+  const costume = getCostume(world);
+
+  const costumeAnchor =
+    order.heroSheetUrl ?? order.chosenStills.find((_, i) => i !== cutIndex);
+  const refs = [costumeAnchor, portrait, order.uploadedPhotoUrls[0]]
+    .filter((u): u is string => !!u)
+    .map(publicUrl);
+
+  const directed = reason?.trim()
+    ? `${scene}. Director's retake note, follow it strictly: ${reason.trim()}`
+    : scene;
+
+  console.log(`[stills] re-shoot cut ${cutIndex} order=${order.id}${reason ? ` reason="${reason}"` : ""}`);
+  const url = await generateGatedTake(
+    refs,
+    description,
+    costume,
+    directed,
+    SHOT_FRAMINGS[cutIndex] ?? SHOT_FRAMINGS[0],
+    publicUrl(portrait),
+    // Fresh seed family per re-shoot so the retake never repeats the original.
+    STILL_SEED + cutIndex * 100 + (Date.now() % 100000),
+    `re-shoot cut ${cutIndex}`
   );
 
-  await completeStillsGeneration(order.id, urls);
+  const chosenStills = [...order.chosenStills];
+  chosenStills[cutIndex] = url;
+  await prisma.order.update({
+    where: { id: order.id },
+    data: { chosenStills, conceptImageUrls: [...order.conceptImageUrls, url] },
+  });
+  return url;
 }
 
 export async function kickStillsGeneration(order: Order): Promise<void> {
   if (process.env.VIDEO_PIPELINE_MOCK === "1") {
-    console.log(`[stills-pipeline:MOCK] kick order=${order.id} — no compute spent`);
-    await completeStillsGeneration(order.id, [
-      "/assets/world-deepspace.png",
-      "/assets/world-storybook.png",
-      "/assets/world-noir.png",
-    ]);
+    console.log(`[stills:MOCK] kick order=${order.id} — no compute spent`);
+    // Fabricate a 6-cut × 3-take storyboard from the local world assets so the
+    // Gate-1 wizard, e2e and status machine can run for free. Scenes come from
+    // the real arc so the wizard copy matches production.
+    const world = order.world ?? "deepspace";
+    const arc = getArc(world, order.personality).slice(0, NUM_CUTS);
+    const assets = ["/assets/world-deepspace.png", "/assets/world-storybook.png", "/assets/world-noir.png"];
+    const storyboard: StoryboardCut[] = arc.map((scene, cut) => ({
+      scene,
+      // Rotate the 3 assets per cut so each cut's takes are visually distinct.
+      options: Array.from({ length: TAKES_PER_CUT }, (_, take) => assets[(cut + take) % assets.length]),
+    }));
+    await prisma.order.update({
+      where: { id: order.id },
+      data: { identityPortraitUrl: assets[0], petDescription: "mock pet — local assets, no compute" },
+    });
+    await completeStillsGeneration(order.id, storyboard);
     return;
   }
 
-  // Detached: ~60-120s for the full chain. next dev is long-lived; on Vercel
-  // move behind a queue/waitUntil (n8n phase).
+  // Detached: several minutes for the full 18-take chain. next dev is
+  // long-lived; on Vercel move behind a queue/waitUntil (n8n phase).
   void runStillsGeneration(order).catch(async (e) => {
-    console.error(`[stills-pipeline] failed order=${order.id}, reverting`, e);
+    console.error(`[stills] failed order=${order.id}, reverting`, e);
     await transitionOrder(
       order.id,
       OrderStatus.IMAGE_GENERATING,
@@ -215,24 +398,31 @@ export async function kickStillsGeneration(order: Order): Promise<void> {
       {},
       "stills generation failed — reverted for retry"
     ).catch((revertErr) =>
-      console.error(`[stills-pipeline] revert also failed order=${order.id}`, revertErr)
+      console.error(`[stills] revert also failed order=${order.id}`, revertErr)
     );
   });
 }
 
 export async function completeStillsGeneration(
   orderId: string,
-  conceptImageUrls: string[]
+  storyboard: StoryboardCut[]
 ): Promise<void> {
-  await prisma.order.update({ where: { id: orderId }, data: { conceptImageUrls } });
+  // conceptImageUrls keeps the FLAT list of every take — the approval API's
+  // whitelist checks each chosen still against its cut's options, but the flat
+  // list stays for backwards compatibility and quick auditing.
+  const flat = storyboard.flatMap((cut) => cut.options);
+  await prisma.order.update({
+    where: { id: orderId },
+    data: { storyboardOptions: storyboard, conceptImageUrls: flat },
+  });
   const order = await transitionOrder(
     orderId,
     OrderStatus.IMAGE_GENERATING,
     OrderStatus.AWAITING_CUSTOMER_APPROVAL,
     "system",
     {},
-    `concept stills ready (${conceptImageUrls.length} takes)`
+    `storyboard ready (${storyboard.length} cuts × ${storyboard[0]?.options.length ?? 0} takes)`
   );
   await sendChooseStillEmail(order);
-  console.log(`[stills-pipeline] order=${orderId} -> AWAITING_CUSTOMER_APPROVAL`);
+  console.log(`[stills] order=${orderId} -> AWAITING_CUSTOMER_APPROVAL`);
 }

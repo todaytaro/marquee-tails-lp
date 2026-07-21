@@ -30,6 +30,21 @@ export default function Footer() {
           </a>
         </nav>
 
+        <nav aria-label="Legal" className="flex flex-wrap justify-center gap-x-6 gap-y-2 text-xs">
+          <a href="/terms" className="text-muted transition-colors hover:text-gold">
+            Terms of Service
+          </a>
+          <a href="/privacy" className="text-muted transition-colors hover:text-gold">
+            Privacy Policy
+          </a>
+          <a href="/refund" className="text-muted transition-colors hover:text-gold">
+            Refund &amp; Cancellation
+          </a>
+          <a href="/tokushoho" className="text-muted transition-colors hover:text-gold">
+            特定商取引法に基づく表記
+          </a>
+        </nav>
+
         <p className="text-xs text-muted">&copy; 2026 Marquee Tails</p>
       </div>
     </footer>

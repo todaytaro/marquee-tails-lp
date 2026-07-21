@@ -10,19 +10,19 @@ type Tier = {
 const tiers: readonly Tier[] = [
   {
     name: "Digital Premiere",
-    price: "$49",
+    price: "$75",
     items: [
-      "60–90 second cinematic trailer",
-      "Your pet, recognizably them, in 8–12 shots",
+      "60-second cinematic trailer",
+      "Your pet, recognizably them, in six shots",
       "Your choice of the three original worlds",
       "Digital movie poster",
-      "HD delivery, 48h after character-sheet approval",
+      "HD delivery, 48h after storyboard approval",
     ],
     flag: "",
   },
   {
     name: "Feature Film",
-    price: "$99",
+    price: "$129",
     items: [
       "Everything in Digital Premiere",
       "Cinema-quality movie poster, printed and shipped",
@@ -33,9 +33,8 @@ const tiers: readonly Tier[] = [
   },
   {
     name: "Collector's Edition",
-    price: "$159",
+    price: "$199",
     items: [
-      "Extended cut of the trailer",
       "16×20 gallery canvas of the poster",
       "Full 4K delivery",
       "Priority production slot — you skip the queue",

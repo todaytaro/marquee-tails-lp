@@ -1,15 +1,18 @@
 /**
- * Cheap consistency test: generate the hero sheet + 6 chained stills for a
- * fresh order (from an existing customer order's assets), then animate ONLY
- * shot 0 into a 5s clip. Prints the 6 still URLs (compare faces side by side)
- * and the clip URL. ~$1.6 — no full 60s film.
+ * Consistency test for the storyboard generator: run the full Gate-1 stills
+ * pipeline (portrait + hero sheet + 6 cuts × 3 takes) for a fresh order seeded
+ * from an existing customer order's photos, print every take URL (compare faces
+ * side by side), then animate ONE take into a 5s clip.
  *
  * Usage: npx tsx scripts/test-stills.ts <sourceApproveToken> [personality]
+ * NOTE: spends real fal compute (~18 stills + 1 clip). Do not run without the
+ * owner's OK.
  */
 import "dotenv/config";
 import { OrderStatus } from "../generated/prisma/client";
 import { prisma } from "../lib/db";
-import { prepareStills, generateShotClipForTest } from "../lib/film-pipeline";
+import { runStillsGeneration, type StoryboardCut } from "../lib/stills-pipeline";
+import { generateShotClipForTest } from "../lib/film-pipeline";
 
 async function main() {
   const [token, personality = "brave"] = process.argv.slice(2);
@@ -17,34 +20,38 @@ async function main() {
 
   const order = await prisma.order.create({
     data: {
-      shopifyOrderId: "stills-test-" + Math.floor(Math.random() * 1e6),
+      stripeSessionId: "stills-test-" + Math.floor(Math.random() * 1e6),
       customerEmail: src.customerEmail,
-      status: OrderStatus.VIDEO_GENERATING,
+      status: OrderStatus.IMAGE_GENERATING,
       petName: src.petName,
       world: src.world,
       personality,
       uploadedPhotoUrls: src.uploadedPhotoUrls,
-      petDescription: src.petDescription,
-      identityPortraitUrl: src.identityPortraitUrl,
-      conceptImageUrls: src.conceptImageUrls,
-      selectedImageUrl: src.selectedImageUrl,
     },
   });
   console.log(`stills-test ${order.id} | ${order.petName} | ${order.world}/${personality}`);
 
   const t0 = Date.now();
-  const { shotStillUrls, character } = await prepareStills(order);
-  console.log(`stills done in ${Math.round((Date.now() - t0) / 1000)}s`);
-  shotStillUrls.forEach((u, i) => console.log(`  still${i}: ${u}`));
+  await runStillsGeneration(order);
+  const done = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+  const storyboard = (done.storyboardOptions as StoryboardCut[] | null) ?? [];
+  console.log(`storyboard done in ${Math.round((Date.now() - t0) / 1000)}s`);
+  storyboard.forEach((cut, c) => {
+    console.log(`  cut ${c} — ${cut.scene}`);
+    cut.options.forEach((u, t) => console.log(`    take ${t}: ${u}`));
+  });
 
-  console.log("animating shot 0 (5s)…");
-  const clip = await generateShotClipForTest(shotStillUrls[0], order.world ?? "deepspace", 0, character, 5);
-  console.log(`  clip0: ${clip}`);
+  const first = storyboard[0]?.options[0];
+  if (first) {
+    console.log("animating cut 0 / take 0 (5s)…");
+    const clip = await generateShotClipForTest(first, order.world ?? "deepspace", 0, 5);
+    console.log(`  clip: ${clip}`);
+    console.log("\n=== CLIP ===");
+    console.log(clip);
+  }
 
-  console.log("\n=== STILLS ===");
-  console.log(JSON.stringify(shotStillUrls));
-  console.log("=== CLIP ===");
-  console.log(clip);
+  console.log("\n=== STORYBOARD ===");
+  console.log(JSON.stringify(storyboard));
 }
 
 main()

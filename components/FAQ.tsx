@@ -1,7 +1,7 @@
 const faqs = [
   {
     q: "How does it work, and what do I actually get?",
-    a: "You upload 5–8 photos of your pet. We build a character sheet — the official reference for their face, coat, and markings — and you approve it before anything gets made. Then our studio produces a 60–90 second cinematic trailer: 8 to 12 shots in your chosen world, scored and edited like a real film. Every edition includes a movie poster; the Feature Film and Collector's editions add printed poster and gallery canvas.",
+    a: "You upload 5–8 photos of your pet. We build a character sheet — the official reference for their face, coat, and markings — then a full storyboard, and you approve it shot by shot before anything gets filmed. Our studio produces a 60-second cinematic trailer: six shots in your chosen world, scored and edited like a real film. Every edition includes a movie poster; the Feature Film and Collector's editions add printed poster and gallery canvas.",
   },
   {
     q: "Will it actually look like my pet?",
@@ -9,11 +9,11 @@ const faqs = [
   },
   {
     q: "How is this different from free AI filter apps?",
-    a: "Filters make an AI dog. We make a film starring yours. An app spits out one image of roughly-your-breed; we produce a directed, edited, human-finished trailer where your specific pet — their exact markings, their exact face — carries 8 to 12 shots of story. One is a novelty. The other goes on the wall.",
+    a: "Filters make an AI dog. We make a film starring yours. An app spits out one image of roughly-your-breed; we produce a directed, edited, human-finished trailer where your specific pet — their exact markings, their exact face — carries six shots of story. One is a novelty. The other goes on the wall.",
   },
   {
     q: "How long does it take?",
-    a: "48 hours from the moment you approve the character sheet. We keep it that fast by producing only 5 films per day — real slots, real queue. Collector's Edition and Founding Members get priority production.",
+    a: "48 hours from the moment you approve the storyboard. We keep it that fast by producing only 5 films per day — real slots, real queue. Collector's Edition and Founding Members get priority production.",
   },
   {
     q: "Is this made with AI?",

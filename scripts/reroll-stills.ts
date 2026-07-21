@@ -7,7 +7,7 @@
 import "dotenv/config";
 import { OrderStatus } from "../generated/prisma/client";
 import { prisma } from "../lib/db";
-import { runStillsGeneration } from "../lib/stills-pipeline";
+import { runStillsGeneration, type StoryboardCut } from "../lib/stills-pipeline";
 
 async function main() {
   const token = process.argv[2];
@@ -27,10 +27,14 @@ async function main() {
   await runStillsGeneration(reset);
 
   const done = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+  const storyboard = (done.storyboardOptions as StoryboardCut[] | null) ?? [];
   console.log("=== RESULT ===");
   console.log("description:", done.petDescription);
   console.log("portrait:", done.identityPortraitUrl);
-  done.conceptImageUrls.forEach((u, i) => console.log(`take${i + 1}:`, u));
+  storyboard.forEach((cut, c) => {
+    console.log(`cut ${c + 1} — ${cut.scene}`);
+    cut.options.forEach((u, t) => console.log(`  take${t + 1}:`, u));
+  });
 }
 
 main()
