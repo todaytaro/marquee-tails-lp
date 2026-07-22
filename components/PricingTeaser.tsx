@@ -1,6 +1,12 @@
+"use client";
+
+import { useState } from "react";
 import Image from "next/image";
 
+type TierKey = "digital" | "feature" | "collector";
+
 type Tier = {
+  key: TierKey;
   name: string;
   price: string;
   items: readonly string[];
@@ -9,6 +15,7 @@ type Tier = {
 
 const tiers: readonly Tier[] = [
   {
+    key: "digital",
     name: "Digital Premiere",
     price: "$75",
     items: [
@@ -21,6 +28,7 @@ const tiers: readonly Tier[] = [
     flag: "",
   },
   {
+    key: "feature",
     name: "Feature Film",
     price: "$129",
     items: [
@@ -32,6 +40,7 @@ const tiers: readonly Tier[] = [
     flag: "Most Popular",
   },
   {
+    key: "collector",
     name: "Collector's Edition",
     price: "$199",
     items: [
@@ -45,6 +54,31 @@ const tiers: readonly Tier[] = [
 ];
 
 export default function PricingTeaser() {
+  const [loadingTier, setLoadingTier] = useState<TierKey | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleBuy(tier: TierKey) {
+    setError(null);
+    setLoadingTier(tier);
+    try {
+      const res = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tier }),
+      });
+      const data = await res.json();
+      if (data.ok && data.url) {
+        window.location.href = data.url;
+        return;
+      }
+      setError(data.error ?? "Something went wrong. Please try again.");
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setLoadingTier(null);
+    }
+  }
+
   return (
     <section
       id="pricing"
@@ -52,7 +86,7 @@ export default function PricingTeaser() {
       className="mx-auto w-full max-w-6xl px-5 py-16 sm:py-24"
     >
       <p className="text-center font-display text-sm uppercase tracking-[0.3em] text-gold">
-        Launch pricing preview
+        Launch pricing
       </p>
       <h2
         id="pricing-heading"
@@ -111,22 +145,26 @@ export default function PricingTeaser() {
                   </p>
                 </div>
               )}
+              <button
+                type="button"
+                onClick={() => handleBuy(tier.key)}
+                disabled={loadingTier !== null}
+                className="btn-marquee mt-6 w-full py-3 text-sm font-semibold disabled:opacity-60"
+              >
+                {loadingTier === tier.key ? "Redirecting…" : `Get ${tier.name}`}
+              </button>
             </article>
           );
         })}
       </div>
 
-      <div className="mt-10 text-center">
-        <a
-          href="#waitlist"
-          className="btn-marquee px-8 py-4 text-base font-semibold"
-        >
-          Founding Members get 20% off these prices
-        </a>
-        <p className="mt-3 text-sm text-muted">
-          No checkout yet — the waitlist casts our first production slots.
-        </p>
-      </div>
+      {error && (
+        <p className="mt-6 text-center text-sm text-red-400">{error}</p>
+      )}
+
+      <p className="mt-10 text-center text-sm text-muted">
+        Secure checkout powered by Stripe. Every order is made to order.
+      </p>
     </section>
   );
 }

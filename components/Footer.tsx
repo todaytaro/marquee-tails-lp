@@ -17,16 +17,12 @@ export default function Footer() {
 
         <nav aria-label="Social links" className="flex gap-6 text-sm">
           <a
-            href="#"
+            href="https://www.instagram.com/marqueetails.studio?igsh=dWVrbnhpeDBpZ2Qz&utm_source=qr"
+            target="_blank"
+            rel="noopener noreferrer"
             className="text-muted transition-colors hover:text-gold focus-visible:text-gold"
           >
             Instagram
-          </a>
-          <a
-            href="#"
-            className="text-muted transition-colors hover:text-gold focus-visible:text-gold"
-          >
-            TikTok
           </a>
         </nav>
 
