@@ -48,7 +48,7 @@ export default function TermsPage() {
       <h2>5. Ownership of the Finished Film &amp; Poster</h2>
       <p>
         The finished film and poster are provided for your{" "}
-        [personal use; commercial use terms TBD]. Please contact us before
+        personal, non-commercial use. Please contact us before
         using the finished materials in any commercial context.
       </p>
 
@@ -107,16 +107,16 @@ export default function TermsPage() {
         We may update these Terms from time to time; the &ldquo;Last
         updated&rdquo; date below reflects the latest revision. These Terms
         are governed by the laws of Japan, and any dispute shall be subject
-        to the exclusive jurisdiction of [事業者所在地の裁判所].
+        to the exclusive jurisdiction of the Tokyo District Court, Japan.
       </p>
 
       <h2>13. Contact</h2>
       <p>
         Questions about these Terms can be sent to{" "}
-        <a href="mailto:[メールアドレス]">[メールアドレス]</a>.
+        <a href="mailto:support@marqueetails.com">support@marqueetails.com</a>.
       </p>
 
-      <p className="mt-10 text-xs">Last updated: [DATE]</p>
+      <p className="mt-10 text-xs">Last updated: July 22, 2026</p>
     </>
   );
 }

@@ -42,8 +42,7 @@ export default function PrivacyPage() {
           <strong>Printify</strong> — printing and shipping of physical items
         </li>
         <li>
-          <strong>Klaviyo / Resend</strong> — transactional and marketing
-          email
+          <strong>Resend</strong> — transactional and marketing email
         </li>
         <li>
           <strong>Vercel</strong> — website hosting and file storage
@@ -54,8 +53,10 @@ export default function PrivacyPage() {
       <h2>4. Data Retention</h2>
       <p>
         We retain your uploaded photos and finished materials for{" "}
-        [retention period]. You may request earlier deletion at any time (see
-        &ldquo;Your Rights&rdquo; below).
+        up to 24 months after your order is completed, after which they are
+        deleted unless a longer retention is required for legal, accounting,
+        or dispute-resolution purposes. You may request earlier deletion at
+        any time (see &ldquo;Your Rights&rdquo; below).
       </p>
 
       <h2>5. International Transfer</h2>
@@ -70,7 +71,7 @@ export default function PrivacyPage() {
       <p>
         You may request access to, correction of, or deletion of your
         personal data by contacting us at{" "}
-        <a href="mailto:[メールアドレス]">[メールアドレス]</a>.
+        <a href="mailto:support@marqueetails.com">support@marqueetails.com</a>.
       </p>
 
       <h2>7. Cookies</h2>
@@ -82,10 +83,10 @@ export default function PrivacyPage() {
       <h2>8. Contact</h2>
       <p>
         Questions about this Privacy Policy can be sent to{" "}
-        <a href="mailto:[メールアドレス]">[メールアドレス]</a>.
+        <a href="mailto:support@marqueetails.com">support@marqueetails.com</a>.
       </p>
 
-      <p className="mt-10 text-xs">Last updated: [DATE]</p>
+      <p className="mt-10 text-xs">Last updated: July 22, 2026</p>
     </>
   );
 }

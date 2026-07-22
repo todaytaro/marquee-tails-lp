@@ -36,19 +36,19 @@ export default function RefundPage() {
       <p>
         Physical prints and canvases are produced and shipped through our
         print partner, Printify. If your physical item arrives damaged or
-        defective, we will arrange a reprint and reshipment. Whether a return
-        of the original item is required follows Printify&rsquo;s standard
-        process: [Printify return requirements TBD].
+        defective, we will arrange a reprint and reshipment. In most cases a
+        photo of the damaged or defective item is enough for us to process a
+        reprint, without needing you to return the original item.
       </p>
 
       <h2>5. How to Request</h2>
       <p>
         To request a remake, fix, or refund under this policy, email{" "}
-        <a href="mailto:[メールアドレス]">[メールアドレス]</a> with your order
+        <a href="mailto:support@marqueetails.com">support@marqueetails.com</a> with your order
         number and a description of the issue.
       </p>
 
-      <p className="mt-10 text-xs">Last updated: [DATE]</p>
+      <p className="mt-10 text-xs">Last updated: July 22, 2026</p>
     </>
   );
 }

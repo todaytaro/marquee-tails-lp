@@ -18,35 +18,49 @@ export default function TokushohoPage() {
         <tbody>
           <tr>
             <th>販売事業者名</th>
-            <td>[事業者名 / 屋号]</td>
+            <td>Marquee Tails</td>
           </tr>
           <tr>
             <th>運営統括責任者</th>
-            <td>[代表者氏名]</td>
+            <td>
+              請求があったら遅滞なく開示します
+              <br />
+              特定商取引に関する法律施行規則第10条第1項に基づき、ご請求があった場合は遅滞なく電子メールにて開示いたします。下記メールアドレスへご請求ください。
+            </td>
           </tr>
           <tr>
             <th>所在地</th>
-            <td>[住所]</td>
+            <td>
+              請求があったら遅滞なく開示します
+              <br />
+              上記同様、ご請求があった場合に遅滞なく開示いたします。お問い合わせは原則としてメールにて承ります。
+            </td>
           </tr>
           <tr>
             <th>電話番号</th>
-            <td>[電話番号]</td>
+            <td>
+              請求があったら遅滞なく開示します
+              <br />
+              お問い合わせは原則としてメールにて承ります。電話番号の開示が必要な場合は、下記メールアドレスへご請求ください。
+            </td>
           </tr>
           <tr>
             <th>メールアドレス</th>
-            <td>[メールアドレス]</td>
+            <td>support@marqueetails.com</td>
           </tr>
           <tr>
             <th>販売価格</th>
             <td>
               各商品ページに表示（Digital Premiere $75 / Feature Film $129 /
-              Collector&rsquo;s Edition $199）。税の取扱いは
-              [消費税の内外] のとおりです。
+              Collector&rsquo;s Edition $199）。表示価格は全て税込です。
             </td>
           </tr>
           <tr>
             <th>商品代金以外の必要料金</th>
-            <td>送料（物理商品のみ）、決済手数料等 — [詳細]</td>
+            <td>
+              送料（Feature Film・Collector&rsquo;s
+              Editionの物理商品配送分）は各プラン価格に含まれており、別途ご負担いただく送料はありません。決済手数料も同様にお客様のご負担はありません。
+            </td>
           </tr>
           <tr>
             <th>支払方法</th>
@@ -60,7 +74,7 @@ export default function TokushohoPage() {
             <th>引渡し時期</th>
             <td>
               デジタル: 絵コンテ承認後48時間以内。物理商品: Printifyでの制作・発送後
-              [X〜Y営業日]。
+              7〜14営業日。
             </td>
           </tr>
           <tr>
@@ -74,7 +88,7 @@ export default function TokushohoPage() {
         </tbody>
       </table>
 
-      <p className="mt-10 text-xs">最終更新日: [DATE]</p>
+      <p className="mt-10 text-xs">最終更新日: 2026年7月22日</p>
     </>
   );
 }
