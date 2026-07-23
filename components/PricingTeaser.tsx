@@ -11,6 +11,7 @@ type Tier = {
   price: string;
   items: readonly string[];
   flag: string;
+  delivery: string;
 };
 
 const tiers: readonly Tier[] = [
@@ -26,6 +27,7 @@ const tiers: readonly Tier[] = [
       "HD delivery, 48h after storyboard approval",
     ],
     flag: "",
+    delivery: "Instant digital delivery",
   },
   {
     key: "feature",
@@ -38,6 +40,7 @@ const tiers: readonly Tier[] = [
       "The one most people gift",
     ],
     flag: "Most Popular",
+    delivery: "Free worldwide shipping included",
   },
   {
     key: "collector",
@@ -50,6 +53,7 @@ const tiers: readonly Tier[] = [
       "Everything in Feature Film",
     ],
     flag: "",
+    delivery: "Free worldwide shipping included",
   },
 ];
 
@@ -94,6 +98,10 @@ export default function PricingTeaser() {
       >
         Three editions. One star.
       </h2>
+      <p className="mx-auto mt-4 max-w-xl text-center text-sm leading-relaxed text-muted">
+        A custom pet portrait alone runs $150+. This is a whole film — with a
+        poster.
+      </p>
 
       <div className="mt-12 grid gap-6 md:grid-cols-3 md:items-start">
         {tiers.map((tier) => {
@@ -116,6 +124,12 @@ export default function PricingTeaser() {
               </h3>
               <p className="mt-2 font-display text-[3rem] leading-none tracking-[0.04em] text-gold">
                 {tier.price}
+              </p>
+              <p className="mt-1 inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-gold-bright">
+                <span aria-hidden="true">🎬</span> Launch pricing
+              </p>
+              <p className="mt-2 text-[0.8rem] font-medium text-muted">
+                {tier.delivery}
               </p>
               <ul className="mt-5 space-y-2.5 border-t border-hairline pt-5">
                 {tier.items.map((item) => (
@@ -162,7 +176,10 @@ export default function PricingTeaser() {
         <p className="mt-6 text-center text-sm text-red-400">{error}</p>
       )}
 
-      <p className="mt-10 text-center text-sm text-muted">
+      <p className="mx-auto mt-10 max-w-md text-center text-sm text-ivory">
+        Not recognizably your pet? We remake it free.
+      </p>
+      <p className="mt-2 text-center text-sm text-muted">
         Secure checkout powered by Stripe. Every order is made to order.
       </p>
     </section>

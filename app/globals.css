@@ -68,6 +68,39 @@ body {
   text-shadow: 0 0 40px rgba(232, 182, 76, 0.35);
 }
 
+/* ---------------------------------------------------------------- */
+/* Hero cinematic reveal — pure CSS (compositor-driven).             */
+/* Runs on the compositor so it never stalls behind a heavy          */
+/* background video or React/Motion rAF quirks. Stagger via          */
+/* inline animation-delay per element.                               */
+/* ---------------------------------------------------------------- */
+@keyframes heroReveal {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+.hero-reveal {
+  opacity: 0;
+  animation: heroReveal 1.1s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-reveal {
+    opacity: 1;
+    animation: none;
+    transform: none;
+    filter: none;
+  }
+}
+
 .gold-glow-box {
   box-shadow: 0 0 40px rgba(232, 182, 76, 0.35);
 }

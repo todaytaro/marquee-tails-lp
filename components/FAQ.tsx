@@ -13,7 +13,7 @@ const faqs = [
   },
   {
     q: "How long does it take?",
-    a: "48 hours from the moment you approve the storyboard. We keep it that fast by producing only 5 films per day — real slots, real queue. Collector's Edition and Founding Members get priority production.",
+    a: "48 hours from the moment you approve the storyboard. We keep it that fast by producing only 5 films per day — real slots, reserved on a first-come basis. Collector's Edition orders get priority production.",
   },
   {
     q: "Is this made with AI?",
@@ -24,8 +24,8 @@ const faqs = [
     a: "Please do — most of our films are gifts. Birthdays, Gotcha Days, anniversaries of the day they picked their human. You just need 5–8 photos of the pet (borrow them from the camera roll or the group chat), and we handle the rest, including a reveal card that makes the surprise feel like a premiere.",
   },
   {
-    q: "When do you launch, and what do Founding Members get?",
-    a: "We're in final production rehearsals now, and the waitlist opens the doors — in order. The first 100 sign-ups become Founding Members: 20% off any edition, a free poster upgrade, and a priority production slot at launch. Joining the waitlist is free and commits you to nothing; the perks are simply gone once 100 spots fill.",
+    q: "Can I order right now?",
+    a: "Yes — orders are open today. Pick an edition, upload your photos, and approve your storyboard; we produce just 5 films a day, so the earlier you order, the sooner your slot is locked in.",
   },
 ] as const;
 
@@ -42,6 +42,24 @@ export default function FAQ() {
       >
         Questions from the lobby
       </h2>
+
+      {/* FAQPage structured data — built from the same `faqs` array so the
+          markup and the rich-result data can never drift apart. Eligible for
+          Google's FAQ rich results. */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "FAQPage",
+            mainEntity: faqs.map((faq) => ({
+              "@type": "Question",
+              name: faq.q,
+              acceptedAnswer: { "@type": "Answer", text: faq.a },
+            })),
+          }),
+        }}
+      />
 
       <div className="mt-10 divide-y divide-[rgba(232,182,76,0.15)] rounded-card border border-hairline bg-surface">
         {faqs.map((faq) => (

@@ -7,7 +7,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const PERKS = [
   "20% off any edition",
   "Free poster upgrade",
-  "Priority production slot when we go live",
+  "Behind-the-scenes peeks from the studio",
 ] as const;
 
 type Status = "idle" | "loading" | "success";
@@ -59,23 +59,23 @@ export default function WaitlistForm() {
     <section id="waitlist" aria-labelledby="waitlist-title" className="px-4 py-16 sm:py-24">
       <div className="mx-auto w-full max-w-2xl rounded-xl border border-[rgba(232,182,76,0.15)] bg-[#14121c] px-5 py-10 sm:px-10 sm:py-12">
         <p className="mb-4 text-center text-xs font-semibold uppercase tracking-[0.25em] text-[#e8b64c]">
-          Now casting — waitlist open
+          Orders open now
         </p>
         <h2
           id="waitlist-title"
           className="text-center uppercase leading-none tracking-[0.06em] text-[#f6d27e] [font-family:var(--font-display),Impact,sans-serif] [font-size:clamp(2.25rem,7vw,3.5rem)]"
         >
-          Become a Founding Member
+          Get a launch discount code
         </h2>
         <p className="mx-auto mt-5 max-w-prose text-center text-sm leading-relaxed text-[#a09aae] sm:text-base">
-          We open with 5 production slots a day, and the waitlist casts them in
-          order. The first 100 people on the list lock in Founding Member
-          status: 20% off any edition, a free poster upgrade, and a priority
-          production slot when we go live. After 100, the perks close for good.
+          You can order your pet&rsquo;s film right now — no waiting required.
+          Drop your email and we&rsquo;ll send you a launch discount code plus
+          behind-the-scenes peeks from the studio while your storyboard comes
+          together.
         </p>
 
-        {/* Founding perks as ticket stubs */}
-        <ul className="mt-8 flex flex-col gap-3" aria-label="Founding Member perks">
+        {/* Discount perks as ticket stubs */}
+        <ul className="mt-8 flex flex-col gap-3" aria-label="Email signup perks">
           {PERKS.map((perk, i) => (
             <li
               key={perk}
@@ -114,13 +114,12 @@ export default function WaitlistForm() {
           {status === "success" ? (
             <div className="text-center">
               <h3 className="uppercase tracking-[0.06em] text-[#f6d27e] [font-family:var(--font-display),Impact,sans-serif] [font-size:clamp(1.6rem,5vw,2.25rem)]">
-                You&rsquo;re on the call sheet.
+                Check your inbox.
               </h3>
               <p className="mx-auto mt-3 max-w-prose text-sm leading-relaxed text-[#f4f1e8] sm:text-base">
-                Check your inbox — we&rsquo;ve sent a confirmation. We&rsquo;ll
-                email you the moment casting opens, with your Founding Member
-                perks attached. Until then, start shortlisting your 5–8 best
-                photos.
+                We&rsquo;ve sent your launch discount code, good on any
+                edition. Orders are open now — start shortlisting your 5–8
+                best photos and put your pet on the marquee today.
               </p>
             </div>
           ) : (
@@ -166,8 +165,8 @@ export default function WaitlistForm() {
                   className="h-12 shrink-0 rounded-lg bg-[#e8b64c] px-6 text-sm font-bold uppercase tracking-[0.08em] text-[#0b0a10] motion-safe:transition-shadow hover:shadow-[0_0_40px_rgba(232,182,76,0.35)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f6d27e] focus-visible:ring-offset-2 focus-visible:ring-offset-[#14121c] disabled:cursor-not-allowed disabled:opacity-70"
                 >
                   {status === "loading"
-                    ? "Saving your spot…"
-                    : "Save my Founding Member spot"}
+                    ? "Sending your code…"
+                    : "Send me my discount code"}
                 </button>
               </div>
               {error && (
@@ -180,8 +179,8 @@ export default function WaitlistForm() {
                 </p>
               )}
               <p className="mt-4 text-center text-xs leading-relaxed text-[#a09aae]">
-                One email when we launch, a couple of behind-the-scenes peeks
-                before that. No spam, ever. Unsubscribe anytime.
+                One email with your code, plus the occasional
+                behind-the-scenes peek. No spam, ever. Unsubscribe anytime.
               </p>
             </form>
           )}
