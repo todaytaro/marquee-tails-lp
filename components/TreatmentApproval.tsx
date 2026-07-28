@@ -149,8 +149,12 @@ export default function TreatmentApproval({ orderId, approveToken, petName, trea
           {petName.toUpperCase()}&apos;S TREATMENT
         </h1>
         <p className="mx-auto mt-4 max-w-xl text-muted">
+          {/* "in your own words", not "in plain English": the brief and this
+              treatment come back in whichever language the customer writes in
+              (lib/claude-script.ts rule 5), so promising English would be
+              wrong for everyone who didn't use it. */}
           Read through the world your director wrote around {petName}. You can
-          ask for as many tweaks as you like, in plain English — nothing goes
+          ask for as many tweaks as you like, in your own words — nothing goes
           to storyboard until you approve.
         </p>
       </div>
