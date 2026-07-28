@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { fal } from "@fal-ai/client";
 import { OrderStatus } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { transitionOrder, TransitionError } from "@/lib/orders";
@@ -10,13 +9,17 @@ import { generateTreatment } from "@/lib/claude-script";
  * Intake — the customer submits pet photos + quiz answers (preset) or photos
  * + a guided brief (custom / Director's Cut).
  *
- * POST multipart/form-data:
- *   orderId, approveToken, petName, photos (4-8 image files, <=10MB each),
+ * POST application/json:
+ *   orderId, approveToken, petName, photoUrls (4-8 Vercel Blob URLs),
  *   + preset: world (deepspace|storybook|noir), personality
  *   + custom: customBrief (20-2000 chars, guided fields assembled client-side)
  *
- * Photos are uploaded to fal storage (generation models fetch them directly;
- * unguessable public URLs) for both tiers.
+ * Photos are uploaded client-side straight to Vercel Blob (see
+ * components/PhotoUploadForm.tsx + app/api/orders/upload-token/route.ts)
+ * rather than through this route: Vercel rejects any function request body
+ * over ~4.5MB before our handler runs, so a server-side multipart upload of
+ * real phone photos (5 x several MB) is impossible in production. This route
+ * now only ever receives the resulting URLs.
  *
  * preset (unchanged): UPLOADING -> IMAGE_GENERATING, kick the stills
  * pipeline. On kick failure, compensating revert to UPLOADING.
@@ -39,27 +42,57 @@ export const maxDuration = 60;
 
 const MAX_PHOTOS = 8;
 const MIN_PHOTOS = 4;
-const MAX_BYTES = 10 * 1024 * 1024;
 const WORLDS = new Set(["deepspace", "storybook", "noir"]);
 const PERSONALITIES = new Set(["brave", "easygoing", "playful", "timid"]);
 const BRIEF_MIN = 20;
 const BRIEF_MAX = 2000;
 
-export async function POST(req: Request) {
-  let form: FormData;
+/**
+ * SECURITY: photoUrls now arrive from the client (the browser uploaded them
+ * directly to Vercel Blob), so unlike the old server-side fal.storage.upload
+ * flow they are no longer inherently trustworthy — they're just strings an
+ * attacker's client could set to anything. Without this check, a malicious
+ * client could point photoUrls at an arbitrary remote URL, which the fal
+ * pipelines would then happily fetch server-side (SSRF-ish request-forgery
+ * risk, plus unbounded cost from feeding arbitrary/huge remote content into
+ * paid generation models). Constrain every URL to https and to our own
+ * Vercel Blob public storage host before trusting it.
+ */
+function isValidPhotoUrl(url: string): boolean {
+  let parsed: URL;
   try {
-    form = await req.formData();
+    parsed = new URL(url);
   } catch {
-    return NextResponse.json({ ok: false, error: "Invalid form data." }, { status: 400 });
+    return false;
+  }
+  return parsed.protocol === "https:" && parsed.hostname.endsWith(".public.blob.vercel-storage.com");
+}
+
+export async function POST(req: Request) {
+  let body: {
+    orderId?: string;
+    approveToken?: string;
+    petName?: string;
+    world?: string;
+    personality?: string;
+    customBrief?: string;
+    photoUrls?: unknown;
+  };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const orderId = String(form.get("orderId") ?? "");
-  const approveToken = String(form.get("approveToken") ?? "");
-  const petName = String(form.get("petName") ?? "").trim().slice(0, 40);
-  const world = String(form.get("world") ?? "");
-  const personality = String(form.get("personality") ?? "");
-  const customBrief = String(form.get("customBrief") ?? "").trim().slice(0, BRIEF_MAX);
-  const photos = form.getAll("photos").filter((p): p is File => p instanceof File);
+  const orderId = String(body.orderId ?? "");
+  const approveToken = String(body.approveToken ?? "");
+  const petName = String(body.petName ?? "").trim().slice(0, 40);
+  const world = String(body.world ?? "");
+  const personality = String(body.personality ?? "");
+  const customBrief = String(body.customBrief ?? "").trim().slice(0, BRIEF_MAX);
+  const photoUrls = Array.isArray(body.photoUrls)
+    ? body.photoUrls.filter((u): u is string => typeof u === "string")
+    : [];
 
   if (!orderId || !approveToken) {
     return NextResponse.json({ ok: false, error: "orderId and approveToken are required." }, { status: 400 });
@@ -67,19 +100,14 @@ export async function POST(req: Request) {
   if (!petName) {
     return NextResponse.json({ ok: false, error: "Please tell us your pet's name." }, { status: 400 });
   }
-  if (photos.length < MIN_PHOTOS || photos.length > MAX_PHOTOS) {
+  if (photoUrls.length < MIN_PHOTOS || photoUrls.length > MAX_PHOTOS) {
     return NextResponse.json(
       { ok: false, error: `Please upload ${MIN_PHOTOS}-${MAX_PHOTOS} photos.` },
       { status: 400 }
     );
   }
-  for (const p of photos) {
-    if (!p.type.startsWith("image/")) {
-      return NextResponse.json({ ok: false, error: "Only image files are allowed." }, { status: 400 });
-    }
-    if (p.size > MAX_BYTES) {
-      return NextResponse.json({ ok: false, error: "Each photo must be under 10MB." }, { status: 400 });
-    }
+  if (!photoUrls.every(isValidPhotoUrl)) {
+    return NextResponse.json({ ok: false, error: "Those photo URLs aren't valid." }, { status: 400 });
   }
 
   const order = await prisma.order.findUnique({ where: { id: orderId } });
@@ -114,11 +142,10 @@ export async function POST(req: Request) {
   }
 
   try {
-    // Upload photos to fal storage — generation models fetch these directly.
-    const falKey = process.env.FAL_KEY;
-    if (!falKey) throw new Error("FAL_KEY is not set");
-    fal.config({ credentials: falKey });
-    const uploadedPhotoUrls = await Promise.all(photos.map((p) => fal.storage.upload(p)));
+    // Photos were already uploaded client-side to Vercel Blob (validated
+    // above); the fal pipelines fetch these public HTTPS URLs directly, same
+    // as they used to fetch fal storage URLs.
+    const uploadedPhotoUrls = photoUrls;
 
     if (isCustom) {
       await prisma.order.update({
@@ -132,7 +159,7 @@ export async function POST(req: Request) {
         OrderStatus.TREATMENT_GENERATING,
         "customer",
         {},
-        `photos submitted (${photos.length}), custom brief received`
+        `photos submitted (${photoUrls.length}), custom brief received`
       );
 
       try {
@@ -188,7 +215,7 @@ export async function POST(req: Request) {
       OrderStatus.IMAGE_GENERATING,
       "customer",
       {},
-      `photos submitted (${photos.length}), world=${world}`
+      `photos submitted (${photoUrls.length}), world=${world}`
     );
 
     try {

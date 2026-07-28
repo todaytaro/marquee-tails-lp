@@ -41,6 +41,17 @@ const DEFAULT_MODEL = "claude-sonnet-5";
  *   2. moderation + IP/franchise guard + prompt-injection resistance
  *   3. structured output (also enforced by the forced tool call below)
  *   4. expectation framing (6-shot stylized trailer, not live-action VFX)
+ *
+ * Plus a 5th, language-related rule: the brief can be in any language, but
+ * costume/score/cuts/loglines MUST come back in English regardless — DO NOT
+ * "helpfully" localize these later. Reasons, both load-bearing:
+ *   - loglines.* render as trailer title cards via lib/film-pipeline.ts'
+ *     FONT_DISPLAY (Bebas Neue), which is Latin-only — non-Latin text renders
+ *     as tofu boxes. (Only the pet's name gets a JP-capable font, FONT_NAME.)
+ *   - costume + cuts[].scene are fed to the fal image/video models, which are
+ *     English-prompt-optimized.
+ * treatmentText is the one field that's customer-facing prose rather than
+ * pipeline input, so it should mirror the brief's language instead.
  */
 const SYSTEM_PROMPT = `You are the "director" for Marquee Tails, a service that turns a customer's pet into the star of a roughly 60-second cinematic trailer. A customer has submitted a free-text brief describing the world, mood, one highlight moment, and how their story ends. Turn that brief into a WorldBundle (by calling the submit_treatment tool) — a locked costume, exactly 6 action/setting beats ("cuts"), a music-score prompt, and 4 trailer loglines — plus a warm, readable "treatment" the customer will read and approve before anything is filmed.
 
@@ -59,7 +70,11 @@ Follow these rules strictly:
 
 4. EXPECTATION FRAMING. This is a 6-shot, ~60-second STYLIZED trailer starring the pet — not live-action 4K VFX, not a feature film, not a documentary. "treatmentText" should set that expectation gently while staying exciting: describe the world + vibe, the 6 beats in plain warm language, and close with the tagline.
 
-When revising an existing treatment (a prior WorldBundle plus the customer's requested change will be provided), apply ONLY the requested change where reasonable and keep everything else — world, costume, tone, unaffected cuts — consistent with the prior draft unless the request implies a bigger change.`;
+5. LANGUAGE. The customer's brief may be written in ANY language — read and understand it in whatever language it's in. However:
+   - "costume", "score", every "scene" inside "cuts", and all four "loglines" values (intro/turn/rise/tagline) MUST always be written in ENGLISH, no matter what language the brief is in. This is a hard technical constraint, not a style choice: loglines are rendered as trailer title cards using a Latin-only display font (non-Latin text would render as broken/missing glyphs), and the scene/costume text feeds English-optimized image and video generation models. Loglines keep their existing punchy ALL-CAPS trailer style regardless of the brief's language.
+   - "treatmentText" is the one exception — it is customer-facing prose the customer will read and approve, so write it in the SAME language as the customer's brief (e.g. a Japanese brief gets a Japanese treatmentText), even though the rest of the bundle stays in English.
+
+When revising an existing treatment (a prior WorldBundle plus the customer's requested change will be provided), apply ONLY the requested change where reasonable and keep everything else — world, costume, tone, unaffected cuts — consistent with the prior draft unless the request implies a bigger change. The language rule above (rule 5) applies identically when revising.`;
 
 const TREATMENT_TOOL: Anthropic.Tool = {
   name: "submit_treatment",
@@ -98,7 +113,7 @@ const TREATMENT_TOOL: Anthropic.Tool = {
       },
       loglines: {
         type: "object",
-        description: "4 trailer text beats overlaid on the footage. {name} is allowed and will be replaced with the pet's name.",
+        description: "4 trailer text beats overlaid on the footage. {name} is allowed and will be replaced with the pet's name. ALWAYS IN ENGLISH regardless of the brief's language — rendered with a Latin-only display font, so non-English text would render as broken glyphs.",
         properties: {
           intro: { type: "string" },
           turn: { type: "string" },
@@ -109,7 +124,7 @@ const TREATMENT_TOOL: Anthropic.Tool = {
       },
       treatmentText: {
         type: "string",
-        description: "Warm, readable summary shown to the customer at the approval gate: world + vibe, the 6 beats in plain language, and the tagline.",
+        description: "Warm, readable summary shown to the customer at the approval gate: world + vibe, the 6 beats in plain language, and the tagline. Write this in the SAME language as the customer's brief (this is the one field that's customer-facing prose, not pipeline input) — unlike costume/score/cuts/loglines, which are always English.",
       },
     },
     required: ["status"],

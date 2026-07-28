@@ -2,6 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { upload } from "@vercel/blob/client";
 
 const WORLDS = [
   { key: "deepspace", name: "Deep Space Explorer", logline: "One small crew, one vast galaxy." },
@@ -22,14 +23,28 @@ const MAX_PHOTOS = 8;
 const BRIEF_MIN = 20;
 const BRIEF_MAX = 2000;
 
+/** Submit-button copy while `pending`: upload progress, then the final POST. */
+function submitButtonLabel(status: { uploaded: number; total: number } | "sending" | null): string {
+  if (status === "sending") return "Sending to the studio…";
+  if (status) return `Uploading photo ${Math.min(status.uploaded + 1, status.total)} of ${status.total}…`;
+  return "Sending to the studio…";
+}
+
 /**
  * Intake form shown on /approve/[token] while the order is UPLOADING.
  *
- * preset: pet name + world/personality pick + 4-8 photos, multipart POST to
- * submit-photos (unchanged).
+ * preset: pet name + world/personality pick + 4-8 photos.
  * custom (Director's Cut, isCustom=true): pet name + 4 guided brief fields
  * (setting / mood / one highlight / ending), assembled into ONE customBrief
  * string on submit, + the same 4-8 photos — no world/personality picker.
+ *
+ * Photos are uploaded straight from the browser to Vercel Blob (Vercel
+ * rejects any function request body over ~4.5MB before our handler runs, so
+ * a server-side multipart upload of real phone photos is impossible in
+ * production) — see app/api/orders/upload-token/route.ts for the token
+ * endpoint. Only the resulting URLs are then POSTed as JSON to submit-photos.
+ * Uploads run sequentially, not in parallel, so a phone on mobile data isn't
+ * saturated and the "photo N of M" progress readout stays meaningful.
  */
 export default function PhotoUploadForm({
   orderId,
@@ -53,6 +68,11 @@ export default function PhotoUploadForm({
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const [pending, startTransition] = useTransition();
+  // Drives the submit button's label while uploading: number of photos
+  // uploaded so far, or "sending" once we've moved on to the final JSON POST.
+  const [uploadStatus, setUploadStatus] = useState<{ uploaded: number; total: number } | "sending" | null>(
+    null
+  );
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
@@ -65,6 +85,14 @@ export default function PhotoUploadForm({
     .filter(Boolean)
     .join("\n");
 
+  // Strip path separators and anything but a safe filename charset, keeping
+  // the extension — this becomes part of the Blob pathname, not a display
+  // name, so it just needs to be inoffensive, not pretty.
+  function safeFileName(name: string): string {
+    const cleaned = name.replace(/[/\\]/g, "_").replace(/[^a-zA-Z0-9._-]/g, "_");
+    return cleaned || "photo";
+  }
+
   function addFiles(list: FileList | null) {
     if (!list) return;
     setError(null);
@@ -75,19 +103,39 @@ export default function PhotoUploadForm({
   function submit() {
     setError(null);
     startTransition(async () => {
+      // Upload photos straight to Vercel Blob first, sequentially (not
+      // Promise.all) so a phone on mobile data isn't saturated by 5+
+      // concurrent uploads, and so "photo N of M" is a meaningful readout.
+      const photoUrls: string[] = [];
       try {
-        const fd = new FormData();
-        fd.set("orderId", orderId);
-        fd.set("approveToken", approveToken);
-        fd.set("petName", petName);
-        if (isCustom) {
-          fd.set("customBrief", customBrief);
-        } else {
-          fd.set("world", world);
-          fd.set("personality", personality);
+        for (let i = 0; i < files.length; i++) {
+          setUploadStatus({ uploaded: i, total: files.length });
+          const file = files[i];
+          const pathname = `orders/${orderId}/${Date.now()}-${i}-${safeFileName(file.name)}`;
+          const blob = await upload(pathname, file, {
+            access: "public",
+            handleUploadUrl: "/api/orders/upload-token",
+            clientPayload: JSON.stringify({ orderId, approveToken }),
+          });
+          photoUrls.push(blob.url);
         }
-        files.forEach((f) => fd.append("photos", f));
-        const res = await fetch("/api/orders/submit-photos", { method: "POST", body: fd });
+      } catch {
+        setUploadStatus(null);
+        setError("We couldn't upload your photos — please check your connection and try again.");
+        return;
+      }
+
+      setUploadStatus("sending");
+      try {
+        const res = await fetch("/api/orders/submit-photos", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(
+            isCustom
+              ? { orderId, approveToken, petName, customBrief, photoUrls }
+              : { orderId, approveToken, petName, world, personality, photoUrls }
+          ),
+        });
         const json = (await res.json()) as { ok: boolean; error?: string };
         if (!json.ok) {
           setError(json.error ?? "Something went wrong. Please try again.");
@@ -102,6 +150,8 @@ export default function PhotoUploadForm({
         router.refresh();
       } catch {
         setError("Network hiccup — please try again.");
+      } finally {
+        setUploadStatus(null);
       }
     });
   }
@@ -339,7 +389,7 @@ export default function PhotoUploadForm({
         onClick={submit}
         className="btn-marquee mt-8 w-full px-8 py-4 text-base disabled:cursor-not-allowed disabled:opacity-40"
       >
-        {pending ? "Sending to the studio…" : "Send photos — start pre-production"}
+        {pending ? submitButtonLabel(uploadStatus) : "Send photos — start pre-production"}
       </button>
       <p className="mt-3 text-center text-xs text-muted">
         {isCustom
