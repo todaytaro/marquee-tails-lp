@@ -99,6 +99,12 @@ export default function TreatmentApproval({ orderId, approveToken, petName, trea
         if (json.ok) {
           setInstruction("");
           setShowRevise(false);
+          // Must go back to idle: a revision returns on the SAME status, so
+          // this component stays mounted across the refresh — leaving phase at
+          // "revising" keeps `busy` true and disables Approve and Request
+          // changes for good. (approve() can skip this: it moves the order to
+          // IMAGE_GENERATING, so the server swaps this view out entirely.)
+          setPhase("idle");
           router.refresh(); // same status, fresh treatmentText from the server
           return;
         }
