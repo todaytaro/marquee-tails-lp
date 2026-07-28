@@ -34,24 +34,51 @@ export function isStripeConfigured(): boolean {
   return Boolean(process.env.STRIPE_SECRET_KEY);
 }
 
-export type Tier = "digital" | "feature" | "collector";
+/**
+ * Pass 1 (PRICING-PRODUCT-V2-SPEC.md): 2 plans — "preset" (Preset Worlds,
+ * $99, purchasable) and "custom" (Director's Cut, $249, not sellable yet —
+ * see app/api/checkout/route.ts). The old 3-tier model (digital/feature/
+ * collector) is fully retired.
+ */
+export type Tier = "preset" | "custom";
 
-/** Env var naming: STRIPE_PRICE_DIGITAL / STRIPE_PRICE_FEATURE / STRIPE_PRICE_COLLECTOR. */
+/** Env var naming: STRIPE_PRICE_PRESET / STRIPE_PRICE_CUSTOM. */
 export function getPriceId(tier: Tier): string | null {
   switch (tier) {
-    case "digital":
-      return process.env.STRIPE_PRICE_DIGITAL || null;
-    case "feature":
-      return process.env.STRIPE_PRICE_FEATURE || null;
-    case "collector":
-      return process.env.STRIPE_PRICE_COLLECTOR || null;
+    case "preset":
+      return process.env.STRIPE_PRICE_PRESET || null;
+    case "custom":
+      return process.env.STRIPE_PRICE_CUSTOM || null;
   }
 }
 
 /** Reverse lookup for the webhook: Price ID -> our tier enum. */
 export function priceIdToTier(priceId: string): Tier | null {
-  if (priceId === process.env.STRIPE_PRICE_DIGITAL) return "digital";
-  if (priceId === process.env.STRIPE_PRICE_FEATURE) return "feature";
-  if (priceId === process.env.STRIPE_PRICE_COLLECTOR) return "collector";
+  if (priceId === process.env.STRIPE_PRICE_PRESET) return "preset";
+  if (priceId === process.env.STRIPE_PRICE_CUSTOM) return "custom";
+  return null;
+}
+
+/**
+ * Pass 2 (PRICING-PRODUCT-V2-SPEC.md §5): the post-delivery physical add-on —
+ * a SECOND Stripe Checkout offered at COMPLETED, separate from the base plan
+ * purchase above. Printed Poster ($59) or Gallery Canvas ($99).
+ */
+export type AddonType = "poster" | "canvas";
+
+/** Env: STRIPE_PRICE_ADDON_POSTER / STRIPE_PRICE_ADDON_CANVAS. */
+export function getAddonPriceId(addon: AddonType): string | null {
+  switch (addon) {
+    case "poster":
+      return process.env.STRIPE_PRICE_ADDON_POSTER || null;
+    case "canvas":
+      return process.env.STRIPE_PRICE_ADDON_CANVAS || null;
+  }
+}
+
+/** Reverse lookup for the webhook: Price ID -> add-on type. */
+export function priceIdToAddon(priceId: string): AddonType | null {
+  if (priceId === process.env.STRIPE_PRICE_ADDON_POSTER) return "poster";
+  if (priceId === process.env.STRIPE_PRICE_ADDON_CANVAS) return "canvas";
   return null;
 }

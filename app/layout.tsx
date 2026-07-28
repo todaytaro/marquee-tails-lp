@@ -16,7 +16,7 @@ const inter = Inter({
 const SEO_TITLE =
   "Marquee Tails — A Cinematic Movie Trailer & Poster of Your Pet";
 const SEO_DESCRIPTION =
-  "Turn 5–8 photos of your pet into a 60-second cinematic movie trailer — recognizably them in every shot — plus a matching movie poster you can print. Made with AI, directed and finished by humans. Orders open now, from $75.";
+  "Turn 5–8 photos of your pet into a 60-second cinematic movie trailer — recognizably them in every shot — plus a matching digital movie poster, free. Made with AI, directed and finished by humans. Orders open now, from $99.";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://www.marqueetails.com"),

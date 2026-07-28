@@ -5,8 +5,10 @@ import { prisma } from "@/lib/db";
 import { ApproveForm } from "./ApproveForm";
 import { RerenderShotButton } from "./RerenderShotButton";
 import { RetryFilmButton } from "../RetryFilmButton";
+import { CopyLinkButton } from "./CopyLinkButton";
+import { ResendEmailButton } from "./ResendEmailButton";
 import MoviePosterOverlay from "@/components/MoviePosterOverlay";
-import { getLoglines } from "@/lib/film-script";
+import { resolveWorld } from "@/lib/film-script";
 
 export const dynamic = "force-dynamic";
 
@@ -61,9 +63,10 @@ export default async function AdminOrderReviewPage({
   // Poster copy reuses the film's own loglines — no separate authoring, same
   // story as the trailer's title cards (see app/approve/[token]/page.tsx).
   const petName = order.petName ?? "Unnamed Pet";
-  const posterLoglines = getLoglines(order.world ?? "deepspace", order.personality, petName);
+  const posterLoglines = resolveWorld(order).loglines;
   const posterTagline = posterLoglines.intro;
   const posterSubtitle = posterLoglines.tagline;
+  const isCustom = order.tier === "custom";
 
   // Per-shot identity audit — zip the customer's chosen stills with the video
   // identity gate's clip scores + clips (see lib/film-pipeline).
@@ -77,6 +80,25 @@ export default async function AdminOrderReviewPage({
     .filter((s): s is number => s !== null);
   const lowestScore = scored.length ? Math.min(...scored) : null;
   const hasDrift = lowestScore !== null && lowestScore < DRIFT_THRESHOLD;
+
+  // B-6 — customer-facing magic link (same one sent by email); admin can
+  // copy it directly when a customer says they never received the mail.
+  const customerLink = new URL(
+    `/approve/${order.approveToken}`,
+    process.env.APP_BASE_URL ?? "http://localhost:3100"
+  ).toString();
+
+  // A-3 — physical shipping only exists for Feature Film / Collector's
+  // Edition orders; digital-only orders have none of these fields set.
+  const hasShipping = Boolean(
+    order.shippingName ||
+      order.shippingLine1 ||
+      order.shippingCity ||
+      order.shippingRegion ||
+      order.shippingPostalCode ||
+      order.shippingCountry
+  );
+  const hasPod = Boolean(order.podOrderId || order.podStatus);
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
@@ -107,6 +129,34 @@ export default async function AdminOrderReviewPage({
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
         {/* -------- Left column: media + approval -------- */}
         <div className="space-y-6">
+          {/* Director's Cut (custom, B1) — brief & treatment, read-only support view */}
+          {isCustom && (
+            <section className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4">
+              <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+                <h2 className="font-display text-xl tracking-wide text-ivory">
+                  Director&apos;s Cut — brief &amp; treatment
+                </h2>
+                <span className="text-[10px] uppercase tracking-widest text-muted">
+                  {order.treatmentRevisionCount} revision{order.treatmentRevisionCount === 1 ? "" : "s"}
+                </span>
+              </div>
+              <div className="space-y-4 text-sm">
+                <div>
+                  <p className="text-[10px] uppercase tracking-widest text-muted">Customer brief</p>
+                  <p className="mt-1 whitespace-pre-wrap text-ivory">
+                    {order.customBrief ?? "—"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-widest text-muted">Current treatment</p>
+                  <p className="mt-1 whitespace-pre-wrap text-ivory">
+                    {order.treatmentText ?? "— not drafted yet —"}
+                  </p>
+                </div>
+              </div>
+            </section>
+          )}
+
           {/* FAILED — film generation failed after retries; admin retry */}
           {isFailed && (
             <section className="rounded-[var(--radius-card)] border border-red-500/40 bg-red-500/5 p-4">
@@ -380,6 +430,73 @@ export default async function AdminOrderReviewPage({
               <Meta label="更新" value={timeFormat.format(order.updatedAt)} />
               {order.adminNote && <Meta label="管理メモ" value={order.adminNote} />}
             </dl>
+          </section>
+
+          <section className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4">
+            <h2 className="mb-3 font-display text-xl tracking-wide text-ivory">
+              顧客用リンク
+            </h2>
+            <p className="mb-2 break-all font-mono text-xs text-muted">
+              {customerLink}
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <CopyLinkButton value={customerLink} label="リンクをコピー" />
+              <ResendEmailButton orderId={order.id} />
+            </div>
+          </section>
+
+          <section className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4">
+            <h2 className="mb-3 font-display text-xl tracking-wide text-ivory">
+              配送 / POD
+            </h2>
+            {!hasShipping && !hasPod ? (
+              <p className="text-sm text-muted">
+                物理商品なし（デジタル納品のみ）
+              </p>
+            ) : (
+              <dl className="space-y-3">
+                {hasShipping ? (
+                  <Meta
+                    label="お届け先"
+                    value={
+                      <>
+                        {order.shippingName && <span>{order.shippingName}</span>}
+                        <br />
+                        {order.shippingPostalCode && <span>〒{order.shippingPostalCode} </span>}
+                        {order.shippingCountry && <span>{order.shippingCountry}</span>}
+                        <br />
+                        {order.shippingRegion && <span>{order.shippingRegion} </span>}
+                        {order.shippingCity && <span>{order.shippingCity}</span>}
+                        <br />
+                        {order.shippingLine1 && <span>{order.shippingLine1}</span>}
+                        {order.shippingLine2 && (
+                          <>
+                            <br />
+                            <span>{order.shippingLine2}</span>
+                          </>
+                        )}
+                      </>
+                    }
+                  />
+                ) : (
+                  <Meta label="お届け先" value="未設定" />
+                )}
+                <Meta
+                  label="Printify注文ID"
+                  value={
+                    order.podOrderId ? (
+                      <span className="flex items-center gap-2">
+                        <span className="font-mono text-xs">{order.podOrderId}</span>
+                        <CopyLinkButton value={order.podOrderId} />
+                      </span>
+                    ) : (
+                      "—"
+                    )
+                  }
+                />
+                <Meta label="POD ステータス" value={order.podStatus ?? "—"} />
+              </dl>
+            )}
           </section>
 
           <section className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4">

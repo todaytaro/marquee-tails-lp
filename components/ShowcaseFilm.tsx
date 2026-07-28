@@ -187,8 +187,10 @@ export default function ShowcaseFilm() {
             </h3>
             <p className="mx-auto mt-4 max-w-md text-[0.95rem] leading-relaxed text-muted md:mx-0">
               Every film comes with its own movie poster — real title treatment,
-              real billing block, your pet on the marquee. On the Feature and
-              Collector&rsquo;s editions, we print it and ship it.
+              real billing block, your pet on the marquee — included free as a
+              digital download. Want it on your wall? Printed poster and
+              gallery canvas are available as add-ons once your film is
+              delivered.
             </p>
             <a
               href="#pricing"

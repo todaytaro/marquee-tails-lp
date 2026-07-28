@@ -1,14 +1,18 @@
 import { NextResponse } from "next/server";
 import { getStripeClient, getPriceId, type Tier } from "@/lib/stripe";
 
-const VALID_TIERS: Tier[] = ["digital", "feature", "collector"];
+const VALID_TIERS: Tier[] = ["preset", "custom"];
 
 /**
- * Creates a Stripe Checkout Session for one of the 3 fixed tiers.
+ * Creates a Stripe Checkout Session for one of the 2 plans
+ * (PRICING-PRODUCT-V2-SPEC.md).
  *
- * POST { tier: "digital" | "feature" | "collector" }
+ * POST { tier: "preset" | "custom" }
  *
- * Plumbing only — no Buy button calls this yet (see STRIPE-INTEGRATION-SPEC.md).
+ * "custom" (Director's Cut) is video-only at base checkout, same session
+ * shape as preset — the Claude script-generation + treatment-approval flow
+ * (Director's Cut B1) picks up after intake, at /approve/[token].
+ *
  * Returns 503 while STRIPE_SECRET_KEY is unset, same "not configured yet"
  * posture as the rest of the app's optional integrations.
  */
@@ -47,15 +51,14 @@ export async function POST(req: Request) {
 
   try {
     const base = process.env.APP_BASE_URL ?? "http://localhost:3100";
-    // Feature Film / Collector's Edition ship a physical poster/canvas —
-    // collect a shipping address for those tiers only (see POD-INTEGRATION-SPEC.md §4).
-    const needsShipping = tier === "feature" || tier === "collector";
+    // Pass 1: "preset" is video-only (the digital poster ships free, no
+    // physical good at base checkout) — no shipping address is collected
+    // here. Printed poster / gallery canvas become a post-delivery add-on
+    // purchase in a later pass (see PRICING-PRODUCT-V2-SPEC.md §5), with its
+    // own Checkout session and shipping collection at that time.
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       line_items: [{ price: priceId, quantity: 1 }],
-      ...(needsShipping && {
-        shipping_address_collection: { allowed_countries: ["US", "CA", "GB", "AU"] }, // 要オーナー確認: 対応国
-      }),
       // Forces the buyer to check a Terms-of-service consent box on the
       // Stripe-hosted Checkout page. NOTE: this only works once the owner
       // sets the Terms of service URL in the Stripe Dashboard under

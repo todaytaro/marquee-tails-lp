@@ -1,7 +1,9 @@
 import Link from "next/link";
-import { OrderStatus, type Order } from "@/generated/prisma/client";
+import { Suspense } from "react";
+import { Prisma, OrderStatus, type Order } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { RetryFilmButton } from "./RetryFilmButton";
+import { AdminSearch } from "./AdminSearch";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +24,29 @@ function formatAge(date: Date, now: number): string {
   return `${Math.floor(hours / 24)}日前`;
 }
 
+/**
+ * Japanese label for every OrderStatus — used by StatusOrderRow (progress
+ * queue + search results) so raw enum values never leak into the UI.
+ */
+const STATUS_LABELS: Record<OrderStatus, string> = {
+  UPLOADING: "写真アップ待ち",
+  TREATMENT_GENERATING: "台本生成中（Director's Cut）",
+  AWAITING_TREATMENT_APPROVAL: "Gate0 台本承認待ち（Director's Cut）",
+  IMAGE_GENERATING: "スチル生成中",
+  AWAITING_CUSTOMER_APPROVAL: "Gate1 顧客承認待ち",
+  VIDEO_GENERATING: "制作中",
+  AWAITING_ADMIN_APPROVAL: "Gate2 レビュー待ち",
+  COMPLETED: "完了",
+  FAILED: "失敗",
+  CANCELLED: "キャンセル",
+};
+
+/** Statuses where a long-running age means the *customer* is stalling. */
+const CUSTOMER_STALL_STATUSES: OrderStatus[] = [
+  OrderStatus.UPLOADING,
+  OrderStatus.AWAITING_CUSTOMER_APPROVAL,
+];
+
 /** 48h SLA per business rules: amber past 36h, red past 44h. */
 function slaBadge(date: Date, now: number) {
   const hours = (now - date.getTime()) / 3_600_000;
@@ -40,6 +65,51 @@ function slaBadge(date: Date, now: number) {
     );
   }
   return null;
+}
+
+/** Amber "滞留" badge — customer-side stall (UPLOADING / AWAITING_CUSTOMER_APPROVAL) past 24h. */
+function stallBadge(status: OrderStatus, date: Date, now: number) {
+  if (!CUSTOMER_STALL_STATUSES.includes(status)) return null;
+  const hours = (now - date.getTime()) / 3_600_000;
+  if (hours <= 24) return null;
+  return (
+    <span className="rounded-[var(--radius-chip)] border border-amber-400/50 bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-semibold tracking-wider text-amber-400">
+      滞留
+    </span>
+  );
+}
+
+/**
+ * Row variant that shows the JP status label (A-1's progress queue, and A-2's
+ * search results where orders can be in any status). Unlike OrderRow this
+ * doesn't assume a single fixed status per section.
+ */
+function StatusOrderRow({ order, now }: { order: Order; now: number }) {
+  return (
+    <li>
+      <Link
+        href={`/admin/${order.id}`}
+        className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-hairline px-4 py-2.5 text-sm transition-colors last:border-b-0 hover:bg-gold/5"
+      >
+        <span className="min-w-28 font-medium text-ivory">
+          {order.petName ?? "（名前未設定）"}
+        </span>
+        <span className="min-w-40 text-xs tracking-wider text-gold/80">
+          {STATUS_LABELS[order.status]}
+        </span>
+        <span className="min-w-48 text-muted">{order.customerEmail}</span>
+        <span className="ml-auto flex items-center gap-2">
+          {stallBadge(order.status, order.updatedAt, now)}
+          <span className="text-xs text-muted">
+            {formatAge(order.updatedAt, now)}
+          </span>
+          <span aria-hidden className="text-gold/60">
+            →
+          </span>
+        </span>
+      </Link>
+    </li>
+  );
 }
 
 function OrderRow({
@@ -157,26 +227,59 @@ function EmptyRow({ label }: { label: string }) {
 /* Page                                                                */
 /* ------------------------------------------------------------------ */
 
-export default async function AdminDashboardPage() {
-  const [failed, reviewQueue, inProduction, recentlyCompleted] = await Promise.all([
-    prisma.order.findMany({
-      where: { status: OrderStatus.FAILED },
-      orderBy: { updatedAt: "asc" },
-    }),
-    prisma.order.findMany({
-      where: { status: OrderStatus.AWAITING_ADMIN_APPROVAL },
-      orderBy: { updatedAt: "asc" }, // oldest = most urgent first
-    }),
-    prisma.order.findMany({
-      where: { status: OrderStatus.VIDEO_GENERATING },
-      orderBy: { updatedAt: "asc" },
-    }),
-    prisma.order.findMany({
-      where: { status: OrderStatus.COMPLETED },
-      orderBy: { updatedAt: "desc" },
-      take: 10,
-    }),
-  ]);
+export default async function AdminDashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string }>;
+}) {
+  const { q } = await searchParams;
+  const query = q?.trim() ?? "";
+
+  const [failed, reviewQueue, inProgressQueue, inProduction, recentlyCompleted, searchResults] =
+    await Promise.all([
+      prisma.order.findMany({
+        where: { status: OrderStatus.FAILED },
+        orderBy: { updatedAt: "asc" },
+      }),
+      prisma.order.findMany({
+        where: { status: OrderStatus.AWAITING_ADMIN_APPROVAL },
+        orderBy: { updatedAt: "asc" }, // oldest = most urgent first
+      }),
+      prisma.order.findMany({
+        where: {
+          status: {
+            in: [
+              OrderStatus.UPLOADING,
+              OrderStatus.IMAGE_GENERATING,
+              OrderStatus.AWAITING_CUSTOMER_APPROVAL,
+            ],
+          },
+        },
+        orderBy: { updatedAt: "asc" }, // most-stalled first
+      }),
+      prisma.order.findMany({
+        where: { status: OrderStatus.VIDEO_GENERATING },
+        orderBy: { updatedAt: "asc" },
+      }),
+      prisma.order.findMany({
+        where: { status: OrderStatus.COMPLETED },
+        orderBy: { updatedAt: "desc" },
+        take: 10,
+      }),
+      query
+        ? prisma.order.findMany({
+            where: {
+              OR: [
+                { customerEmail: { contains: query, mode: Prisma.QueryMode.insensitive } },
+                { petName: { contains: query, mode: Prisma.QueryMode.insensitive } },
+                { id: { contains: query, mode: Prisma.QueryMode.insensitive } },
+                { stripeSessionId: { contains: query, mode: Prisma.QueryMode.insensitive } },
+              ],
+            },
+            orderBy: { updatedAt: "desc" },
+          })
+        : Promise.resolve(null),
+    ]);
 
   // eslint-disable-next-line react-hooks/purity -- server component rendered per-request; wall-clock read is intentional (SLA age badges)
   const now = Date.now();
@@ -201,7 +304,27 @@ export default async function AdminDashboardPage() {
         </Link>
       </header>
 
+      <div className="mb-8">
+        <Suspense fallback={null}>
+          <AdminSearch />
+        </Suspense>
+      </div>
+
       <div className="space-y-8">
+        {searchResults !== null && (
+          <Section title="検索結果" count={searchResults.length} accent>
+            {searchResults.length === 0 ? (
+              <EmptyRow label="該当なし" />
+            ) : (
+              <ul>
+                {searchResults.map((order) => (
+                  <StatusOrderRow key={order.id} order={order} now={now} />
+                ))}
+              </ul>
+            )}
+          </Section>
+        )}
+
         <Section title="失敗（要対応）" count={failed.length} danger>
           {failed.length === 0 ? (
             <EmptyRow label="失敗した注文はありません。" />
@@ -221,6 +344,18 @@ export default async function AdminDashboardPage() {
             <ul>
               {reviewQueue.map((order) => (
                 <OrderRow key={order.id} order={order} now={now} sla />
+              ))}
+            </ul>
+          )}
+        </Section>
+
+        <Section title="顧客・生成待ち（進行中）" count={inProgressQueue.length}>
+          {inProgressQueue.length === 0 ? (
+            <EmptyRow label="進行中の注文はありません。" />
+          ) : (
+            <ul>
+              {inProgressQueue.map((order) => (
+                <StatusOrderRow key={order.id} order={order} now={now} />
               ))}
             </ul>
           )}

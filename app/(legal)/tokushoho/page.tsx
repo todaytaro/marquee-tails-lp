@@ -51,15 +51,14 @@ export default function TokushohoPage() {
           <tr>
             <th>販売価格</th>
             <td>
-              各商品ページに表示（Digital Premiere $75 / Feature Film $129 /
-              Collector&rsquo;s Edition $199）。表示価格は全て税込です。
+              各商品ページに表示（Preset Worlds $99）。Director&rsquo;s Cut
+              $249は近日公開で現在は販売しておりません。表示価格は全て税込です。
             </td>
           </tr>
           <tr>
             <th>商品代金以外の必要料金</th>
             <td>
-              送料（Feature Film・Collector&rsquo;s
-              Editionの物理商品配送分）は各プラン価格に含まれており、別途ご負担いただく送料はありません。決済手数料も同様にお客様のご負担はありません。
+              本プランはデジタル動画・デジタルポスターの提供のみで、送料は発生しません。決済手数料もお客様のご負担はありません。プリント版ポスター（$59）・ギャラリーキャンバス（$99）は納品後に追加購入いただけるオプション（アドオン）で、その決済・送料は別途発生します。
             </td>
           </tr>
           <tr>
@@ -73,8 +72,7 @@ export default function TokushohoPage() {
           <tr>
             <th>引渡し時期</th>
             <td>
-              デジタル: 絵コンテ承認後48時間以内。物理商品: Printifyでの制作・発送後
-              7〜14営業日。
+              動画・デジタルポスター: 絵コンテ承認後48時間以内にお届けします。
             </td>
           </tr>
           <tr>

@@ -26,6 +26,9 @@ enum OrderStatus {
   COMPLETED // delivered + POD ordered
   FAILED // film generation failed after retries — awaiting admin retry
   CANCELLED // reserved — currently unused (no flow transitions in/out)
+  // --- Director's Cut (custom) — B1 "Gate 0" ---
+  TREATMENT_GENERATING // custom only: Claude is drafting/redrafting the treatment
+  AWAITING_TREATMENT_APPROVAL // custom only: customer reads the treatment, approves or asks for changes
 }
 
 model Order {
@@ -83,8 +86,10 @@ model Order {
   // { heroSheet?, shotStillUrls?, clipUrls?, scoreUrl? }
   filmArtifacts Json?
 
-  // Shipping — Feature Film / Collector's Edition のみ埋まる(Digitalは物理商品なし)。
-  // Stripe Checkout の shipping_address_collection から埋める想定(§4参照)。
+  // Shipping — filled by the ADD-ON checkout (physical poster/canvas
+  // purchase, post-delivery), not the base plan checkout. Base plans are
+  // video + digital poster only, so no address is collected at base
+  // checkout. Stripe Checkout の shipping_address_collection から埋める想定。
   shippingName       String?
   shippingLine1      String?
   shippingLine2      String?
@@ -93,9 +98,32 @@ model Order {
   shippingPostalCode String?
   shippingCountry    String? // ISO 3166-1 alpha-2 (e.g. "US")
 
-  // Printify連携の監査用
+  // Printify連携の監査用 — populated once the physical add-on's Printify
+  // order fires (see addonType below); no physical good exists before that.
   podOrderId String? // PrintifyのオーダーID（サポート対応・突合用）
   podStatus  String? // Printifyから最後に確認できたステータス(任意のキャッシュ、無くても動く)
+
+  // --- Physical add-on (Pass 2 — post-delivery upsell) ---
+  // The digital poster ships free with every plan. The printed poster /
+  // gallery canvas are an optional SECOND purchase after delivery
+  // (status COMPLETED), via their own Stripe Checkout + Printify order.
+  // One physical add-on per order in this pass. Shipping is collected at the
+  // add-on Checkout and lands in the existing shipping* columns; the Printify
+  // order id/status reuse the existing podOrderId/podStatus columns.
+  addonType            String?   // "poster" | "canvas"
+  addonStripeSessionId String?   @unique // the 2nd Checkout session — idempotency key
+  addonPaidCents       Int?      // audit: session.amount_total of the add-on
+  addonPurchasedAt     DateTime?
+
+  // --- Director's Cut (custom) — B1 ---
+  // The customer's free-text brief (guided fields concatenated). Claude turns
+  // this into a "world bundle" (generatedScript) equivalent to a static entry
+  // in lib/film-script.ts, plus a human-readable treatment shown for approval.
+  customBrief            String? // guided brief (setting/mood/highlight/ending)
+  generatedScript        Json?   // Claude's structured world bundle (see lib/claude-script.ts WorldBundle)
+  treatmentText          String? // human-readable treatment shown at the approval gate
+  treatmentRevisionCount Int     @default(0) // internal abuse cap only (NOT a customer-facing limit)
+  // world/personality stay nullable and are simply unused for custom orders.
 
   // customer-facing approval links authenticate with this token, not a login
   approveToken String @unique @default(cuid())

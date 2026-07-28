@@ -3,7 +3,7 @@ import { OrderStatus, type Order } from "@/generated/prisma/client";
 import { prisma } from "./db";
 import { transitionOrder } from "./orders";
 import { sendChooseStillEmail } from "./mocks";
-import { getArc, getCostume, SHOT_FRAMINGS } from "./film-script";
+import { resolveWorld, SHOT_FRAMINGS } from "./film-script";
 import { VISION_MODEL, VISION_LLM, publicUrl, scoreIdentity } from "./identity";
 
 /**
@@ -230,9 +230,9 @@ export async function runStillsGeneration(order: Order): Promise<void> {
   if (order.uploadedPhotoUrls.length === 0) {
     throw new Error(`Order ${order.id} has no uploaded photos`);
   }
-  const world = order.world ?? "deepspace";
-  const costume = getCostume(world);
-  const arc = getArc(world, order.personality).slice(0, NUM_CUTS);
+  const resolved = resolveWorld(order);
+  const costume = resolved.costume;
+  const arc = resolved.arc.slice(0, NUM_CUTS);
 
   // Stage 0/1 are resumable: if this order already carries an extracted feature
   // description AND an identity portrait (e.g. a re-run, or a seed reusing a
@@ -269,7 +269,7 @@ export async function runStillsGeneration(order: Order): Promise<void> {
     });
   }
 
-  console.log(`[stills] stage 2: hero sheet order=${order.id} world=${world}`);
+  console.log(`[stills] stage 2: hero sheet order=${order.id} world=${order.tier === "custom" ? "custom" : (order.world ?? "deepspace")}`);
   const heroRefs = [identityPortraitUrl, ...orderedPhotos.slice(0, 2)].map(publicUrl);
   const heroSheet = await generateHeroSheet(heroRefs, description, costume);
   // Persist — the admin's Gate-2 re-shoot needs the same costume anchor later.
@@ -326,11 +326,11 @@ export async function reshootCutStill(
   const portrait = order.identityPortraitUrl;
   if (!portrait) throw new Error(`order ${order.id} has no identityPortraitUrl`);
   const storyboard = (order.storyboardOptions as StoryboardCut[] | null) ?? [];
-  const world = order.world ?? "deepspace";
-  const scene = storyboard[cutIndex]?.scene ?? getArc(world, order.personality)[cutIndex];
+  const resolved = resolveWorld(order);
+  const scene = storyboard[cutIndex]?.scene ?? resolved.arc[cutIndex];
   if (!scene) throw new Error(`order ${order.id} has no scene for cut ${cutIndex}`);
   const description = order.petDescription ?? "the pet shown in the reference images";
-  const costume = getCostume(world);
+  const costume = resolved.costume;
 
   const costumeAnchor =
     order.heroSheetUrl ?? order.chosenStills.find((_, i) => i !== cutIndex);
@@ -370,8 +370,7 @@ export async function kickStillsGeneration(order: Order): Promise<void> {
     // Fabricate a 6-cut × 3-take storyboard from the local world assets so the
     // Gate-1 wizard, e2e and status machine can run for free. Scenes come from
     // the real arc so the wizard copy matches production.
-    const world = order.world ?? "deepspace";
-    const arc = getArc(world, order.personality).slice(0, NUM_CUTS);
+    const arc = resolveWorld(order).arc.slice(0, NUM_CUTS);
     const assets = ["/assets/world-deepspace.png", "/assets/world-storybook.png", "/assets/world-noir.png"];
     const storyboard: StoryboardCut[] = arc.map((scene, cut) => ({
       scene,

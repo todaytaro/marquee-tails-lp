@@ -1,7 +1,7 @@
 const faqs = [
   {
     q: "How does it work, and what do I actually get?",
-    a: "You upload 5–8 photos of your pet. We build a character sheet — the official reference for their face, coat, and markings — then a full storyboard, and you approve it shot by shot before anything gets filmed. Our studio produces a 60-second cinematic trailer: six shots in your chosen world, scored and edited like a real film. Every edition includes a movie poster; the Feature Film and Collector's editions add printed poster and gallery canvas.",
+    a: "You upload 5–8 photos of your pet. We build a character sheet — the official reference for their face, coat, and markings — then a full storyboard, and you approve it shot by shot before anything gets filmed. Our studio produces a 60-second cinematic trailer: six shots in your chosen world, scored and edited like a real film. Every plan includes a digital movie poster, free. Printed poster and gallery canvas are available as add-ons once your film is delivered.",
   },
   {
     q: "Will it actually look like my pet?",
@@ -13,7 +13,7 @@ const faqs = [
   },
   {
     q: "How long does it take?",
-    a: "48 hours from the moment you approve the storyboard. We keep it that fast by producing only 5 films per day — real slots, reserved on a first-come basis. Collector's Edition orders get priority production.",
+    a: "48 hours from the moment you approve the storyboard. We keep it that fast by producing only 5 films per day — real slots, reserved on a first-come basis.",
   },
   {
     q: "Is this made with AI?",
@@ -25,7 +25,7 @@ const faqs = [
   },
   {
     q: "Can I order right now?",
-    a: "Yes — orders are open today. Pick an edition, upload your photos, and approve your storyboard; we produce just 5 films a day, so the earlier you order, the sooner your slot is locked in.",
+    a: "Yes — Preset Worlds orders are open today. Pick a plan, upload your photos, and approve your storyboard; we produce just 5 films a day, so the earlier you order, the sooner your slot is locked in.",
   },
 ] as const;
 

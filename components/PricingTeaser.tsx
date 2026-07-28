@@ -3,57 +3,54 @@
 import { useState } from "react";
 import Image from "next/image";
 
-type TierKey = "digital" | "feature" | "collector";
+type TierKey = "preset" | "custom";
 
 type Tier = {
   key: TierKey;
   name: string;
+  blurb: string;
   price: string;
   items: readonly string[];
   flag: string;
   delivery: string;
+  purchasable: boolean;
+  featured: boolean;
 };
 
 const tiers: readonly Tier[] = [
   {
-    key: "digital",
-    name: "Digital Premiere",
-    price: "$75",
+    key: "preset",
+    name: "Preset Worlds",
+    blurb: "A ready-made world — your pet cast as the star.",
+    price: "$99",
     items: [
-      "60-second cinematic trailer",
-      "Your pet, recognizably them, in six shots",
-      "Your choice of the three original worlds",
-      "Digital movie poster",
+      "60-second cinematic trailer in a director-made world",
+      "Choose Deep Space Explorer, Storybook Kingdom, or Noir Detective",
+      "Your pet, instantly recognizable, across six starring shots",
+      "Digital movie poster — included free",
       "HD delivery, 48h after storyboard approval",
     ],
-    flag: "",
+    flag: "Available now",
     delivery: "Instant digital delivery",
+    purchasable: true,
+    featured: false,
   },
   {
-    key: "feature",
-    name: "Feature Film",
-    price: "$129",
+    key: "custom",
+    name: "Director's Cut",
+    blurb: "No presets — your story, your world, your call.",
+    price: "$249",
     items: [
-      "Everything in Digital Premiere",
-      "Cinema-quality movie poster, printed and shipped",
-      "Formats cut for TikTok, Instagram, and the big screen",
-      "The one most people gift",
+      "A fully bespoke trailer — your story, your world, not a preset",
+      "You're the director: shape and approve the written treatment first",
+      "Then approve the storyboard, shot by shot, before we film a frame",
+      "Digital movie poster — included free",
+      "Strictly limited slots each day — reserved, not mass-produced",
     ],
-    flag: "Most Popular",
-    delivery: "Free worldwide shipping included",
-  },
-  {
-    key: "collector",
-    name: "Collector's Edition",
-    price: "$199",
-    items: [
-      "16×20 gallery canvas of the poster",
-      "Full 4K delivery",
-      "Priority production slot — you skip the queue",
-      "Everything in Feature Film",
-    ],
-    flag: "",
-    delivery: "Free worldwide shipping included",
+    flag: "Limited slots",
+    delivery: "Limited slots, by application",
+    purchasable: true,
+    featured: true,
   },
 ];
 
@@ -72,7 +69,7 @@ export default function PricingTeaser() {
       });
       const data = await res.json();
       if (data.ok && data.url) {
-        window.location.href = data.url;
+        window.location.assign(data.url);
         return;
       }
       setError(data.error ?? "Something went wrong. Please try again.");
@@ -96,80 +93,147 @@ export default function PricingTeaser() {
         id="pricing-heading"
         className="mt-3 text-center font-display uppercase tracking-[0.08em] text-ivory text-[clamp(2rem,6vw,3.25rem)] leading-none"
       >
-        Three editions. One star.
+        Two ways to premiere.
       </h2>
       <p className="mx-auto mt-4 max-w-xl text-center text-sm leading-relaxed text-muted">
-        A custom pet portrait alone runs $150+. This is a whole film — with a
-        poster.
+        A custom pet portrait alone runs $150+. This is a whole film, poster
+        included — in a world we built, or one built entirely around yours.
       </p>
 
-      <div className="mt-12 grid gap-6 md:grid-cols-3 md:items-start">
-        {tiers.map((tier) => {
-          const isPopular = tier.flag === "Most Popular";
-          const isCollectors = tier.name === "Collector's Edition";
-          return (
-            <article
-              key={tier.name}
-              className={`relative overflow-hidden rounded-card border bg-surface p-6 ${
-                isPopular ? "border-gold/60 gold-glow-box" : "border-hairline"
-              }`}
-            >
-              {isPopular && (
-                <p className="absolute top-0 right-0 rounded-bl-card bg-gold px-3 py-1 font-display text-xs uppercase tracking-[0.2em] text-night">
-                  {tier.flag}
-                </p>
-              )}
-              <h3 className="font-display text-xl uppercase tracking-[0.12em] text-ivory">
-                {tier.name}
-              </h3>
-              <p className="mt-2 font-display text-[3rem] leading-none tracking-[0.04em] text-gold">
-                {tier.price}
-              </p>
-              <p className="mt-1 inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-gold-bright">
-                <span aria-hidden="true">🎬</span> Launch pricing
-              </p>
-              <p className="mt-2 text-[0.8rem] font-medium text-muted">
-                {tier.delivery}
-              </p>
-              <ul className="mt-5 space-y-2.5 border-t border-hairline pt-5">
-                {tier.items.map((item) => (
-                  <li
-                    key={item}
-                    className="flex gap-2.5 text-[0.9rem] leading-snug text-muted"
-                  >
-                    <span aria-hidden="true" className="mt-px text-gold">
-                      ★
+      <div className="relative mt-12">
+        {/* Faint radial gold glow, biased toward the featured ticket */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute left-1/2 top-0 -z-10 h-[420px] w-[420px] max-w-[88vw] -translate-x-1/2 rounded-full bg-[radial-gradient(circle,rgba(232,182,76,0.16),transparent_70%)] blur-3xl motion-reduce:opacity-70 md:left-3/4 md:h-[480px] md:w-[480px]"
+        />
+
+        <div className="grid gap-6 md:grid-cols-2 md:items-start">
+          {tiers.map((tier, index) => {
+            const isFeatured = tier.featured;
+            return (
+              <article
+                key={tier.key}
+                className={`relative flex flex-col overflow-hidden rounded-card border bg-surface motion-safe:transition-[transform,box-shadow] motion-safe:duration-300 ${
+                  isFeatured
+                    ? "border-gold/60 gold-glow-box motion-safe:hover:-translate-y-1.5 motion-safe:hover:shadow-[0_0_60px_rgba(232,182,76,0.45)]"
+                    : "border-hairline"
+                }`}
+              >
+                {isFeatured && (
+                  <div className="film-strip" aria-hidden="true" />
+                )}
+
+                {/* Stub zone — ticket number, "Admit one", and a status stamp */}
+                <div className="flex items-center justify-between gap-3 px-5 py-4">
+                  <div className="flex items-baseline gap-2">
+                    <span className="font-display text-2xl leading-none text-gold/70">
+                      №&nbsp;{String(index + 1).padStart(2, "0")}
                     </span>
-                    <span>{item}</span>
-                  </li>
-                ))}
-              </ul>
-              {isCollectors && (
-                <div className="mt-5 flex items-center gap-3 rounded-chip border border-hairline bg-night/60 p-2.5">
-                  <Image
-                    src="/assets/poster.png"
-                    alt="Painterly movie poster of a heroic corgi in a khaki explorer jacket with leather straps, posed on a rocky summit from a dramatic low angle against golden storm clouds, with the bold title TOP BILLING and a faux credit block at the bottom."
-                    width={64}
-                    height={96}
-                    className="h-24 w-16 rounded-[4px] object-cover"
-                  />
-                  <p className="text-xs leading-relaxed text-muted">
-                    The poster, printed on 16×20 gallery canvas — ready for the
-                    lobby wall.
+                    <span className="text-[10px] uppercase tracking-[0.3em] text-muted">
+                      Admit one
+                    </span>
+                  </div>
+                  {tier.flag && (
+                    <span
+                      className={`inline-block shrink-0 rounded-chip border px-2.5 py-1 text-center font-display text-[11px] uppercase leading-tight tracking-[0.16em] ${
+                        isFeatured
+                          ? "-rotate-3 border-gold/50 text-gold-bright"
+                          : "border-gold/40 text-gold-bright"
+                      }`}
+                    >
+                      {tier.flag}
+                    </span>
+                  )}
+                </div>
+
+                {/* Perforation — dashed tear line with punched notches at the edges */}
+                <div
+                  className="relative border-t border-dashed border-gold/25"
+                  aria-hidden="true"
+                >
+                  <span className="ticket-notch left-0 top-0 -translate-x-1/2 -translate-y-1/2" />
+                  <span className="ticket-notch right-0 top-0 translate-x-1/2 -translate-y-1/2" />
+                </div>
+
+                {/* Body */}
+                <div className="flex flex-1 flex-col px-6 pb-6 pt-5">
+                  <h3 className="font-display text-xl uppercase tracking-[0.12em] text-ivory">
+                    {tier.name}
+                  </h3>
+                  <p className="mt-1 text-[0.8rem] leading-snug text-muted">
+                    {tier.blurb}
+                  </p>
+                  <p className="mt-2 flex items-baseline gap-2">
+                    <span
+                      className={`font-display text-[3rem] leading-none tracking-[0.04em] ${
+                        isFeatured ? "text-gold gold-glow-text" : "text-gold"
+                      }`}
+                    >
+                      {tier.price}
+                    </span>
+                    <span className="text-[0.7rem] uppercase tracking-[0.1em] text-muted">
+                      USD / one-time
+                    </span>
+                  </p>
+                  <p className="mt-1 inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-gold-bright">
+                    <span aria-hidden="true">🎬</span> Launch pricing
+                  </p>
+                  <p className="mt-2 text-[0.8rem] font-medium text-muted">
+                    {tier.delivery}
+                  </p>
+                  <ul className="mt-5 space-y-2.5 border-t border-hairline pt-5">
+                    {tier.items.map((item) => (
+                      <li
+                        key={item}
+                        className="flex gap-2.5 text-[0.9rem] leading-snug text-muted"
+                      >
+                        <span aria-hidden="true" className="mt-px text-gold">
+                          ★
+                        </span>
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {isFeatured && (
+                    <div className="mt-5 flex items-center gap-3 rounded-chip border border-hairline bg-night/60 p-2.5">
+                      <Image
+                        src="/assets/poster.png"
+                        alt="Painterly movie poster of a heroic corgi in a khaki explorer jacket with leather straps, posed on a rocky summit from a dramatic low angle against golden storm clouds, with the bold title TOP BILLING and a faux credit block at the bottom."
+                        width={64}
+                        height={96}
+                        className="h-24 w-16 rounded-[4px] object-cover"
+                      />
+                      <p className="text-xs leading-relaxed text-muted">
+                        Your digital movie poster — same painterly one-sheet
+                        style, ready to download.
+                      </p>
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleBuy(tier.key)}
+                    disabled={loadingTier !== null || !tier.purchasable}
+                    className={
+                      tier.purchasable
+                        ? "btn-marquee mt-6 w-full py-3 text-sm font-semibold disabled:opacity-60"
+                        : "mt-6 w-full cursor-default rounded-chip border border-dashed border-hairline py-3 text-sm font-semibold uppercase tracking-[0.16em] text-muted"
+                    }
+                  >
+                    {tier.purchasable
+                      ? loadingTier === tier.key
+                        ? "Redirecting…"
+                        : `Get ${tier.name}`
+                      : "Coming soon"}
+                  </button>
+                  <p className="mt-3 text-center text-[0.75rem] leading-relaxed text-muted">
+                    Printed poster ($59) &amp; gallery canvas ($99) available
+                    as add-ons after your film is delivered.
                   </p>
                 </div>
-              )}
-              <button
-                type="button"
-                onClick={() => handleBuy(tier.key)}
-                disabled={loadingTier !== null}
-                className="btn-marquee mt-6 w-full py-3 text-sm font-semibold disabled:opacity-60"
-              >
-                {loadingTier === tier.key ? "Redirecting…" : `Get ${tier.name}`}
-              </button>
-            </article>
-          );
-        })}
+              </article>
+            );
+          })}
+        </div>
       </div>
 
       {error && (

@@ -245,3 +245,18 @@ body {
     radial-gradient(circle 12px at right center, transparent 98%, black 100%);
   -webkit-mask-composite: source-in;
 }
+
+/* ---------------------------------------------------------------- */
+/* Utilities — pricing ticket perforation notch (punch-hole circle)  */
+/* Sits on a ticket's stub/body seam; parent needs overflow-hidden   */
+/* so half the circle clips off, reading as a torn-ticket punch.     */
+/* ---------------------------------------------------------------- */
+
+.ticket-notch {
+  position: absolute;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 9999px;
+  border: 1px solid var(--color-hairline);
+  background-color: var(--color-night);
+}

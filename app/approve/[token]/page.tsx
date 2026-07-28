@@ -6,10 +6,12 @@ import { prisma } from "@/lib/db";
 import StoryboardWizard from "@/components/StoryboardWizard";
 import PosterPicker from "@/components/PosterPicker";
 import type { StoryboardCut } from "@/lib/stills-pipeline";
-import { getLoglines } from "@/lib/film-script";
+import { resolveWorld } from "@/lib/film-script";
 import PhotoUploadForm from "@/components/PhotoUploadForm";
 import StatusPoller from "@/components/StatusPoller";
 import ProductionProgress from "@/components/ProductionProgress";
+import AddonUpsell from "@/components/AddonUpsell";
+import TreatmentApproval from "@/components/TreatmentApproval";
 
 /**
  * Customer approval page (Gate 1) — opened from the email link.
@@ -158,6 +160,42 @@ function WaitingView({ petName, elapsedSeconds }: { petName: string; elapsedSeco
   );
 }
 
+/**
+ * Director's Cut "Gate 0" waiting view — shown while Claude drafts (or
+ * redrafts) the treatment. In the B1 flow this runs inline inside the
+ * submit-photos / revise-treatment request, so a customer normally never
+ * lands here mid-render; it exists as a defensive fallback (a second tab, a
+ * slow request that outlasts the client's own fetch, or a future async move).
+ */
+function TreatmentWaitingView({ petName, elapsedSeconds }: { petName: string; elapsedSeconds: number }) {
+  const messages = [
+    `Our director is writing ${petName}'s treatment…`,
+    "Sketching the world…",
+    "Blocking the six key scenes…",
+    "Finding the tagline…",
+  ];
+  return (
+    <div className="mx-auto max-w-2xl text-center">
+      <p className="text-sm uppercase tracking-[0.3em] text-muted">
+        Now in the writers&apos; room
+      </p>
+      <h1 className="mt-4 font-display text-5xl tracking-wide text-gold gold-glow-text sm:text-7xl">
+        DRAFTING {petName.toUpperCase()}&apos;S TREATMENT
+      </h1>
+      <p className="mt-6 text-lg text-muted">
+        Your director is turning {petName}&apos;s brief into a story — a
+        world, a costume, six scenes and a tagline. You&apos;ll get the first
+        look in a moment, and you can ask for changes before anything is
+        filmed.
+      </p>
+      <ProductionProgress messages={messages} elapsedSeconds={elapsedSeconds} estimateSeconds={30} />
+      <p className="mt-6 text-xs text-muted">
+        This updates on its own — no need to refresh.
+      </p>
+    </div>
+  );
+}
+
 function Gate1View({ order, petName }: { order: Order; petName: string }) {
   const storyboard = (order.storyboardOptions as StoryboardCut[] | null) ?? [];
   // Defensive: an order can only reach Gate 1 with a storyboard, but guard
@@ -206,8 +244,8 @@ function Gate1View({ order, petName }: { order: Order; petName: string }) {
  * Poster copy reuses the same per-world/personality loglines as the film's
  * title cards — no separate authoring, and it reads as one connected story.
  */
-function posterCopy(order: Order, petName: string): { tagline: string; subtitle: string } {
-  const loglines = getLoglines(order.world ?? "deepspace", order.personality, petName);
+function posterCopy(order: Order): { tagline: string; subtitle: string } {
+  const loglines = resolveWorld(order).loglines;
   return { tagline: loglines.intro, subtitle: loglines.tagline };
 }
 
@@ -255,7 +293,7 @@ function FilmingView({ order, petName, elapsedSeconds }: { order: Order; petName
           petName={petName}
           posterOptions={order.posterOptions}
           chosenPosterUrl={order.posterUrl}
-          {...posterCopy(order, petName)}
+          {...posterCopy(order)}
         />
       )}
     </div>
@@ -294,7 +332,7 @@ function QualityCheckView({ order, petName }: { order: Order; petName: string })
           petName={petName}
           posterOptions={order.posterOptions}
           chosenPosterUrl={order.posterUrl}
-          {...posterCopy(order, petName)}
+          {...posterCopy(order)}
         />
       )}
     </div>
@@ -360,6 +398,15 @@ function PremiereView({ order, petName }: { order: Order; petName: string }) {
           </p>
         </div>
       )}
+      {order.posterPrintUrl && (
+        <AddonUpsell
+          orderId={order.id}
+          approveToken={order.approveToken}
+          petName={petName}
+          posterUrl={order.posterUrl}
+          purchasedAddon={order.addonType}
+        />
+      )}
     </div>
   );
 }
@@ -396,6 +443,8 @@ export default async function ApprovePage({
     return Math.max(0, Math.round((Date.now() - since.getTime()) / 1000));
   }
 
+  const isCustom = order.tier === "custom";
+
   let view: React.ReactNode;
   switch (order.status) {
     case OrderStatus.UPLOADING:
@@ -409,13 +458,31 @@ export default async function ApprovePage({
               Casting call
             </h1>
             <p className="mt-4 leading-relaxed text-muted">
-              Send us your pet&apos;s photos and pick their world. Our
-              directors will paint three concept stills for you to choose
-              from — nothing goes to film until you approve one.
+              {isCustom
+                ? "Send us your pet's photos and tell us the story you want — the world, the mood, one moment that has to be in it, how it ends. Our director turns that into a treatment for you to approve before anything is filmed."
+                : "Send us your pet's photos and pick their world. Our directors will paint three concept stills for you to choose from — nothing goes to film until you approve one."}
             </p>
           </header>
-          <PhotoUploadForm orderId={order.id} approveToken={order.approveToken} />
+          <PhotoUploadForm orderId={order.id} approveToken={order.approveToken} isCustom={isCustom} />
         </section>
+      );
+      break;
+    case OrderStatus.TREATMENT_GENERATING:
+      view = (
+        <>
+          <StatusPoller token={order.approveToken} currentStatus={order.status} />
+          <TreatmentWaitingView petName={petName} elapsedSeconds={await elapsedInStatus()} />
+        </>
+      );
+      break;
+    case OrderStatus.AWAITING_TREATMENT_APPROVAL:
+      view = (
+        <TreatmentApproval
+          orderId={order.id}
+          approveToken={order.approveToken}
+          petName={petName}
+          treatmentText={order.treatmentText ?? ""}
+        />
       );
       break;
     case OrderStatus.IMAGE_GENERATING:

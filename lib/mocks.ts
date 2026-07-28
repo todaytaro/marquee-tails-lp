@@ -14,12 +14,14 @@ import type { Order } from "@/generated/prisma/client";
  *    going live before Klaviyo flows are built out.
  * 3. console.log mock — neither configured (current default/dev state).
  *
- * sendWelcomeUploadEmail / sendChooseStillEmail / sendDeliveryEmail all
- * follow this same 3-tier fallback.
+ * sendWelcomeUploadEmail / sendChooseStillEmail / sendDeliveryEmail /
+ * sendAddonConfirmationEmail all follow this same 3-tier fallback.
  *
- * createPodOrder -> lib/printify.ts's Printify order API (Feature Film /
- * Collector's Edition tiers only; digital-only orders are a no-op). Logs and
- * returns cleanly if PRINTIFY_API_KEY isn't configured yet.
+ * createPodOrder -> lib/printify.ts's Printify order API. Pass 2
+ * (PRICING-PRODUCT-V2-SPEC.md §5): fires once an order has purchased a
+ * physical add-on (Printed Poster / Gallery Canvas) via the add-on Checkout
+ * webhook (app/api/webhooks/stripe/route.ts) — a no-op before that. Logs
+ * and returns cleanly if PRINTIFY_API_KEY isn't configured yet.
  */
 
 const KLAVIYO_REVISION = "2024-10-15";
@@ -133,6 +135,7 @@ export async function sendDeliveryEmail(order: Order): Promise<void> {
         <p>${petName}'s film has wrapped, passed quality check, and is ready
         to premiere.</p>
         <p><a href="${link}">Watch and download ${petName}'s film →</a></p>
+        <p><a href="${link}">Make it a keepsake — add a printed poster or gallery canvas →</a></p>
         <p style="color:#888;font-size:12px">This is a private screening link, just for you.</p>
       `,
     });
@@ -181,8 +184,11 @@ export async function sendWelcomeUploadEmail(order: Order): Promise<void> {
 }
 
 export async function createPodOrder(order: Order): Promise<void> {
-  if (order.tier === "digital" || !order.tier) {
-    console.log(`[pod] skip — order=${order.id} tier=${order.tier ?? "unknown"} has no physical good`);
+  // Pass 2: fires once an order has purchased a physical add-on (Printed
+  // Poster / Gallery Canvas) — a no-op before that (no plan sells a physical
+  // good at base checkout).
+  if (!order.addonType) {
+    console.log(`[pod] skip — order=${order.id} no physical add-on purchased`);
     return;
   }
   try {
@@ -193,7 +199,7 @@ export async function createPodOrder(order: Order): Promise<void> {
       await prisma.order.update({ where: { id: order.id }, data: { podOrderId: result.printifyOrderId } });
       console.log(`[pod] Printify order created order=${order.id} printifyOrderId=${result.printifyOrderId}`);
     } else {
-      console.log(`[pod] Printify not configured yet — order=${order.id} tier=${order.tier} not submitted (set PRINTIFY_API_KEY etc.)`);
+      console.log(`[pod] Printify not configured yet — order=${order.id} addonType=${order.addonType} not submitted (set PRINTIFY_*_BLUEPRINT_ID etc.)`);
     }
   } catch (err) {
     // Never let a POD failure block delivery — same pattern as poster-print
@@ -201,4 +207,49 @@ export async function createPodOrder(order: Order): Promise<void> {
     // manually submit the Printify order if it ever fires in production.
     console.error(`[pod] Printify order FAILED order=${order.id} — manual follow-up needed`, err);
   }
+}
+
+/** Human label for the add-on type — used in confirmation email + UI. */
+function addonLabel(addonType: string): string {
+  return addonType === "canvas" ? "gallery canvas" : "printed poster";
+}
+
+/**
+ * Pass 2 — sent when the add-on Checkout webhook attaches a purchased
+ * physical add-on to an order (app/api/webhooks/stripe/route.ts). Follows
+ * the same 3-tier provider chain as sendDeliveryEmail et al.
+ */
+export async function sendAddonConfirmationEmail(order: Order): Promise<void> {
+  const petName = order.petName ?? "Your Star";
+  const addonType = order.addonType ?? "poster";
+  const label = addonLabel(addonType);
+  const apiKey = process.env.KLAVIYO_API_KEY;
+
+  if (apiKey) {
+    await trackKlaviyoEvent(apiKey, "Addon Purchased", order, {
+      order_id: order.id,
+      addon_type: addonType,
+      pet_name: petName,
+    });
+    return;
+  }
+
+  const resend = resendClient();
+  if (resend) {
+    const { error } = await resend.emails.send({
+      from: fromAddress(),
+      to: order.customerEmail,
+      subject: `Your ${petName} keepsake is on its way`,
+      html: `
+        <p>We're printing your ${label} and will email tracking when it ships.</p>
+        <p style="color:#888;font-size:12px">Questions? Just reply to this email.</p>
+      `,
+    });
+    if (error) throw new Error(`Resend addon confirmation send failed: ${JSON.stringify(error)}`);
+    return;
+  }
+
+  console.log(
+    `[mock:email] addon confirmation mail to=${order.customerEmail} order=${order.id} addon=${addonType} — set KLAVIYO_API_KEY or RESEND_API_KEY to send for real`
+  );
 }

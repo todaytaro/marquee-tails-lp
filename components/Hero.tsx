@@ -136,7 +136,7 @@ export default function Hero() {
             href="#pricing"
             className="btn-marquee w-full px-8 py-3.5 text-base focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold-bright sm:w-auto"
           >
-            Start Casting — from $75
+            Start Casting — from $99
           </a>
           <a
             href="#showcase"

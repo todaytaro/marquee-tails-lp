@@ -4,7 +4,7 @@ import { fal } from "@fal-ai/client";
 import { type Order } from "@/generated/prisma/client";
 import { prisma } from "./db";
 import { publicUrl, scoreIdentity } from "./identity";
-import { getCostume } from "./film-script";
+import { resolveWorld } from "./film-script";
 import { IDENTITY_RULES, STYLE_RULES, type StoryboardCut } from "./stills-pipeline";
 
 /**
@@ -112,9 +112,8 @@ export async function runPosterGeneration(order: Order): Promise<void> {
   const portrait = order.identityPortraitUrl;
   if (!portrait) throw new Error(`order ${order.id} has no identityPortraitUrl`);
 
-  const world = order.world ?? "deepspace";
   const description = order.petDescription ?? "the pet shown in the reference images";
-  const costume = getCostume(world);
+  const costume = resolveWorld(order).costume;
   const storyboard = (order.storyboardOptions as StoryboardCut[] | null) ?? [];
   const sceneHint = storyboard[cut]?.scene ?? "the film's signature moment";
 

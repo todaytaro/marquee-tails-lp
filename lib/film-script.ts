@@ -10,7 +10,15 @@
  * interstitial cards between shots, plus a tagline on the closing card.
  *
  * 3 worlds × 4 personality arcs × 6 beats = 12 story structures.
+ *
+ * Director's Cut (custom, $249) orders don't use any of the static maps
+ * below — resolveWorld() (bottom of file) routes them to Claude's
+ * generatedScript bundle instead. Every pipeline stage should call
+ * resolveWorld(order) rather than getCostume/getArc/WORLD_SCORES/getLoglines
+ * directly, so the preset/custom branch lives in exactly one place.
  */
+
+import type { Order } from "@/generated/prisma/client";
 
 export type Personality = "brave" | "easygoing" | "playful" | "timid";
 
@@ -243,4 +251,66 @@ export function getLoglines(world: string, personality: string | null, petName?:
   const name = (petName ?? "").trim().toUpperCase() || "OUR HERO";
   const fill = (s: string) => s.replace(/\{name\}/g, name);
   return { intro: fill(l.intro), turn: fill(l.turn), rise: fill(l.rise), tagline: fill(l.tagline) };
+}
+
+/* ------------------------------------------------------------------ */
+/* Director's Cut (custom) — world-bundle resolver                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Claude's structured output for a custom (Director's Cut) order — the
+ * equivalent of one static world/personality entry above, generated from the
+ * customer's free-text brief instead of picked from FILM_SCRIPTS/LOGLINES.
+ * Produced by lib/claude-script.ts#generateTreatment and persisted verbatim
+ * to Order.generatedScript.
+ */
+export type WorldBundle = {
+  costume: string; // ONE locked costume, worn in every shot (no costume words in scenes)
+  score: string; // music prompt for the original score
+  cuts: { scene: string }[]; // EXACTLY 6 action/setting beats — NO costume words
+  loglines: { intro: string; turn: string; rise: string; tagline: string }; // trailer text beats; {name} allowed
+};
+
+export type ResolvedWorld = {
+  costume: string;
+  arc: string[];
+  score: string;
+  loglines: { intro: string; turn: string; rise: string; tagline: string };
+};
+
+/**
+ * Resolves the world data every pipeline stage needs, regardless of whether
+ * the order is a preset (static FILM_SCRIPTS/WORLD_COSTUMES/WORLD_SCORES/
+ * LOGLINES maps) or a Director's Cut custom order (Claude's generatedScript
+ * bundle). Consumers should call this instead of getCostume/getArc/
+ * WORLD_SCORES[...]/getLoglines directly, so neither branch has to be
+ * special-cased at every call site. SHOT_FRAMINGS/SHOT_MOTIONS are NOT part
+ * of this resolution — both paths reuse the same tuned framings/motions
+ * (identity safety), never Claude-authored camera direction.
+ */
+export function resolveWorld(order: Order): ResolvedWorld {
+  if (order.tier === "custom" && order.generatedScript) {
+    const bundle = order.generatedScript as unknown as WorldBundle;
+    // Same upcasing rule as getLoglines above, applied to Claude's loglines.
+    const name = (order.petName ?? "").trim().toUpperCase() || "OUR HERO";
+    const fill = (s: string) => s.replace(/\{name\}/g, name);
+    return {
+      costume: bundle.costume,
+      arc: bundle.cuts.map((c) => c.scene),
+      score: bundle.score,
+      loglines: {
+        intro: fill(bundle.loglines.intro),
+        turn: fill(bundle.loglines.turn),
+        rise: fill(bundle.loglines.rise),
+        tagline: fill(bundle.loglines.tagline),
+      },
+    };
+  }
+  const world = order.world ?? "deepspace";
+  return {
+    costume: getCostume(world),
+    arc: getArc(world, order.personality),
+    score: WORLD_SCORES[world] ?? WORLD_SCORES.deepspace,
+    loglines: getLoglines(world, order.personality, order.petName ?? undefined),
+  };
 }

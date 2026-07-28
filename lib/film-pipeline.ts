@@ -10,7 +10,7 @@ import { fal } from "@fal-ai/client";
 import { OrderStatus, type Order } from "@/generated/prisma/client";
 import { prisma } from "./db";
 import { transitionOrder } from "./orders";
-import { getLoglines, SHOT_MOTIONS, WORLD_SCORES, TITLE_CARDS } from "./film-script";
+import { SHOT_MOTIONS, TITLE_CARDS, resolveWorld } from "./film-script";
 import { publicUrl, scoreFrame } from "./identity";
 import { reshootCutStill } from "./stills-pipeline";
 
@@ -228,10 +228,11 @@ async function generateGatedClip(
   return best;
 }
 
-async function generateScore(world: string): Promise<string> {
+/** scorePrompt comes from resolveWorld(order).score — static WORLD_SCORES for presets, Claude's bundle for custom orders. */
+async function generateScore(scorePrompt: string): Promise<string> {
   const r = await fal.subscribe(MUSIC_MODEL, {
     input: {
-      prompt: WORLD_SCORES[world] ?? WORLD_SCORES.deepspace,
+      prompt: scorePrompt,
       seconds_total: TOTAL_SECONDS,
       num_inference_steps: 8,
     },
@@ -326,9 +327,10 @@ export async function runFilmGeneration(order: Order): Promise<void> {
   if (!shotStillUrls || shotStillUrls.length === 0) {
     throw new Error(`order ${order.id} has no chosenStills to animate`);
   }
-  const world = order.world ?? "deepspace";
+  const world = order.world ?? "deepspace"; // atmosphere-only fallback (WORLD_ATMOSPHERE); custom scenes carry their own atmosphere in Claude's cut text
   const petName = order.petName ?? "Your Star";
-  const loglines = getLoglines(world, order.personality, petName);
+  const resolved = resolveWorld(order);
+  const loglines = resolved.loglines;
 
   const portraitUrl = order.identityPortraitUrl ?? undefined;
   let art: FilmArtifacts = (order.filmArtifacts as FilmArtifacts) ?? {};
@@ -354,7 +356,7 @@ export async function runFilmGeneration(order: Order): Promise<void> {
     art = await saveArtifacts(order.id, { clipScores: scores });
   }
   if (!art.scoreUrl) {
-    art = await saveArtifacts(order.id, { scoreUrl: await generateScore(world) });
+    art = await saveArtifacts(order.id, { scoreUrl: await generateScore(resolved.score) });
   }
   const clipUrls = art.clipUrls!;
   const clipScores = art.clipScores!;
@@ -507,9 +509,10 @@ export async function runShotRerender(
 
   let still = order.chosenStills[shotIndex];
   if (!still) throw new Error(`order ${order.id} has no chosen still for shot ${shotIndex}`);
-  const world = order.world ?? "deepspace";
+  const world = order.world ?? "deepspace"; // atmosphere-only fallback, see runFilmGeneration
   const petName = order.petName ?? "Your Star";
-  const loglines = getLoglines(world, order.personality, petName);
+  const resolved = resolveWorld(order);
+  const loglines = resolved.loglines;
   const portraitUrl = order.identityPortraitUrl ?? undefined;
 
   // Working set from artifacts, falling back to the persisted per-shot fields
@@ -532,7 +535,7 @@ export async function runShotRerender(
   clipUrls[shotIndex] = fixed.url;
   clipScores[shotIndex] = fixed.score;
 
-  const scoreUrl = art.scoreUrl ?? (await generateScore(world));
+  const scoreUrl = art.scoreUrl ?? (await generateScore(resolved.score));
   await saveArtifacts(order.id, { clipUrls, clipScores, scoreUrl });
 
   console.log(`[film] assembling (shot ${shotIndex} fixed) order=${order.id}`);

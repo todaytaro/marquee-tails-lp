@@ -1,8 +1,8 @@
 import { OrderStatus, type Order } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { transitionOrder } from "@/lib/orders";
-import { sendDeliveryEmail, createPodOrder } from "@/lib/mocks";
-import { getLoglines } from "@/lib/film-script";
+import { sendDeliveryEmail } from "@/lib/mocks";
+import { resolveWorld } from "@/lib/film-script";
 import { renderPosterPng } from "@/lib/poster-print";
 
 /**
@@ -32,14 +32,15 @@ export async function approveVideo(
   );
 
   // Flatten the customer's poster pick (text-free art) into the print-ready
-  // PNG that ships to POD — same design as the on-screen MoviePosterOverlay,
-  // baked once via satori (lib/poster-print.ts) now that it's final. Never
-  // blocks delivery of the finished film: a render failure just leaves
-  // posterPrintUrl unset for a manual re-run.
+  // PNG that ships to POD once (and if) the customer buys a physical add-on
+  // — same design as the on-screen MoviePosterOverlay, baked once via satori
+  // (lib/poster-print.ts) now that it's final. Never blocks delivery of the
+  // finished film: a render failure just leaves posterPrintUrl unset for a
+  // manual re-run.
   if (updated.posterUrl && process.env.VIDEO_PIPELINE_MOCK !== "1") {
     try {
       const petName = updated.petName ?? "Your Star";
-      const loglines = getLoglines(updated.world ?? "deepspace", updated.personality, petName);
+      const loglines = resolveWorld(updated).loglines;
       const posterPrintUrl = await renderPosterPng(updated.posterUrl, {
         petName,
         tagline: loglines.intro,
@@ -51,8 +52,12 @@ export async function approveVideo(
     }
   }
 
+  // Physical fulfilment (Printify) is no longer triggered here — at Gate 2
+  // the order has no add-on yet, so createPodOrder would always be a no-op.
+  // It now fires from the add-on Checkout webhook once the customer buys a
+  // physical poster/canvas post-delivery (Pass 2, PRICING-PRODUCT-V2-SPEC.md
+  // §5) — see app/api/webhooks/stripe/route.ts.
   await sendDeliveryEmail(updated);
-  await createPodOrder(updated);
 
   return updated;
 }

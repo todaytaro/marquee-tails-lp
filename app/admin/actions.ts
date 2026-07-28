@@ -6,6 +6,11 @@ import { prisma } from "@/lib/db";
 import { transitionOrder, TransitionError } from "@/lib/orders";
 import { approveVideo } from "@/lib/approvals";
 import { kickFilmGeneration, kickShotRerender } from "@/lib/film-pipeline";
+import {
+  sendWelcomeUploadEmail,
+  sendChooseStillEmail,
+  sendDeliveryEmail,
+} from "@/lib/mocks";
 
 export type ApproveVideoResult = { ok: true } | { ok: false; error: string };
 
@@ -130,6 +135,51 @@ export async function retryFilmAction(orderId: string): Promise<RetryFilmResult>
   }
 
   revalidatePath("/admin");
+  revalidatePath(`/admin/${orderId}`);
+  return { ok: true };
+}
+
+export type ResendCustomerEmailResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * B-6 — resend the customer-facing lifecycle email for the order's CURRENT
+ * status (does not change status; the customer link is the same
+ * approveToken-based magic link regardless of how many times it's resent).
+ */
+export async function resendCustomerEmailAction(
+  orderId: string
+): Promise<ResendCustomerEmailResult> {
+  if (!orderId) {
+    return { ok: false, error: "orderId が必要です。" };
+  }
+
+  const order = await prisma.order.findUnique({ where: { id: orderId } });
+  if (!order) {
+    return { ok: false, error: "注文が見つかりません。" };
+  }
+
+  try {
+    switch (order.status) {
+      case OrderStatus.UPLOADING:
+        await sendWelcomeUploadEmail(order);
+        break;
+      case OrderStatus.AWAITING_CUSTOMER_APPROVAL:
+        await sendChooseStillEmail(order);
+        break;
+      case OrderStatus.COMPLETED:
+        await sendDeliveryEmail(order);
+        break;
+      default:
+        return {
+          ok: false,
+          error: "この状態では再送できる案内メールがありません。",
+        };
+    }
+  } catch (err) {
+    console.error("[resendCustomerEmailAction]", err);
+    return { ok: false, error: "メール送信でエラーが発生しました。" };
+  }
+
   revalidatePath(`/admin/${orderId}`);
   return { ok: true };
 }

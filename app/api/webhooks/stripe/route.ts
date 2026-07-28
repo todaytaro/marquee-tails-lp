@@ -20,6 +20,13 @@ import { OrderStatus } from "@/generated/prisma/client";
  * insert throws P2002, which we treat as "already processed" and answer with
  * 200 so Stripe stops retrying.
  *
+ * Pass 2: a SECOND kind of `checkout.session.completed` event fires for the
+ * post-delivery physical add-on purchase (app/api/addon-checkout/route.ts),
+ * distinguished by `session.metadata.kind === "addon"`. That branch attaches
+ * to an EXISTING order instead of creating a new one; see handleAddonSession
+ * below. Absence of `kind` (every base-plan session created before this pass,
+ * and any new ones) means "base" — that path is unchanged.
+ *
  * Local testing (once the owner has Stripe keys):
  *   stripe listen --forward-to localhost:3100/api/webhooks/stripe
  */
@@ -49,6 +56,11 @@ export async function POST(req: Request) {
   }
 
   const session = event.data.object as Stripe.Checkout.Session;
+
+  if (session.metadata?.kind === "addon") {
+    return handleAddonSession(session);
+  }
+
   const customerEmail = session.customer_details?.email;
   if (!customerEmail) {
     console.error("[stripe-webhook] no customer email on session", session.id);
@@ -104,6 +116,67 @@ export async function POST(req: Request) {
     }
     console.error("[stripe-webhook] order creation failed", err);
     return NextResponse.json({ ok: false, error: "Order creation failed." }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true });
+}
+
+/**
+ * Pass 2 add-on branch — attaches a purchased physical add-on (Printed
+ * Poster / Gallery Canvas) to an EXISTING order, instead of creating one.
+ *
+ * No new OrderStatus edge: this only writes non-status columns (addon* +
+ * shipping*), never touching `status`. Idempotent via the guarded
+ * updateMany below (unknown/duplicate -> 200 so Stripe stops retrying).
+ */
+async function handleAddonSession(session: Stripe.Checkout.Session) {
+  const orderId = session.metadata?.orderId;
+  const addonType = session.metadata?.addonType;
+  if (!orderId || (addonType !== "poster" && addonType !== "canvas")) {
+    console.error("[stripe-webhook] addon session missing orderId/addonType", session.id, session.metadata);
+    return NextResponse.json({ ok: true, ignored: "bad addon metadata" });
+  }
+
+  // Same nesting as the base path above (Stripe SDK 22.x).
+  const shipping = session.collected_information?.shipping_details;
+
+  const { count } = await prisma.order.updateMany({
+    where: { id: orderId, addonStripeSessionId: null },
+    data: {
+      addonType,
+      addonStripeSessionId: session.id,
+      addonPaidCents: session.amount_total ?? 0,
+      addonPurchasedAt: new Date(),
+      shippingName: shipping?.name ?? null,
+      shippingLine1: shipping?.address?.line1 ?? null,
+      shippingLine2: shipping?.address?.line2 ?? null,
+      shippingCity: shipping?.address?.city ?? null,
+      shippingRegion: shipping?.address?.state ?? null,
+      shippingPostalCode: shipping?.address?.postal_code ?? null,
+      shippingCountry: shipping?.address?.country ?? null,
+    },
+  });
+  if (count !== 1) {
+    // Already processed (replay) or order gone — idempotent no-op.
+    console.warn(`[stripe-webhook] addon session already claimed or order missing: ${session.id}`);
+    return NextResponse.json({ ok: true, duplicate: true });
+  }
+
+  const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+  console.log(`[stripe-webhook] addon attached order=${order.id} addonType=${addonType}`);
+
+  // Fire-and-forget side effects — never let either fail the webhook.
+  try {
+    const { createPodOrder } = await import("@/lib/mocks");
+    await createPodOrder(order);
+  } catch (err) {
+    console.error(`[stripe-webhook] addon POD order failed (non-fatal) order=${order.id}`, err);
+  }
+  try {
+    const { sendAddonConfirmationEmail } = await import("@/lib/mocks");
+    await sendAddonConfirmationEmail(order);
+  } catch (err) {
+    console.error(`[stripe-webhook] addon confirmation email failed (non-fatal) order=${order.id}`, err);
   }
 
   return NextResponse.json({ ok: true });

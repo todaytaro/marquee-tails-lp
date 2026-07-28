@@ -1,4 +1,4 @@
-import { OrderStatus, type Order } from "@/generated/prisma/client";
+import { OrderStatus, Prisma, type Order } from "@/generated/prisma/client";
 import { prisma } from "./db";
 
 /**
@@ -7,11 +7,30 @@ import { prisma } from "./db";
  * `status`, so skipping a gate is impossible by construction.
  */
 const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
-  [OrderStatus.UPLOADING]: [OrderStatus.IMAGE_GENERATING],
+  // Preset orders go straight to stills. Custom orders take a detour through
+  // the Director's Cut "Gate 0" (treatment approval) first.
+  [OrderStatus.UPLOADING]: [OrderStatus.IMAGE_GENERATING, OrderStatus.TREATMENT_GENERATING],
+  // Custom "Gate 0": brief submitted -> Claude drafts a treatment; revert to
+  // UPLOADING if the Claude kick/generation fails (same compensating pattern
+  // as the stills kick below).
+  [OrderStatus.TREATMENT_GENERATING]: [
+    OrderStatus.AWAITING_TREATMENT_APPROVAL,
+    OrderStatus.UPLOADING, // compensating revert on failure
+  ],
+  // Customer approves the treatment -> existing stills stage; or asks for a
+  // revision -> back to generating.
+  [OrderStatus.AWAITING_TREATMENT_APPROVAL]: [
+    OrderStatus.IMAGE_GENERATING,
+    OrderStatus.TREATMENT_GENERATING,
+  ],
   // Forward to Gate 1 — or compensating revert when stills generation fails.
+  // The AWAITING_TREATMENT_APPROVAL target lets a custom order's stills-kick
+  // failure fall back to the treatment gate (not UPLOADING, which would
+  // re-show the photo form and lose the approved treatment context).
   [OrderStatus.IMAGE_GENERATING]: [
     OrderStatus.AWAITING_CUSTOMER_APPROVAL,
     OrderStatus.UPLOADING,
+    OrderStatus.AWAITING_TREATMENT_APPROVAL,
   ],
   // Gate 1: customer approval is the ONLY way into video generation.
   [OrderStatus.AWAITING_CUSTOMER_APPROVAL]: [OrderStatus.VIDEO_GENERATING],
@@ -75,8 +94,18 @@ export async function transitionOrder(
       | "chosenStills"
       | "posterCutIndex"
       | "failureReason"
+      | "treatmentText"
+      | "customBrief"
+      | "treatmentRevisionCount"
     >
-  > = {},
+  > & {
+    // Order["generatedScript"]'s read type (JsonValue | null) includes plain
+    // `null`, which Prisma's Json update input rejects (it wants the
+    // Prisma.JsonNull sentinel instead) — every caller here always writes a
+    // full WorldBundle, never null, so this narrows to Prisma's write type
+    // directly rather than fighting the read/write type mismatch.
+    generatedScript?: Prisma.InputJsonValue;
+  } = {},
   note?: string
 ): Promise<Order> {
   if (!ALLOWED_TRANSITIONS[from].includes(to)) {

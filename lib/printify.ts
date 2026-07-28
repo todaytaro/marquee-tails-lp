@@ -8,29 +8,42 @@ type TierPrintConfig = {
   variantId: string;
 };
 
-function configFor(tier: string): TierPrintConfig | null {
-  if (tier === "feature") {
-    const { PRINTIFY_BLUEPRINT_POSTER, PRINTIFY_PROVIDER_POSTER, PRINTIFY_VARIANT_POSTER } = process.env;
-    if (!PRINTIFY_BLUEPRINT_POSTER || !PRINTIFY_PROVIDER_POSTER || !PRINTIFY_VARIANT_POSTER) return null;
-    return { blueprintId: PRINTIFY_BLUEPRINT_POSTER, printProviderId: PRINTIFY_PROVIDER_POSTER, variantId: PRINTIFY_VARIANT_POSTER };
-  }
-  if (tier === "collector") {
-    const { PRINTIFY_BLUEPRINT_CANVAS, PRINTIFY_PROVIDER_CANVAS, PRINTIFY_VARIANT_CANVAS } = process.env;
-    if (!PRINTIFY_BLUEPRINT_CANVAS || !PRINTIFY_PROVIDER_CANVAS || !PRINTIFY_VARIANT_CANVAS) return null;
-    return { blueprintId: PRINTIFY_BLUEPRINT_CANVAS, printProviderId: PRINTIFY_PROVIDER_CANVAS, variantId: PRINTIFY_VARIANT_CANVAS };
-  }
-  return null; // "digital" or unknown — no physical good
+/**
+ * Pass 2 (PRICING-PRODUCT-V2-SPEC.md §5): Printify now fires for a purchased
+ * physical ADD-ON (Printed Poster / Gallery Canvas), not at base checkout —
+ * neither "preset" nor "custom" ships a physical good on its own. Blueprint/
+ * provider/variant IDs come from env, confirmed by the owner during the
+ * Phase 5 Printify test. Returns null if the add-on type is unrecognized or
+ * its IDs aren't configured yet — same "not configured yet" posture as the
+ * rest of the app's optional integrations.
+ *
+ * Env var names are the ones established in POD-INTEGRATION-SPEC.md §3 and
+ * already configured in production — keep them stable so this pass needs no
+ * re-keying of the deployment's variables.
+ */
+function configFor(addonType: string | null): TierPrintConfig | null {
+  if (addonType !== "poster" && addonType !== "canvas") return null;
+  const env =
+    addonType === "poster"
+      ? { b: "PRINTIFY_BLUEPRINT_POSTER", p: "PRINTIFY_PROVIDER_POSTER", v: "PRINTIFY_VARIANT_POSTER" }
+      : { b: "PRINTIFY_BLUEPRINT_CANVAS", p: "PRINTIFY_PROVIDER_CANVAS", v: "PRINTIFY_VARIANT_CANVAS" };
+  const blueprintId = process.env[env.b];
+  const printProviderId = process.env[env.p];
+  const variantId = process.env[env.v];
+  if (!blueprintId || !printProviderId || !variantId) return null;
+  return { blueprintId, printProviderId, variantId };
 }
 
 /**
- * Submit a print order for the finished poster. Digital-tier orders are a
- * deliberate no-op (no physical good). Missing shipping address or missing
- * Printify config both throw — callers (lib/approvals.ts) must catch and log
- * loudly rather than block delivery, same pattern as the poster-print render.
+ * Submit a print order for the finished poster. A no-op (returns null) if no
+ * physical add-on was purchased or Printify isn't configured yet — see
+ * configFor above. Missing shipping address or missing Printify config both
+ * throw — callers (lib/mocks.ts's createPodOrder) must catch and log loudly
+ * rather than block delivery, same pattern as the poster-print render.
  */
 export async function createPrintifyOrder(order: Order): Promise<{ printifyOrderId: string } | null> {
-  const config = configFor(order.tier ?? "");
-  if (!config) return null; // digital tier, or Printify not configured yet
+  const config = configFor(order.addonType);
+  if (!config) return null; // no physical add-on purchased yet, or Printify not configured
 
   const apiKey = process.env.PRINTIFY_API_KEY;
   const shopId = process.env.PRINTIFY_SHOP_ID;
