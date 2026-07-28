@@ -100,13 +100,36 @@ export async function POST(req: Request) {
   if (!petName) {
     return NextResponse.json({ ok: false, error: "Please tell us your pet's name." }, { status: 400 });
   }
+  // These two rejections are otherwise invisible in production (a 400 with no
+  // log line), and they sit between a working upload and the rest of intake —
+  // exactly where a silent failure is most expensive. Log the hostnames rather
+  // than the full URLs: enough to tell a wrong-host bug from a wrong-count bug
+  // without writing customer photo URLs into the logs.
+  const photoHosts = [
+    ...new Set(
+      photoUrls.map((u) => {
+        try {
+          return new URL(u).hostname;
+        } catch {
+          return "unparseable";
+        }
+      })
+    ),
+  ].join(",");
+
   if (photoUrls.length < MIN_PHOTOS || photoUrls.length > MAX_PHOTOS) {
+    console.error(
+      `[submit-photos] rejected order=${orderId}: got ${photoUrls.length} photoUrls (need ${MIN_PHOTOS}-${MAX_PHOTOS}), hosts=${photoHosts || "none"}`
+    );
     return NextResponse.json(
       { ok: false, error: `Please upload ${MIN_PHOTOS}-${MAX_PHOTOS} photos.` },
       { status: 400 }
     );
   }
   if (!photoUrls.every(isValidPhotoUrl)) {
+    console.error(
+      `[submit-photos] rejected order=${orderId}: photoUrls failed the Blob host check, hosts=${photoHosts}`
+    );
     return NextResponse.json({ ok: false, error: "Those photo URLs aren't valid." }, { status: 400 });
   }
 

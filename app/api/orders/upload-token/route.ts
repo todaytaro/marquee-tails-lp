@@ -68,6 +68,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json(jsonResponse);
   } catch (error) {
+    // A refused token aborts the whole upload with only a generic client-side
+    // message, so log the reason — otherwise this is a 400 with no trace.
+    console.error("[upload-token] refused", error);
     // Blob's client expects a JSON error body; keep it generic and don't leak
     // which auth check failed (mirrors the other approve-page routes' "same
     // response for not found and bad token" posture).
