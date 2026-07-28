@@ -18,8 +18,25 @@ import { prisma } from "@/lib/db";
  * matched against the order, no login). We additionally require the order to
  * still be UPLOADING so a finished (or someone else's) order can't be used as
  * free, unbounded storage once its upload window has closed.
+ *
+ * WHY A DEDICATED STORE (PHOTOS_BLOB_READ_WRITE_TOKEN, not the default
+ * BLOB_READ_WRITE_TOKEN): a Blob store's access mode is fixed at creation, and
+ * the project's original store is PRIVATE — its blobs need a token to read, so
+ * the fal generation models could never fetch a photo from it (and a public
+ * client upload into it is rejected outright). Pet photos therefore live in a
+ * separate PUBLIC store, exactly like the unguessable public URLs fal storage
+ * used to hand us. The private store stays for anything sensitive.
  */
 export async function POST(req: Request) {
+  const photosToken = process.env.PHOTOS_BLOB_READ_WRITE_TOKEN;
+  if (!photosToken) {
+    console.error("[upload-token] PHOTOS_BLOB_READ_WRITE_TOKEN is not set");
+    return NextResponse.json(
+      { ok: false, error: "Photo uploads aren't configured yet." },
+      { status: 503 }
+    );
+  }
+
   try {
     // Parsed inside the try so a malformed body answers 400 like every other
     // guard here, rather than surfacing as an unhandled 500.
@@ -28,6 +45,9 @@ export async function POST(req: Request) {
     const jsonResponse = await handleUpload({
       body,
       request: req,
+      // Never the ambient BLOB_READ_WRITE_TOKEN — that one points at the
+      // private store (see the note above).
+      token: photosToken,
       onBeforeGenerateToken: async (_pathname, clientPayload) => {
         let payload: { orderId?: string; approveToken?: string };
         try {
