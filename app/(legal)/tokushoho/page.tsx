@@ -18,7 +18,7 @@ export default function TokushohoPage() {
         <tbody>
           <tr>
             <th>販売事業者名</th>
-            <td>Marquee Tails</td>
+            <td>株式会社アフロ（サービス名: Marquee Tails）</td>
           </tr>
           <tr>
             <th>運営統括責任者</th>
@@ -51,8 +51,8 @@ export default function TokushohoPage() {
           <tr>
             <th>販売価格</th>
             <td>
-              各商品ページに表示（Preset Worlds $99）。Director&rsquo;s Cut
-              $249は近日公開で現在は販売しておりません。表示価格は全て税込です。
+              各商品ページに表示（Preset Worlds $99、Director&rsquo;s Cut
+              $249）。表示価格は全て税込です。
             </td>
           </tr>
           <tr>
@@ -86,7 +86,7 @@ export default function TokushohoPage() {
         </tbody>
       </table>
 
-      <p className="mt-10 text-xs">最終更新日: 2026年7月22日</p>
+      <p className="mt-10 text-xs">最終更新日: 2026年7月30日</p>
     </>
   );
 }
