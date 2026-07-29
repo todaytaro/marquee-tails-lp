@@ -38,13 +38,14 @@ async function main() {
   console.log(`storyboard done in ${Math.round((Date.now() - t0) / 1000)}s`);
   storyboard.forEach((cut, c) => {
     console.log(`  cut ${c} — ${cut.scene}`);
-    cut.options.forEach((u, t) => console.log(`    take ${t}: ${u}`));
+    cut.options.forEach((o, t) => console.log(`    take ${t}: clean=${o.clean} preview=${o.preview}`));
   });
 
   const first = storyboard[0]?.options[0];
   if (first) {
     console.log("animating cut 0 / take 0 (5s)…");
-    const clip = await generateShotClipForTest(first, order.world ?? "deepspace", 0, order.id, 5);
+    // The film always animates the CLEAN take, never the watermarked preview.
+    const clip = await generateShotClipForTest(first.clean, order.world ?? "deepspace", 0, order.id, 5);
     console.log(`  clip: ${clip}`);
     console.log("\n=== CLIP ===");
     console.log(clip);

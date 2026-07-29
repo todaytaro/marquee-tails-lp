@@ -33,7 +33,7 @@ async function main() {
   console.log("portrait:", done.identityPortraitUrl);
   storyboard.forEach((cut, c) => {
     console.log(`cut ${c + 1} — ${cut.scene}`);
-    cut.options.forEach((u, t) => console.log(`  take${t + 1}:`, u));
+    cut.options.forEach((o, t) => console.log(`  take${t + 1}: clean=${o.clean} preview=${o.preview}`));
   });
 }
 

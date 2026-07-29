@@ -7,6 +7,7 @@ import { transitionOrder } from "./orders";
 import { sendChooseStillEmail } from "./mocks";
 import { resolveWorld, SHOT_FRAMINGS } from "./film-script";
 import { VISION_MODEL, VISION_LLM, publicUrl, scoreIdentity } from "./identity";
+import { watermarkTakeForPreview } from "./watermark";
 
 /**
  * Storyboard generation — the whole Gate-1 payload, generated BEFORE approval.
@@ -237,7 +238,63 @@ async function generateGatedTake(
   return best;
 }
 
-export type StoryboardCut = { scene: string; options: string[] };
+/**
+ * One Gate-1 take option — TWO urls, never one, so the data model can't be
+ * ambiguous about which is safe to hand the customer (PRICING-PRODUCT-V2-SPEC.md
+ * §3.5(C)):
+ *   preview — watermarked + downscaled (lib/watermark.ts). The ONLY url that
+ *             may ever reach the customer's browser before completion.
+ *   clean   — the full-res, unwatermarked fal take. Never rendered to the
+ *             customer at Gate 1; this is what chosenStills carries forward
+ *             and what the film pipeline actually animates.
+ * `storyboardOptions` is Prisma `Json?` (no schema change for this feature),
+ * so this shape lives entirely inside that JSON blob — see normalizeStoryboard
+ * below for how a PRE-this-feature row (options as plain strings) reads back.
+ */
+export type StillOption = { preview: string; clean: string };
+
+export type StoryboardCut = { scene: string; options: StillOption[] };
+
+/** Intermediate shape used while stills are being generated, before the
+ *  watermarking pass runs — options are still bare clean urls here. */
+type CleanStoryboardCut = { scene: string; options: string[] };
+
+/**
+ * Defensive reader for order.storyboardOptions. Two shapes exist in
+ * production data:
+ *   - CURRENT (this feature onward): options are {preview, clean} objects.
+ *   - LEGACY (every order created before this feature shipped): options are
+ *     plain strings — the clean fal url, with no derivative ever generated.
+ * A legacy row has no watermarked asset to fall back to, so per this
+ * feature's spec ("existing orders ... must keep working ... fall back to
+ * showing the clean url when no preview exists") its "preview" IS the clean
+ * url — that customer's Gate 1 looks exactly as it always has, nothing new
+ * regresses. Never throws: a malformed/foreign-shaped row degrades to an
+ * empty storyboard rather than 500ing a customer's Gate-1 page or a
+ * blocking an in-flight order — callers already treat "no cuts" as
+ * "storyboard not ready yet" (see app/approve/[token]/page.tsx Gate1View).
+ */
+export function normalizeStoryboard(raw: unknown): StoryboardCut[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((cut): StoryboardCut => {
+    const c = cut as { scene?: unknown; options?: unknown };
+    const scene = typeof c?.scene === "string" ? c.scene : "";
+    const rawOptions = c?.options;
+    const options: StillOption[] = Array.isArray(rawOptions)
+      ? rawOptions
+          .map((opt): StillOption | null => {
+            if (typeof opt === "string") return { preview: opt, clean: opt }; // legacy row
+            const o = opt as { preview?: unknown; clean?: unknown };
+            if (o && typeof o.clean === "string") {
+              return { preview: typeof o.preview === "string" ? o.preview : o.clean, clean: o.clean };
+            }
+            return null;
+          })
+          .filter((o): o is StillOption => o !== null)
+      : [];
+    return { scene, options };
+  });
+}
 
 /**
  * Full generation run — awaitable (scripts/tests), while kickStillsGeneration
@@ -308,7 +365,7 @@ export async function runStillsGeneration(order: Order): Promise<void> {
   // brave/easygoing/timid; only playful is exempt.
   const expression = expressionDirective(order.personality);
 
-  const storyboard: StoryboardCut[] = [];
+  const cleanStoryboard: CleanStoryboardCut[] = [];
   for (let cut = 0; cut < arc.length; cut++) {
     const options = await Promise.all(
       Array.from({ length: TAKES_PER_CUT }, (_, take) =>
@@ -325,8 +382,28 @@ export async function runStillsGeneration(order: Order): Promise<void> {
         )
       )
     );
-    storyboard.push({ scene: arc[cut], options });
+    cleanStoryboard.push({ scene: arc[cut], options });
   }
+
+  // Stage 4 (PRICING-PRODUCT-V2-SPEC.md §3.5(C)) — watermark + downscale every
+  // clean take into its Gate-1 preview derivative, ALL 18 concurrently (no
+  // reason to throttle this the way generation is throttled: it's local
+  // ffmpeg work plus one upload per take, not a rate-limited generation
+  // model). watermarkTakeForPreview never throws — a single take's derivative
+  // failing falls back to that take's clean url (logged), never the whole
+  // order failing over one bad watermark render.
+  console.log(`[stills] stage 4: watermarking ${cleanStoryboard.length}×${TAKES_PER_CUT} previews order=${order.id}`);
+  const storyboard: StoryboardCut[] = await Promise.all(
+    cleanStoryboard.map(async (cut, cutIdx) => ({
+      scene: cut.scene,
+      options: await Promise.all(
+        cut.options.map(async (clean, takeIdx) => ({
+          clean,
+          preview: await watermarkTakeForPreview(clean, `order=${order.id}-cut=${cutIdx}-take=${takeIdx}`),
+        }))
+      ),
+    }))
+  );
 
   await completeStillsGeneration(order.id, storyboard);
 }
@@ -401,7 +478,15 @@ export async function kickStillsGeneration(order: Order): Promise<void> {
     const storyboard: StoryboardCut[] = arc.map((scene, cut) => ({
       scene,
       // Rotate the 3 assets per cut so each cut's takes are visually distinct.
-      options: Array.from({ length: TAKES_PER_CUT }, (_, take) => assets[(cut + take) % assets.length]),
+      // preview === clean here on purpose — HARD CONSTRAINT: mock mode must
+      // work end to end "without ffmpeg surprises". These are static local LP
+      // assets (not real generated art), so there's nothing to protect and no
+      // reason to spend an ffmpeg pass on them; this is the exact same shape
+      // normalizeStoryboard already produces for a pre-this-feature legacy row.
+      options: Array.from({ length: TAKES_PER_CUT }, (_, take) => {
+        const url = assets[(cut + take) % assets.length];
+        return { preview: url, clean: url };
+      }),
     }));
     await prisma.order.update({
       where: { id: order.id },
@@ -446,10 +531,11 @@ export async function completeStillsGeneration(
   orderId: string,
   storyboard: StoryboardCut[]
 ): Promise<void> {
-  // conceptImageUrls keeps the FLAT list of every take — the approval API's
-  // whitelist checks each chosen still against its cut's options, but the flat
-  // list stays for backwards compatibility and quick auditing.
-  const flat = storyboard.flatMap((cut) => cut.options);
+  // conceptImageUrls keeps the FLAT list of every take's CLEAN url — never
+  // customer-facing (not rendered anywhere in app/ or components/, grep-
+  // verified), purely an internal audit trail — so it holds the same clean
+  // urls it always has, not the watermarked preview derivatives.
+  const flat = storyboard.flatMap((cut) => cut.options.map((o) => o.clean));
   await prisma.order.update({
     where: { id: orderId },
     data: { storyboardOptions: storyboard, conceptImageUrls: flat },

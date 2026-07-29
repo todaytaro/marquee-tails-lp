@@ -5,7 +5,7 @@ import { OrderStatus, type Order } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import StoryboardWizard from "@/components/StoryboardWizard";
 import PosterPicker from "@/components/PosterPicker";
-import type { StoryboardCut } from "@/lib/stills-pipeline";
+import { normalizeStoryboard } from "@/lib/stills-pipeline";
 import { resolveWorld } from "@/lib/film-script";
 import PhotoUploadForm from "@/components/PhotoUploadForm";
 import StatusPoller from "@/components/StatusPoller";
@@ -197,7 +197,7 @@ function TreatmentWaitingView({ petName, elapsedSeconds }: { petName: string; el
 }
 
 function Gate1View({ order, petName }: { order: Order; petName: string }) {
-  const storyboard = (order.storyboardOptions as StoryboardCut[] | null) ?? [];
+  const storyboard = normalizeStoryboard(order.storyboardOptions);
   // Defensive: an order can only reach Gate 1 with a storyboard, but guard
   // against a legacy/empty row rather than rendering a dead wizard.
   if (storyboard.length === 0) {
@@ -233,7 +233,19 @@ function Gate1View({ order, petName }: { order: Order; petName: string }) {
           orderId={order.id}
           approveToken={order.approveToken}
           petName={petName}
-          storyboard={storyboard}
+          // PRICING-PRODUCT-V2-SPEC.md §3.5(C): the CLEAN url must never reach
+          // the browser at all — not just "not be rendered". StoryboardWizard
+          // is a client component, so whatever object we pass as `storyboard`
+          // gets serialized into the page's client payload verbatim (visible
+          // in view-source / devtools) regardless of what the component
+          // chooses to render. Stripping `.clean` here, server-side, before
+          // it ever reaches the client boundary, is the only way to guarantee
+          // that. The API route re-resolves the customer's preview pick back
+          // to the clean url itself (see approve-storyboard/route.ts).
+          storyboard={storyboard.map((cut) => ({
+            scene: cut.scene,
+            options: cut.options.map((o) => o.preview),
+          }))}
         />
       </div>
     </div>

@@ -4,18 +4,31 @@ import { prisma } from "@/lib/db";
 import { transitionOrder, TransitionError } from "@/lib/orders";
 import { kickFilmGeneration } from "@/lib/film-pipeline";
 import { kickPosterGeneration } from "@/lib/poster-pipeline";
-import type { StoryboardCut } from "@/lib/stills-pipeline";
+import { normalizeStoryboard } from "@/lib/stills-pipeline";
 
 /**
  * Gate 1 — the customer approves their storyboard: one take per cut.
  *
  * POST { orderId, approveToken, chosenStills: string[] }
  *
+ * IMPORTANT (PRICING-PRODUCT-V2-SPEC.md §3.5(C)): the browser only ever sees
+ * watermarked/downscaled PREVIEW urls (see app/approve/[token]/page.tsx
+ * Gate1View, which strips `.clean` before the storyboard prop reaches the
+ * client wizard — the clean url must never even round-trip through the
+ * page's props, or it would be sitting in plain view in the page source).
+ * So `chosenStills` in this request body is the customer's PREVIEW picks, one
+ * per cut. This route resolves each pick back to that same option's CLEAN
+ * url — server-side, using the order's own stored storyboard, never trusting
+ * the client for anything but "which of the 3 previews for this cut" — and
+ * THAT clean url is what gets persisted as chosenStills / selectedImageUrl,
+ * because that's what the film pipeline animates.
+ *
  * Guards, in order:
  * 1. approveToken must match the order (link-based auth, no login).
- * 2. chosenStills must have exactly one entry per cut, and each entry must be
- *    one of THAT cut's generated options (customers cannot inject arbitrary
- *    URLs into the video pipeline, and cannot mix a take into the wrong cut).
+ * 2. chosenStills must have exactly one entry per cut, and each entry must
+ *    match one of THAT cut's generated preview urls (customers cannot inject
+ *    arbitrary URLs into the video pipeline, and cannot mix a take into the
+ *    wrong cut).
  * 3. Status must be exactly AWAITING_CUSTOMER_APPROVAL — enforced atomically
  *    by transitionOrder, so a double-submit cannot kick the pipeline twice.
  */
@@ -46,7 +59,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Order not found." }, { status: 404 });
   }
 
-  const storyboard = (order.storyboardOptions as StoryboardCut[] | null) ?? [];
+  const storyboard = normalizeStoryboard(order.storyboardOptions);
   if (storyboard.length === 0) {
     return NextResponse.json(
       { ok: false, error: "This order has no storyboard to approve." },
@@ -61,8 +74,9 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
+  // Match against PREVIEW urls — that's all the client ever saw or submitted.
   const validPicks = chosenStills.every(
-    (url, i) => typeof url === "string" && storyboard[i].options.includes(url)
+    (url, i) => typeof url === "string" && storyboard[i].options.some((o) => o.preview === url)
   );
   if (!validPicks) {
     return NextResponse.json(
@@ -70,7 +84,11 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
-  const picks = chosenStills as string[];
+  // Resolve preview picks -> CLEAN urls. `!` is safe: validPicks above already
+  // proved a match exists for every index.
+  const picks = (chosenStills as string[]).map(
+    (previewUrl, i) => storyboard[i].options.find((o) => o.preview === previewUrl)!.clean
+  );
 
   // Poster scene: defaults to cut 1; reject out-of-range values.
   const rawPoster = body.posterCutIndex;

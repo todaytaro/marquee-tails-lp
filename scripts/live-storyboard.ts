@@ -46,7 +46,7 @@ async function main() {
   console.log(`\nstoryboard done in ${Math.round((Date.now() - t0) / 1000)}s | status:${done.status} | cuts:${sb.length}`);
   sb.forEach((cut, c) => {
     console.log(`cut ${c} — ${cut.scene}`);
-    cut.options.forEach((u, t) => console.log(`  take${t}: ${u}`));
+    cut.options.forEach((o, t) => console.log(`  take${t}: clean=${o.clean} preview=${o.preview}`));
   });
   console.log(`\n=== APPROVE ===`);
   console.log(`token:  ${done.approveToken}`);
