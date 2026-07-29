@@ -12,6 +12,14 @@ import { transitionOrder } from "@/lib/orders";
  */
 export const generateFilmTask = task({
   id: "generate-film",
+  // ffmpeg assembly needs real RAM and real CPU: the run downloads 6 clips,
+  // burns captions onto each, builds title cards, then concats and encodes a
+  // 1080p master plus a 9:16 social cut. On the default small-1x (0.5 vCPU /
+  // 0.5 GB) that ran out of memory and the process was killed outright at
+  // ~9.5 min — reported as "Crashed", with no onFailure, which stranded the
+  // order in VIDEO_GENERATING. The bigger machine also fixes the encode being
+  // painfully slow on half a core.
+  machine: "large-1x",
   maxDuration: 1800,
   retry: { maxAttempts: 2 },
   run: async ({ orderId }: { orderId: string }) => {

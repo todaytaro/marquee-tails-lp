@@ -17,6 +17,10 @@ type RerenderShotPayload = {
  */
 export const rerenderShotTask = task({
   id: "rerender-shot",
+  // Re-assembles the whole film after swapping one shot, so it runs the same
+  // ffmpeg work as generate-film and needs the same machine (small-1x was
+  // killed by OOM there — see trigger/film.ts).
+  machine: "large-1x",
   maxDuration: 1800,
   retry: { maxAttempts: 2 },
   run: async ({ orderId, shotIndex, reshoot, reason }: RerenderShotPayload) => {
