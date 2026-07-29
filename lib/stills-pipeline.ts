@@ -1,4 +1,6 @@
 import { fal } from "@fal-ai/client";
+import { tasks } from "@trigger.dev/sdk";
+import type { generateStillsTask } from "@/trigger/stills";
 import { OrderStatus, type Order } from "@/generated/prisma/client";
 import { prisma } from "./db";
 import { transitionOrder } from "./orders";
@@ -59,6 +61,22 @@ const MAX_TAKE_REROLLS = 2;
 // Base seed; each (cut, take, reroll) gets a distinct offset so the three
 // takes of a cut are genuinely different renders, not near-duplicates.
 const STILL_SEED = 77021;
+
+// FILM-QUALITY-V3-SPEC.md §4.2: generateTakeOnce's prompt had no mouth/tongue
+// direction at all, so the model defaulted to "a happy dog" = tongue out —
+// correct for `playful`, wrong for every other world/personality (the owner's
+// complaint was specifically a 1980s citypop "cool, composed" world reading as
+// goofy instead). `playful` is the only personality this should be skipped
+// for; every other value, INCLUDING `null` (a custom/Director's Cut order has
+// no personality field at all), gets the closed-mouth direction — a custom
+// order has no reason to default to the "playful" look just because it has
+// no explicit personality.
+const CLOSED_MOUTH_DIRECTIVE = "mouth closed, no lolling tongue, composed expression";
+
+/** Per FILM-QUALITY-V3-SPEC.md §4.2 — see CLOSED_MOUTH_DIRECTIVE above. */
+function expressionDirective(personality: string | null): string {
+  return personality === "playful" ? "" : CLOSED_MOUTH_DIRECTIVE;
+}
 
 function assertEnv(name: string): string {
   const v = process.env[name];
@@ -165,11 +183,12 @@ async function generateTakeOnce(
   costume: string,
   scene: string,
   framing: string,
+  expression: string,
   seed: number
 ): Promise<string> {
   const r = await fal.subscribe(EDIT_MODEL, {
     input: {
-      prompt: `The FIRST reference image is the definitive look of this character — match its costume, fur colors and markings, tail and face EXACTLY. This exact pet (${description}), ${costume}, ${scene}. ${framing}. One cinematic live-action film still, unmistakably the same individual pet, same outfit as the reference, blockbuster cinematography, dramatic lighting, shallow depth of field, film grain. ${STYLE_RULES} ${IDENTITY_RULES}`,
+      prompt: `The FIRST reference image is the definitive look of this character — match its costume, fur colors and markings, tail and face EXACTLY. This exact pet (${description}), ${costume}, ${scene}. ${framing}.${expression ? ` ${expression}.` : ""} One cinematic live-action film still, unmistakably the same individual pet, same outfit as the reference, blockbuster cinematography, dramatic lighting, shallow depth of field, film grain. ${STYLE_RULES} ${IDENTITY_RULES}`,
       image_urls: refs,
       num_images: 1,
       resolution: "2K",
@@ -195,6 +214,7 @@ async function generateGatedTake(
   costume: string,
   scene: string,
   framing: string,
+  expression: string,
   portraitUrl: string,
   baseSeed: number,
   label: string
@@ -204,7 +224,7 @@ async function generateGatedTake(
   for (let attempt = 0; attempt <= MAX_TAKE_REROLLS; attempt++) {
     // 7919 (prime) keeps re-roll seeds far from other takes' base seeds.
     const seed = baseSeed + attempt * 7919;
-    const url = await generateTakeOnce(refs, description, costume, scene, framing, seed);
+    const url = await generateTakeOnce(refs, description, costume, scene, framing, expression, seed);
     const score = await scoreIdentity(portraitUrl, url);
     console.log(`[stills] ${label} attempt ${attempt}: consistency ${score}`);
     if (score > bestScore) {
@@ -283,6 +303,10 @@ export async function runStillsGeneration(order: Order): Promise<void> {
   const heroRef = publicUrl(heroSheet);
   const portraitRef = publicUrl(identityPortraitUrl);
   const refs = [heroRef, portraitRef, photo0].filter((u): u is string => !!u);
+  // §4.2: computed once from order.personality — null (custom orders have no
+  // personality field) falls into the "add the directive" branch, same as
+  // brave/easygoing/timid; only playful is exempt.
+  const expression = expressionDirective(order.personality);
 
   const storyboard: StoryboardCut[] = [];
   for (let cut = 0; cut < arc.length; cut++) {
@@ -294,6 +318,7 @@ export async function runStillsGeneration(order: Order): Promise<void> {
           costume,
           arc[cut],
           SHOT_FRAMINGS[cut] ?? SHOT_FRAMINGS[0],
+          expression,
           portraitRef,
           STILL_SEED + cut * 100 + take * 1000,
           `cut ${cut} take ${take}`
@@ -349,6 +374,7 @@ export async function reshootCutStill(
     costume,
     directed,
     SHOT_FRAMINGS[cutIndex] ?? SHOT_FRAMINGS[0],
+    expressionDirective(order.personality),
     publicUrl(portrait),
     // Fresh seed family per re-shoot so the retake never repeats the original.
     STILL_SEED + cutIndex * 100 + (Date.now() % 100000),
@@ -385,21 +411,35 @@ export async function kickStillsGeneration(order: Order): Promise<void> {
     return;
   }
 
-  // Detached: several minutes for the full 18-take chain. next dev is
-  // long-lived; on Vercel move behind a queue/waitUntil (n8n phase).
-  void runStillsGeneration(order).catch(async (e) => {
-    console.error(`[stills] failed order=${order.id}, reverting`, e);
-    await transitionOrder(
-      order.id,
-      OrderStatus.IMAGE_GENERATING,
-      OrderStatus.UPLOADING,
-      "system",
-      {},
-      "stills generation failed — reverted for retry"
-    ).catch((revertErr) =>
-      console.error(`[stills] revert also failed order=${order.id}`, revertErr)
-    );
-  });
+  // Local dev only (no TRIGGER_SECRET_KEY): detached run, several minutes for
+  // the full 18-take chain — fine under a long-lived `next dev`. On Vercel this
+  // MUST NOT be the path taken: the function is frozen as soon as the response
+  // is sent, which killed generation part-way and left the order stuck in
+  // IMAGE_GENERATING with no storyboard and no revert. Production goes through
+  // Trigger.dev below, same as the film/poster pipelines.
+  if (!process.env.TRIGGER_SECRET_KEY) {
+    void runStillsGeneration(order).catch(async (e) => {
+      console.error(`[stills] local run failed order=${order.id}, reverting`, e);
+      // Custom orders go back to their approved treatment, not the photo form.
+      const to =
+        order.tier === "custom"
+          ? OrderStatus.AWAITING_TREATMENT_APPROVAL
+          : OrderStatus.UPLOADING;
+      await transitionOrder(
+        order.id,
+        OrderStatus.IMAGE_GENERATING,
+        to,
+        "system",
+        {},
+        "stills generation failed — reverted for retry"
+      ).catch((revertErr) =>
+        console.error(`[stills] revert also failed order=${order.id}`, revertErr)
+      );
+    });
+    return;
+  }
+
+  await tasks.trigger<typeof generateStillsTask>("generate-stills", { orderId: order.id });
 }
 
 export async function completeStillsGeneration(

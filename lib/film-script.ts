@@ -358,6 +358,49 @@ export function pickWorldInserts(world: string, orderId: string): string[] {
   return [0, 1, 2].map((k) => pool[(base + k) % pool.length]);
 }
 
+/**
+ * Custom (Director's Cut) inserts fallback (FILM-QUALITY-V3-SPEC.md §3.3).
+ *
+ * Preset orders always get 3 inserts (pickWorldInserts, above, draws from the
+ * fixed WORLD_INSERTS pool). Custom orders only get inserts if Claude's
+ * generatedScript happened to include an `inserts` array — and since that
+ * field was added AFTER inserts already existed in the schema, any custom
+ * order scripted before that point (or any run where Claude just omits the
+ * field) has `bundle.inserts` empty and resolveWorld had no fallback: the
+ * $249 tier — the one that's supposed to feel the most bespoke — ends up
+ * with ZERO B-roll while every $-cheaper preset order gets 3.
+ *
+ * Fix: derive 3 "empty scene" prompts straight from the custom order's OWN
+ * cuts instead of a static pool (there is no static pool for custom worlds).
+ * `bundle.cuts[].scene` already describes a place ("the starship bridge",
+ * "a rain-slicked alley") as part of an action beat — strip the action/pet
+ * out of the sentence at the prompt level (the "empty scene, no animals, no
+ * people" wrapper below does that) and what's left reads as atmospheric
+ * B-roll of the same world, no new Claude call needed.
+ *
+ * Picks are DETERMINISTIC (same reasoning as pickWorldInserts/getShotMotion):
+ * `stableHash(orderId)` chooses a start index into `cuts`, then 3 picks are
+ * spread evenly from there (wrapping), so a re-assemble or single-shot
+ * re-render of the same order always derives the same 3 insert subjects.
+ * generateInsertStill() already folds "no animals/people" into every prompt
+ * (see lib/film-pipeline.ts), so no extra dependency is introduced here.
+ *
+ * Never throws: fewer than 3 cuts returns as many distinct picks as exist
+ * (or [] for zero), matching the mandatory "no inserts -> 60s without them"
+ * degradation path — a malformed custom script must still produce a film.
+ */
+export function deriveCustomInserts(cuts: { scene: string }[], orderId: string): string[] {
+  if (!Array.isArray(cuts) || cuts.length === 0) return [];
+  const n = Math.min(3, cuts.length);
+  const start = stableHash(orderId) % cuts.length;
+  // Evenly spaced indices starting at `start`, wrapping around `cuts.length`
+  // (e.g. 6 cuts / 3 picks -> offsets 0, 2, 4). Rounded because cuts.length
+  // isn't guaranteed to divide evenly by 3 on malformed/legacy data.
+  const step = cuts.length / n;
+  const indices = Array.from(new Set(Array.from({ length: n }, (_, k) => (start + Math.round(k * step)) % cuts.length)));
+  return indices.map((i) => `the setting of: ${cuts[i].scene} — empty scene, no animals, no people`);
+}
+
 export function getArc(world: string, personality: string | null): string[] {
   const w = FILM_SCRIPTS[world] ?? FILM_SCRIPTS.deepspace;
   return w[(personality as Personality) ?? "easygoing"] ?? w.easygoing;
@@ -436,7 +479,10 @@ export function resolveWorld(order: Order): ResolvedWorld {
         rise: fill(bundle.loglines.rise),
         tagline: fill(bundle.loglines.tagline),
       },
-      inserts: bundle.inserts ?? [],
+      // §3.3 fallback: Claude-authored inserts win when present; otherwise
+      // derive 3 empty-scene prompts from this order's own cuts rather than
+      // leaving the $249 tier with zero B-roll (see deriveCustomInserts).
+      inserts: bundle.inserts?.length ? bundle.inserts : deriveCustomInserts(bundle.cuts, order.id),
     };
   }
   const world = order.world ?? "deepspace";

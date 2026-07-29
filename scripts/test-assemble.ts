@@ -1,5 +1,6 @@
 /**
- * Local functional test for the beat-EDL assembler (TRAILER-EDIT-SPEC.md §8).
+ * Local functional test for the beat-EDL assembler (TRAILER-EDIT-SPEC.md §8,
+ * extended by FILM-QUALITY-V3-SPEC.md §7).
  * NO database, NO fal.ai, NO Trigger.dev — everything is synthesized locally
  * with ffmpeg (`lavfi` color/testsrc2 sources + a sine-wave "music" track) and
  * fed straight into the REAL production render path (assembleForTest ->
@@ -16,22 +17,52 @@
  *      (graceful degradation, spec §2.1) — the real public/sfx/*.wav files
  *      are temporarily renamed out of the way and restored afterward, even
  *      on failure
+ *   6. (FILM-QUALITY-V3 §7 item 4) the punch-in filter string carries the
+ *      upward y-bias + lanczos scaling, and the grade filter chain contains
+ *      no centre-crop matte (crop=/pad=)
+ *   7. (FILM-QUALITY-V3 §7 item 5) master/social file sizes are printed AND
+ *      asserted larger than the pre-CRF-fix baseline captured from the same
+ *      fixtures against the OLD (unset-CRF, preset veryfast) encode settings
+ *      — evidence the CRF change actually raised delivered quality/bitrate
  *
  * Usage: npx tsx scripts/test-assemble.ts
  */
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, mkdir, rm, rename } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, rename, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import ffmpegPath from "ffmpeg-static";
-import { buildEdl, assembleForTest } from "../lib/film-pipeline";
+import {
+  buildEdl,
+  assembleForTest,
+  punchInFilter,
+  gradeFilterChain,
+  PUNCH_IN_ZOOM,
+  PUNCH_IN_Y_BIAS,
+  FILM_FPS,
+} from "../lib/film-pipeline";
 
 const FFMPEG_BIN = process.env.FFMPEG_PATH ?? (ffmpegPath as string);
 const TRAILER_SECONDS = 60.0;
-// Master/social are encoded at 24fps (see lib/film-pipeline.ts normaliseClip/
-// titleCard) — "±1 frame" per spec §8 means ±1/24s at that output rate.
-const FRAME_TOLERANCE_SECONDS = 1 / 24;
+// Master/social are encoded at FILM_FPS (lib/film-pipeline.ts normaliseClip/
+// titleCard/renderClipBeat/renderInsertBeat all share this one constant, spec
+// §2.2(d)) — "±1 frame" per spec §8 means ±1/FILM_FPS at that output rate.
+// FILM_FPS (30) not coincidentally matches the EDL's own FRAME_UNIT_SECONDS
+// (1/30s, see buildEdl) now — every beat's authored length is already an
+// exact whole number of output frames, so the fps switch from 24 TIGHTENED
+// this tolerance rather than requiring it to be loosened.
+const FRAME_TOLERANCE_SECONDS = 1 / FILM_FPS;
+
+// Baseline byte sizes captured from THIS EXACT fixture set (6 solid-color
+// clips + 3 solid-color inserts + sine-wave music, see makeFakeClip/
+// makeFakeInsert/makeFakeMusic below) run through the pre-FILM-QUALITY-V3
+// code (no -crf, "-preset veryfast" everywhere, MATTE_ASPECT=2.35 on the
+// master). Captured once, before the CRF/matte changes landed, specifically
+// so this test could show the encode-quality fix actually raised bitrate
+// (spec §7 item 5) instead of asserting against a made-up number.
+const PRE_CRF_BASELINE_MASTER_BYTES = 1_645_959;
+const PRE_CRF_BASELINE_SOCIAL_BYTES = 1_737_147;
 
 function ffmpeg(args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -123,6 +154,25 @@ const LOGLINES = {
 const SFX_DIR = path.join(process.cwd(), "public/sfx");
 const SFX_FILES = ["boom.wav", "riser.wav", "whoosh.wav"];
 
+/**
+ * Restore any *.testhidden left behind by a previous run that died before its
+ * finally block could run (a killed process, a Ctrl-C). Without this the repo
+ * is left with the committed SFX files apparently DELETED — and committing
+ * that state would silently ship a production trailer with no SFX bed, which
+ * is exactly the regression this suite exists to catch. Runs before anything
+ * else, and is safe when there is nothing to restore.
+ */
+async function restoreStrandedSfx(): Promise<void> {
+  for (const f of SFX_FILES) {
+    const hidden = path.join(SFX_DIR, `${f}.testhidden`);
+    const real = path.join(SFX_DIR, f);
+    if (existsSync(hidden) && !existsSync(real)) {
+      await rename(hidden, real);
+      console.log(`recovered ${f} from a previous interrupted run`);
+    }
+  }
+}
+
 /** Temporarily rename the real public/sfx/*.wav files out of the way (if
  * present) so we can exercise the "SFX absent" fallback for real, then
  * restore them — even if the test throws. */
@@ -137,6 +187,7 @@ async function withSfxHidden<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 async function main() {
+  await restoreStrandedSfx();
   const dir = await mkdtemp(path.join(tmpdir(), "mt-test-assemble-"));
   console.log(`scratch dir: ${dir}`);
   try {
@@ -171,6 +222,47 @@ async function main() {
     const socialDur = await probeDurationSeconds(socialPath);
     assertClose("master (16:9) duration", masterDur, TRAILER_SECONDS, FRAME_TOLERANCE_SECONDS);
     assertClose("social (9:16) duration", socialDur, TRAILER_SECONDS, FRAME_TOLERANCE_SECONDS);
+
+    console.log("\n=== encode-quality assertions (FILM-QUALITY-V3-SPEC.md §7 item 4/5) ===");
+    // Item 4: punch-in filter carries the upward y-bias + lanczos, and no
+    // centre-crop matte survives in the shared grade chain. Asserted against
+    // the ACTUAL functions the render path calls (punchInFilter/
+    // gradeFilterChain), not a re-derivation of the expected string.
+    const punchFilter = punchInFilter(PUNCH_IN_ZOOM);
+    assertTrue(
+      "punch-in filter biases the crop y-offset toward the bottom (not centred)",
+      punchFilter.includes(`(ih-oh)*${PUNCH_IN_Y_BIAS}`)
+    );
+    assertTrue("punch-in filter is NOT a centre crop (no (ih-oh)/2 term)", !punchFilter.includes("(ih-oh)/2"));
+    assertTrue("punch-in filter upscales with lanczos", punchFilter.includes("flags=lanczos"));
+    const noPunchFilter = punchInFilter(1);
+    assertTrue("no-punch-in (wide) beat has no crop term at all", !noPunchFilter.includes("crop="));
+    const grade = gradeFilterChain();
+    assertTrue(
+      "grade filter chain has no centre-crop matte (no crop=/pad= terms)",
+      !grade.includes("crop=") && !grade.includes("pad=")
+    );
+
+    // Item 5: master/social must be larger than the pre-CRF-fix baseline
+    // captured from the identical fixtures (see PRE_CRF_BASELINE_* above) —
+    // direct evidence the explicit CRF (was implicit ~23, now 14/17) raised
+    // delivered bitrate rather than a duration-only check that can't see it.
+    const masterBytes = (await stat(masterPath)).size;
+    const socialBytes = (await stat(socialPath)).size;
+    console.log(
+      `master.mp4: ${masterBytes} bytes (was ${PRE_CRF_BASELINE_MASTER_BYTES} bytes pre-CRF-fix, ${(
+        (masterBytes / PRE_CRF_BASELINE_MASTER_BYTES - 1) *
+        100
+      ).toFixed(1)}% change)`
+    );
+    console.log(
+      `social.mp4: ${socialBytes} bytes (was ${PRE_CRF_BASELINE_SOCIAL_BYTES} bytes pre-CRF-fix, ${(
+        (socialBytes / PRE_CRF_BASELINE_SOCIAL_BYTES - 1) *
+        100
+      ).toFixed(1)}% change)`
+    );
+    assertTrue("master.mp4 is larger than the pre-CRF-fix baseline", masterBytes > PRE_CRF_BASELINE_MASTER_BYTES);
+    assertTrue("social.mp4 is larger than the pre-CRF-fix baseline", socialBytes > PRE_CRF_BASELINE_SOCIAL_BYTES);
 
     console.log("\n=== assemble WITHOUT inserts (graceful degradation, spec §4.3/§4.4) ===");
     const runDir2 = path.join(dir, "run2");

@@ -58,6 +58,11 @@ import { reshootCutStill } from "./stills-pipeline";
 // production incident. NOTE: swap the KLING_MODEL env var to instantly
 // revert to standard if the pro endpoint id turns out to be wrong or the
 // tier underperforms.
+// Also the fix for FILM-QUALITY-V3-SPEC.md §2.2(f)'s upscale-double-dip
+// (standard is 720p -> scale=1920:1080 upscales it -> punch-in upscales it
+// AGAIN): pro is already 1080p native, so new generations skip the first
+// upscale entirely. Clips already shot on standard before this default
+// stays as-is — this only improves clips generated from here on.
 const KLING_MODEL = process.env.KLING_MODEL ?? "fal-ai/kling-video/v3/pro/image-to-video";
 const MUSIC_MODEL = "fal-ai/stable-audio-25/text-to-audio";
 // Text-to-image (NOT /edit) — insert B-roll has no pet in it at all, so there
@@ -77,6 +82,39 @@ const SHOT_SECONDS = 5;
 // Trailer total (spec §1.3) — the EDL below is normalized to land EXACTLY
 // here, in every case (with or without inserts, see buildEdl).
 const TRAILER_SECONDS = 60.0;
+
+/* ------------------------------------------------------------------ */
+/* Encode quality (FILM-QUALITY-V3-SPEC.md §2) — every libx264 call in  */
+/* this file reads its CRF/preset/fps from here, so there is ONE knob  */
+/* per concern instead of N call sites to keep in sync by hand.        */
+/* ------------------------------------------------------------------ */
+
+// `-preset veryfast` with no `-crf` used to mean "whatever x264's own default
+// is" (~CRF 23) at EVERY encode stage — fine for a preview, not for a $249
+// delivered film. Two tiers, not one:
+//   - INTERMEDIATE: normalise -> beat render -> card/Ken-Burns render -> the
+//     9:16 derive-crop. Four-ish re-encode generations happen here before the
+//     customer ever sees a frame, so intermediates are held NEAR-LOSSLESS
+//     (CRF 14 is visually indistinguishable from source) to stop generational
+//     decay from compounding across those passes.
+//   - FINAL: the grade pass (applyGrade) — the LAST video encode before the
+//     `-c:v copy` audio mux. Only runs once per film, so it can afford a
+//     slower preset for a better quality/bitrate trade at delivery time.
+const CRF_INTERMEDIATE = 14;
+const PRESET_INTERMEDIATE = "fast";
+const CRF_FINAL = 17;
+const PRESET_FINAL = "slow";
+
+// Single frame rate every rendered beat (clip, card, Ken Burns insert) shares,
+// because ffmpeg's `concat` demuxer requires every segment it stitches to
+// already agree on fps — reconciling that AFTER the fact isn't an option.
+// This file used to force `fps=24` in normaliseClip (see below) — a straight
+// frame DROP via the `fps` filter, not a real pulldown, so on Kling's native
+// 30fps output it only ever threw away 1 frame in 5 for no benefit (spec
+// §2.2(d)). Kling is the only clip source, so 30 (its native rate) is now the
+// house rate everywhere instead of down-converting to a number nothing
+// actually shoots at.
+export const FILM_FPS = 30;
 
 const FONT_DISPLAY = path.join(process.cwd(), "public/fonts/BebasNeue-Regular.ttf");
 const FONT_NAME = path.join(process.cwd(), "public/fonts/NotoSansJP-Bold.ttf");
@@ -108,6 +146,32 @@ async function download(url: string, dest: string): Promise<void> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`download failed ${res.status}: ${url}`);
   await writeFile(dest, Buffer.from(await res.arrayBuffer()));
+}
+
+/**
+ * Probe a local media file's duration by parsing ffmpeg's own stderr
+ * "Duration:" line — no ffprobe dependency in this repo (same technique
+ * scripts/test-assemble.ts uses to assert output durations). `ffmpeg -i` with
+ * no output file just probes the input and exits non-zero; that's expected
+ * here, only stderr is read.
+ *
+ * Used by assembleToFiles to find out how much footage a source clip
+ * ACTUALLY has before asking the EDL to trim a beat from it (see
+ * clampToSourceDurations below) — buildEdl's scaling has no visibility into
+ * real file lengths on its own.
+ */
+function probeDurationSeconds(file: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(FFMPEG_BIN, ["-i", file], { stdio: ["ignore", "ignore", "pipe"] });
+    let stderr = "";
+    proc.stderr.on("data", (d) => (stderr += d.toString()));
+    proc.on("close", () => {
+      const m = stderr.match(/Duration:\s*(\d+):(\d+):(\d+\.\d+)/);
+      if (!m) return reject(new Error(`could not parse duration from ffmpeg output for ${file}:\n${stderr.slice(-500)}`));
+      resolve(parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60 + parseFloat(m[3]));
+    });
+    proc.on("error", reject);
+  });
 }
 
 /**
@@ -325,18 +389,29 @@ async function generateScore(scorePrompt: string): Promise<string> {
 }
 
 /**
- * Normalise a clip to 1920x1080 / 24fps / h264 / silent. Trailer captions used
- * to be burned in here (a gold lower-third drawtext); spec §1.4 moves ALL
- * trailer copy onto black title cards instead (renderCardBeat below), so this
- * is purely a format-normalization step now — no text, no per-shot branching.
- * Clean footage also means a punch-in crop (§1.1) can never clip off a
- * caption, which used to be a real failure mode.
+ * Normalise a clip to 1920x1080 / FILM_FPS / h264 / silent. Trailer captions
+ * used to be burned in here (a gold lower-third drawtext); spec §1.4 moves
+ * ALL trailer copy onto black title cards instead (renderCardBeat below), so
+ * this is purely a format-normalization step now — no text, no per-shot
+ * branching. Clean footage also means a punch-in crop (§1.1) can never clip
+ * off a caption, which used to be a real failure mode.
+ *
+ * NOT merged with renderClipBeat (FILM-QUALITY-V3-SPEC.md §2.2(b)): this runs
+ * ONCE per source clip regardless of how many beats reuse it (a wide beat and
+ * its punch-in reframe share the same normalised source, spec §1.1), while
+ * renderClipBeat runs once per BEAT and additionally trims + optionally
+ * punch-in-crops. Folding them into one pass would mean re-deriving the
+ * 1920x1080 base frame from raw input for every beat referencing a clip
+ * instead of once, which complicates the trim/punch-in math for no CRF
+ * benefit — §2.2(a)'s CRF_INTERMEDIATE already keeps this intermediate
+ * near-lossless, so the bigger win (stopping generational decay) is already
+ * captured without the merge.
  */
 async function normaliseClip(input: string, output: string): Promise<void> {
   await ffmpeg([
     "-i", input,
-    "-vf", "scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,fps=24",
-    "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast",
+    "-vf", `scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,fps=${FILM_FPS}`,
+    "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", PRESET_INTERMEDIATE, "-crf", String(CRF_INTERMEDIATE),
     output,
   ]);
 }
@@ -369,9 +444,9 @@ async function titleCard(
     )
     .join(",");
   await ffmpeg([
-    "-f", "lavfi", "-i", `color=c=0x0b0a10:s=${width}x${height}:d=${seconds.toFixed(3)}:r=24`,
+    "-f", "lavfi", "-i", `color=c=0x0b0a10:s=${width}x${height}:d=${seconds.toFixed(3)}:r=${FILM_FPS}`,
     "-vf", draw,
-    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast",
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", PRESET_INTERMEDIATE, "-crf", String(CRF_INTERMEDIATE),
     output,
   ]);
 }
@@ -446,17 +521,32 @@ type EdlBeat =
   | { kind: "card"; card: CardId; seconds: number }
   | { kind: "insert"; insert: number; seconds: number };
 
-// Punch-in zoom factor (spec §1.1): ffmpeg `crop=iw/Z:ih/Z,scale=1920:1080`.
-// 1.3-1.4x is the tuned range (visible reframe, still sharp enough on a 1080p
-// source); PUNCH_IN_ZOOM_MAX is the hard ceiling the spec calls out. The
-// assertion below is a cheap guard against nudging the tuning knob past that
-// ceiling by accident later.
-const PUNCH_IN_ZOOM = 1.35;
+// Punch-in zoom factor (FILM-QUALITY-V3-SPEC.md §1.2(b)): ffmpeg
+// `crop=iw/Z:ih/Z:x:y,scale=1920:1080`. Was 1.35 — combined with the (now
+// removed, see gradeFilterChain) 2.35:1 matte crop, ~25% of the frame's
+// height was being discarded from the top, and SHOT_FRAMINGS deliberately
+// puts the pet's face near the TOP of frame, so ears and the top of the head
+// were structurally cut off in every punch-in beat. Dropping the matte fixes
+// most of it; dropping the zoom to 1.2 (still a visible reframe) shrinks the
+// remaining discarded band, and PUNCH_IN_Y_BIAS below fixes where that band
+// comes from. PUNCH_IN_ZOOM_MAX is the hard ceiling the spec calls out — the
+// assertion below is a cheap guard against nudging the tuning knob past it by
+// accident later.
+export const PUNCH_IN_ZOOM = 1.2;
 const PUNCH_IN_ZOOM_MAX = 1.5;
 const NO_PUNCH_IN = 1;
 if (PUNCH_IN_ZOOM > PUNCH_IN_ZOOM_MAX) {
   throw new Error(`PUNCH_IN_ZOOM (${PUNCH_IN_ZOOM}) exceeds PUNCH_IN_ZOOM_MAX (${PUNCH_IN_ZOOM_MAX})`);
 }
+
+// A CENTRE crop cuts off the head: SHOT_FRAMINGS composes the face toward the
+// TOP of frame (see film-script.ts), so a symmetric crop discards headroom the
+// framing put there on purpose. This biases the punch-in crop window DOWN
+// instead — `crop=iw/Z:ih/Z:(iw-ow)/2:(ih-oh)*PUNCH_IN_Y_BIAS` — so 3/4 of
+// whatever height the zoom discards comes off the BOTTOM of frame (feet,
+// ground — low story-importance) and only 1/4 comes off the top, protecting
+// the ears/head the still was framed to show.
+export const PUNCH_IN_Y_BIAS = 0.25;
 
 /**
  * The default beat template (spec §1.2) — 6 clips (each used twice: once
@@ -515,7 +605,10 @@ export type ScaledBeat = EdlBeat & { frames: number };
 /**
  * Pure function, no I/O, no randomness (spec §1.3 — a re-assembly of the same
  * order, or a single-shot re-render, must produce the same EDL every time,
- * same reasoning as getShotMotion's stable hash).
+ * same reasoning as getShotMotion's stable hash). `clipDurationsSeconds`, if
+ * given, is itself just numbers (probed by the CALLER — see assembleToFiles —
+ * not by this function), so passing it doesn't reintroduce I/O here; the same
+ * durations always produce the same output.
  *
  * Scales every clip/insert beat by ONE factor so the total lands EXACTLY on
  * 60.0s; card beats keep their authored length (stretching a card reads as
@@ -528,8 +621,23 @@ export type ScaledBeat = EdlBeat & { frames: number };
  * Whatever integer-frame remainder is left after rounding every beat is
  * absorbed by the LAST scalable (non-card) beat, so the sum is always
  * exactly TRAILER_FRAMES.
+ *
+ * FILM-QUALITY-V3 bugfix: the scale factor above has NO idea how long the
+ * real source clips are — dropping the 3 insert beats (no-inserts case)
+ * raises the scale enough that a beat can ask a short SHOT_SECONDS(5s) clip
+ * to hand over MORE than 5s, and renderClipBeat's `-t` just silently trims to
+ * whatever ffmpeg can read, so the finished film came out short with no
+ * error (caught by scripts/test-assemble.ts's no-inserts run: master landed
+ * at 59.87s, not 60.0s). `clipDurationsSeconds[clipIndex]` — the PROBED
+ * duration of each normalised source clip, passed in by the caller — lets
+ * this function clamp every clip beat to what its source can actually give,
+ * and clampToSourceDurations (below) redistributes whatever a clamp removes
+ * so the total still lands on exactly TRAILER_FRAMES. Omitting the argument
+ * (as the structural EDL-shape tests in test-assemble.ts do) skips clamping
+ * entirely and reproduces the exact pre-fix output — no behavior change for
+ * callers that don't have real files to probe.
  */
-export function buildEdl(hasInserts: boolean): ScaledBeat[] {
+export function buildEdl(hasInserts: boolean, clipDurationsSeconds?: number[]): ScaledBeat[] {
   const template = hasInserts ? EDL_TEMPLATE : EDL_TEMPLATE.filter((b) => b.kind !== "insert");
 
   const cardFrames = template
@@ -540,7 +648,7 @@ export function buildEdl(hasInserts: boolean): ScaledBeat[] {
     .reduce((sum, b) => sum + secondsToFrames(b.seconds), 0);
   const scale = (TRAILER_FRAMES - cardFrames) / scalableRawFrames;
 
-  const scaled: ScaledBeat[] = template.map((b) => ({
+  let scaled: ScaledBeat[] = template.map((b) => ({
     ...b,
     frames: b.kind === "card" ? secondsToFrames(b.seconds) : Math.round(secondsToFrames(b.seconds) * scale),
   }));
@@ -552,12 +660,119 @@ export function buildEdl(hasInserts: boolean): ScaledBeat[] {
       break;
     }
   }
+
+  if (clipDurationsSeconds) {
+    scaled = clampToSourceDurations(scaled, clipDurationsSeconds);
+  }
+
   return scaled;
+}
+
+/**
+ * Clamps every "clip" beat to (at most) its own source clip's probed
+ * duration, redistributing whatever a clamp removes to beats that still have
+ * headroom so the assembled total is UNCHANGED at exactly TRAILER_FRAMES —
+ * see buildEdl's doc comment above for why this exists.
+ *
+ * Redistribution order: "insert" beats first (a Ken-Burns push-in on a still
+ * image has no real upper bound — it can always absorb more), THEN other
+ * still-uncapped "clip" beats. Split evenly across whatever receiver pool
+ * exists at each pass — simple and deterministic, and a beat that receives
+ * more than IT can hold just gets caught and clamped on the next pass.
+ *
+ * Iterates because redistributing can itself push a previously-fine beat
+ * over ITS OWN cap (e.g. two beats sharing one short clip); bounded by
+ * `beats.length` since every pass either caps at least one more beat or
+ * exits with excess === 0.
+ *
+ * If literally every beat with headroom is exhausted (every clip AND every
+ * insert already maxed — only possible with pathologically short sources)
+ * the residual is parked on the LAST card beat instead of silently shipping
+ * a short film, and one line is logged so it's visible in production logs
+ * rather than a silent truncation nobody notices until an owner complains.
+ *
+ * Deterministic: the same beats + the same probed durations always
+ * redistribute identically, so a later re-assemble or single-shot
+ * re-render (which re-probes the same cached clip URLs) reproduces the
+ * exact same EDL.
+ */
+function clampToSourceDurations(beats: ScaledBeat[], clipDurationsSeconds: number[]): ScaledBeat[] {
+  // Math.floor, not round: never ask ffmpeg to trim MORE than a source
+  // actually contains. Missing/undefined duration data for a clip index
+  // means "don't clamp it" (Infinity), not "clamp to zero" — safer default.
+  const capFramesFor = (clipIndex: number): number =>
+    Math.max(0, Math.floor(secondsToFrames(clipDurationsSeconds[clipIndex] ?? Infinity)));
+
+  const result: ScaledBeat[] = beats.map((b) => ({ ...b }));
+  // A beat is "capped" once its frames are pinned to its source's max; capped
+  // beats never receive redistributed time (they have none left to give).
+  const capped = new Set<number>();
+
+  for (let iter = 0; iter < result.length + 1; iter++) {
+    let excess = 0;
+    result.forEach((b, i) => {
+      if (b.kind !== "clip" || capped.has(i)) return;
+      const cap = capFramesFor(b.clip);
+      if (b.frames > cap) {
+        excess += b.frames - cap;
+        result[i] = { ...b, frames: cap };
+        capped.add(i);
+      }
+    });
+    if (excess === 0) break;
+
+    const receivers = result
+      .map((b, i) => ({ b, i }))
+      .filter(({ b, i }) => b.kind === "insert" || (b.kind === "clip" && !capped.has(i)));
+
+    if (receivers.length === 0) {
+      // Nothing left with headroom — extend the closing card rather than
+      // ship a short film.
+      for (let i = result.length - 1; i >= 0; i--) {
+        if (result[i].kind === "card") {
+          console.warn(
+            `[film] EDL source clips too short to fill ${TRAILER_SECONDS}s even fully clamped — extending the closing card by ${framesToSeconds(excess).toFixed(3)}s`
+          );
+          result[i] = { ...result[i], frames: result[i].frames + excess };
+          break;
+        }
+      }
+      break;
+    }
+
+    // Even split, remainder onto the first receiver — simple and
+    // deterministic; any receiver that overshoots ITS cap gets caught on the
+    // next iteration.
+    const share = Math.floor(excess / receivers.length);
+    let remainder = excess - share * receivers.length;
+    receivers.forEach(({ i }) => {
+      const bonus = remainder > 0 ? 1 : 0;
+      if (bonus) remainder--;
+      result[i] = { ...result[i], frames: result[i].frames + share + bonus };
+    });
+  }
+
+  return result;
 }
 
 /* ------------------------------------------------------------------ */
 /* Per-beat rendering                                                   */
 /* ------------------------------------------------------------------ */
+
+/**
+ * Builds the crop/scale filter for one punch-in reframe (spec §1.2(b)/§2.2(e)).
+ * Exported (not just internal to renderClipBeat) so scripts/test-assemble.ts
+ * can assert the upward y-bias directly against this exact string rather than
+ * re-deriving it — one source of truth for both the render path and the test.
+ */
+export function punchInFilter(punchIn: number): string {
+  // `flags=lanczos` (spec §2.2(e)): the punch-in always upsamples (crop then
+  // scale back to 1920x1080), and lanczos is noticeably sharper than the
+  // default bilinear scaler on an upscale.
+  return punchIn > 1
+    ? `crop=iw/${punchIn}:ih/${punchIn}:(iw-ow)/2:(ih-oh)*${PUNCH_IN_Y_BIAS},scale=1920:1080:flags=lanczos`
+    : "scale=1920:1080:flags=lanczos";
+}
 
 /**
  * Render one "clip" beat: trim the SAME [0, seconds] window of the source
@@ -568,31 +783,31 @@ export function buildEdl(hasInserts: boolean): ScaledBeat[] {
  * keyframe at the segment boundary for the concat step below).
  */
 async function renderClipBeat(sourceNorm: string, output: string, seconds: number, punchIn: number): Promise<void> {
-  const vf = punchIn > 1 ? `crop=iw/${punchIn}:ih/${punchIn},scale=1920:1080` : "scale=1920:1080";
   await ffmpeg([
     "-ss", "0", "-t", seconds.toFixed(3), "-i", sourceNorm,
-    "-vf", vf,
-    "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast", "-r", "24",
+    "-vf", punchInFilter(punchIn),
+    "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", PRESET_INTERMEDIATE, "-crf", String(CRF_INTERMEDIATE), "-r", String(FILM_FPS),
     output,
   ]);
 }
 
 // Ken Burns tuning (spec §4.2) — gentle zoom-in, no pan: enough motion that an
 // insert doesn't read as a static photo, subtle enough it doesn't look like a
-// slideshow. Upsampling to 4K before the zoompan keeps the crop sharp.
+// slideshow. Upsampling to 4K before the zoompan keeps the crop sharp. Frame
+// rate is FILM_FPS (§2.2(d)) — inserts must match every other beat's fps for
+// concat, so there is no separate Ken-Burns-only fps constant any more.
 const KEN_BURNS_ZOOM_END = 1.15;
-const KEN_BURNS_FPS = 24;
 
 /** Render one "insert" beat: a still + Ken Burns push-in, no Kling involved. */
 async function renderInsertBeat(stillPath: string, output: string, seconds: number): Promise<void> {
-  const frames = Math.max(1, Math.round(seconds * KEN_BURNS_FPS));
+  const frames = Math.max(1, Math.round(seconds * FILM_FPS));
   const zoomStep = (KEN_BURNS_ZOOM_END - 1) / frames;
   await ffmpeg([
     "-loop", "1", "-i", stillPath,
     "-t", seconds.toFixed(3),
     "-vf",
-    `scale=3840:2160,zoompan=z='min(zoom+${zoomStep.toFixed(6)},${KEN_BURNS_ZOOM_END})':d=${frames}:s=1920x1080:fps=${KEN_BURNS_FPS}`,
-    "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast",
+    `scale=3840:2160,zoompan=z='min(zoom+${zoomStep.toFixed(6)},${KEN_BURNS_ZOOM_END})':d=${frames}:s=1920x1080:fps=${FILM_FPS}`,
+    "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", PRESET_INTERMEDIATE, "-crf", String(CRF_INTERMEDIATE),
     output,
   ]);
 }
@@ -603,11 +818,21 @@ async function concatSegments(dir: string, segments: string[], output: string): 
   await ffmpeg(["-f", "concat", "-safe", "0", "-i", listFile, "-c", "copy", output]);
 }
 
-// --- Finish / grade (spec §3) — every knob here is intentionally subtle and
-// named so tuning (or disabling a term — just delete it from the chain
-// below) is a one-line edit in this one place.
-const MATTE_ASPECT = 2.35; // cinematic crop-then-pad within the 16:9 frame (widescreen master only)
-const GRAIN_STRENGTH = 6; // noise=alls=N — 6 is barely visible; the look turns "dirty" well before 15
+// --- Finish / grade (spec §3; matte removal + grain retune per
+// FILM-QUALITY-V3-SPEC.md §1.2(a)/§2.2(c)) — every knob here is intentionally
+// subtle and named so tuning (or disabling a term — just delete it from the
+// chain below) is a one-line edit in this one place.
+//
+// REMOVED: MATTE_ASPECT (was 2.35) and its crop+pad branch. The 2.35:1
+// cinescope matte cropped ~24% off the frame's height, stacked on TOP of the
+// punch-in crop above — between the two, ~25% was being cut from the top of
+// frame, and SHOT_FRAMINGS puts the pet's face there on purpose, so ears/head
+// were structurally clipped. The face IS the product; a "cinematic" letterbox
+// that decapitates it is a net loss the cards/cuts/SFX already cover without.
+// Do NOT re-add a centre-crop matte here without ALSO applying the punch-in's
+// upward y-bias (PUNCH_IN_Y_BIAS) to it — a centre crop alone reintroduces
+// the exact bug this removal fixes.
+const GRAIN_STRENGTH = 3; // noise=alls=N — was 6, halved: at the OLD implicit ~CRF23, grain that heavy collapsed into block noise before delivery (spec §2.2(c)). Re-evaluate raising this once the CRF_FINAL/CRF_INTERMEDIATE change below has been live a while and grain-vs-compression is reassessed.
 const GRADE_SATURATION = 1.06;
 const GRADE_CONTRAST = 1.04;
 const GRADE_SHADOW_BLUE = 0.02; // colorbalance shadow term — a hint of teal, not a full teal/orange grade
@@ -615,35 +840,34 @@ const GRADE_MID_WARM = 0.015; // colorbalance midtone term — a hint of warmth,
 const VIGNETTE_ANGLE = "PI/5"; // soft falloff, not a spotlight
 
 /**
- * Shared post-stage filter chain: grade + grain + vignette, plus the 2.35:1
- * matte for the widescreen master only (`matte=false` for the 9:16 cut — a
- * horizontal letterbox makes no sense on a vertical frame, spec §3.1).
+ * Shared post-stage filter chain: grade + grain + vignette. Used for BOTH the
+ * widescreen master and the 9:16 social cut — there is no more per-aspect
+ * branching here since the matte (the only aspect-dependent term) is gone.
  * Applied ONCE to the fully concatenated timeline rather than per-beat: one
  * ffmpeg pass instead of N, and it guarantees the texture reads as continuous
  * across every cut, card and insert instead of drifting beat-to-beat.
  */
-function gradeFilterChain(matte: boolean): string {
-  const chain: string[] = [];
-  if (matte) {
-    // Crop the 1920x1080 frame down to 2.35:1 height, then pad back to 1080
-    // with black bars — output resolution stays fixed so the mux step
-    // downstream doesn't need to know a matte happened.
-    chain.push(`crop=iw:iw/${MATTE_ASPECT}`, "pad=iw:1080:0:(1080-ih)/2:black");
-  }
-  chain.push(
+// Exported (spec §7 item 4): scripts/test-assemble.ts asserts directly against
+// this exact string — that no centre-crop matte (`crop=`/`pad=`) has crept
+// back in — rather than re-deriving the chain itself.
+export function gradeFilterChain(): string {
+  return [
     `eq=saturation=${GRADE_SATURATION}:contrast=${GRADE_CONTRAST}`,
     `colorbalance=rs=0:gs=0:bs=${GRADE_SHADOW_BLUE}:rm=${GRADE_MID_WARM}:gm=0:bm=-${GRADE_MID_WARM}`,
     `noise=alls=${GRAIN_STRENGTH}:allf=t+u`,
-    `vignette=${VIGNETTE_ANGLE}`
-  );
-  return chain.join(",");
+    `vignette=${VIGNETTE_ANGLE}`,
+  ].join(",");
 }
 
 async function applyGrade(input: string, output: string, filterChain: string): Promise<void> {
+  // FINAL encode (spec §2.2(a)): this is the last video encode before the
+  // `-c:v copy` audio mux, so it gets the delivery-quality tier (CRF_FINAL +
+  // PRESET_FINAL), not the intermediate one every other libx264 call in this
+  // file uses.
   await ffmpeg([
     "-i", input,
     "-vf", filterChain,
-    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast",
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", PRESET_FINAL, "-crf", String(CRF_FINAL),
     output,
   ]);
 }
@@ -909,7 +1133,9 @@ export async function runFilmGeneration(order: Order): Promise<void> {
  * local fixtures instead of real generated media, with no fork between test
  * and production code paths. `insertSources` may be [] (no inserts available)
  * — buildEdl() drops the insert beats and normalization still lands on
- * exactly 60.0s (spec §1.3/§4.3).
+ * exactly 60.0s (spec §1.3/§4.3), EXCEPT when a source clip is too short to
+ * give a scaled-up beat what it asks for — see clampToSourceDurations, fed
+ * from the probed clip durations below.
  */
 async function assembleToFiles(
   dir: string,
@@ -920,11 +1146,15 @@ async function assembleToFiles(
   loglines: { intro: string; turn: string; rise: string; tagline: string }
 ): Promise<{ masterPath: string; socialPath: string }> {
   const hasInserts = insertSources.length >= 3;
-  const edl = buildEdl(hasInserts);
 
   // --- Source prep: download (or adopt local paths) + normalize ONCE per
   // clip/insert, however many beats reference it (spec §1.1 — beats reuse the
   // SAME clip/still footage, they don't consume fresh material per beat).
+  // Clips are normalised BEFORE buildEdl runs (moved ahead of where it used
+  // to sit) because buildEdl now needs each clip's ACTUAL usable duration —
+  // see the FILM-QUALITY-V3 bugfix note on buildEdl for why: without it, a
+  // no-inserts EDL's higher scale factor could ask a short source clip for
+  // more seconds than it has, and the film silently came out short.
   const normClips: string[] = [];
   for (let i = 0; i < clipSources.length; i++) {
     const raw = await fetchOrLocal(clipSources[i], path.join(dir, `clip-raw-${i}.mp4`));
@@ -932,6 +1162,13 @@ async function assembleToFiles(
     await normaliseClip(raw, norm);
     normClips.push(norm);
   }
+  // Probe the NORMALISED clips (not the raw sources) — normalisation can
+  // shift a duration by a frame or two (fps conversion), and renderClipBeat
+  // trims from the normalised file, so that's the length that actually
+  // matters for the clamp.
+  const clipDurationsSeconds = await Promise.all(normClips.map((p) => probeDurationSeconds(p)));
+  const edl = buildEdl(hasInserts, clipDurationsSeconds);
+
   const insertStills: string[] = [];
   if (hasInserts) {
     for (let i = 0; i < 3; i++) {
@@ -957,16 +1194,19 @@ async function assembleToFiles(
     wideSegments.push(out);
   }
 
-  // --- Widescreen master: concat -> shared grade/grain/matte pass.
+  // --- Widescreen master: concat -> shared grade/grain pass (no matte, see
+  // gradeFilterChain).
   const rawMaster = path.join(dir, "raw-master.mp4");
   await concatSegments(dir, wideSegments, rawMaster);
   const gradedMaster = path.join(dir, "graded-master.mp4");
-  await applyGrade(rawMaster, gradedMaster, gradeFilterChain(true));
+  await applyGrade(rawMaster, gradedMaster, gradeFilterChain());
 
   // --- 9:16 social: same EDL (spec §3.1) — cards are re-rendered natively
   // vertical, clip/insert beats are DERIVED from the widescreen render via a
   // center crop ("中心クロップは現行踏襲" — the same crop the pre-EDL pipeline
-  // applied to its finished master). No matte on a vertical frame.
+  // applied to its finished master). gradeFilterChain has no aspect-dependent
+  // branch any more (the matte was the only one), so master and social share
+  // the exact same grade call now.
   const vertSegments: string[] = [];
   for (let i = 0; i < edl.length; i++) {
     const beat = edl[i];
@@ -978,7 +1218,7 @@ async function assembleToFiles(
       await ffmpeg([
         "-i", wideSegments[i],
         "-vf", "crop=ih*9/16:ih,scale=1080:1920",
-        "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast",
+        "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", PRESET_INTERMEDIATE, "-crf", String(CRF_INTERMEDIATE),
         out,
       ]);
     }
@@ -987,7 +1227,7 @@ async function assembleToFiles(
   const rawSocial = path.join(dir, "raw-social.mp4");
   await concatSegments(dir, vertSegments, rawSocial);
   const gradedSocial = path.join(dir, "graded-social.mp4");
-  await applyGrade(rawSocial, gradedSocial, gradeFilterChain(false));
+  await applyGrade(rawSocial, gradedSocial, gradeFilterChain());
 
   // --- Audio: one mix shared by both cuts (same EDL -> identical timing, SFX
   // and duck windows regardless of aspect ratio).
