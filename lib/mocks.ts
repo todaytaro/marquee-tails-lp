@@ -135,7 +135,7 @@ export async function sendDeliveryEmail(order: Order): Promise<void> {
         <p>${petName}'s film has wrapped, passed quality check, and is ready
         to premiere.</p>
         <p><a href="${link}">Watch and download ${petName}'s film →</a></p>
-        <p><a href="${link}">Make it a keepsake — add a printed poster or gallery canvas →</a></p>
+        <p><a href="${link}#keepsake">Make it a keepsake — add a printed poster or gallery canvas →</a></p>
         <p style="color:#888;font-size:12px">This is a private screening link, just for you.</p>
       `,
     });

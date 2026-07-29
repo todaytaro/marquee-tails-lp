@@ -89,7 +89,10 @@ export default function AddonUpsell({
   if (purchasedAddon) {
     const label = ADDON_LABEL[purchasedAddon] ?? "keepsake";
     return (
-      <section className="mx-auto mt-14 max-w-xl rounded-card border border-gold/40 bg-surface px-6 py-8 text-center">
+      // Same #keepsake anchor as the offer below: the delivery email's
+      // keepsake link must land somewhere sensible even after the customer
+      // has already bought (they see the confirmation instead of the offer).
+      <section id="keepsake" className="mx-auto mt-14 max-w-xl rounded-card border border-gold/40 bg-surface px-6 py-8 text-center">
         <p className="font-display text-sm uppercase tracking-[0.3em] text-gold">
           Order confirmed
         </p>
@@ -101,7 +104,11 @@ export default function AddonUpsell({
   }
 
   return (
-    <section className="mx-auto mt-14 max-w-3xl">
+    // #keepsake — the delivery email's second link targets this section. Both
+    // email links point at the same /approve page (the film and the keepsake
+    // offer live together), so without an anchor here the keepsake link did
+    // nothing the "watch the film" link above it hadn't already done.
+    <section id="keepsake" className="mx-auto mt-14 max-w-3xl">
       <p className="text-center font-display text-sm uppercase tracking-[0.3em] text-gold">
         Make it real.
       </p>
