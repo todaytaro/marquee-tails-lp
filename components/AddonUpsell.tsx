@@ -96,8 +96,16 @@ export default function AddonUpsell({
         <p className="font-display text-sm uppercase tracking-[0.3em] text-gold">
           Order confirmed
         </p>
+        {/*
+          One interpolated string, not `Your {label} is ...`. The JSX form
+          renders as three text nodes separated by React's `<!-- -->` hydration
+          markers, and in production the space after the second marker was
+          being lost — the live page read "Your printed posteris on its way",
+          on the screen a customer sees immediately after paying. A single text
+          node has no boundary to lose.
+        */}
         <p className="mt-3 text-lg text-ivory">
-          Your {label} is on its way — we&apos;ll email tracking.
+          {`Your ${label} is on its way — we'll email tracking.`}
         </p>
       </section>
     );
