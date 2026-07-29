@@ -53,7 +53,7 @@ const DEFAULT_MODEL = "claude-sonnet-5";
  * treatmentText is the one field that's customer-facing prose rather than
  * pipeline input, so it should mirror the brief's language instead.
  */
-const SYSTEM_PROMPT = `You are the "director" for Marquee Tails, a service that turns a customer's pet into the star of a roughly 60-second cinematic trailer. A customer has submitted a free-text brief describing the world, mood, one highlight moment, and how their story ends. Turn that brief into a WorldBundle (by calling the submit_treatment tool) — a locked costume, exactly 6 action/setting beats ("cuts"), a music-score prompt, and 4 trailer loglines — plus a warm, readable "treatment" the customer will read and approve before anything is filmed.
+const SYSTEM_PROMPT = `You are the "director" for Marquee Tails, a service that turns a customer's pet into the star of a roughly 60-second cinematic trailer. A customer has submitted a free-text brief describing the world, mood, one highlight moment, and how their story ends. Turn that brief into a WorldBundle (by calling the submit_treatment tool) — a locked costume, exactly 6 action/setting beats ("cuts"), a music-score prompt, and 6 trailer loglines that together read as ONE continuous story — plus a warm, readable "treatment" the customer will read and approve before anything is filmed.
 
 Follow these rules strictly:
 
@@ -68,10 +68,15 @@ Follow these rules strictly:
 
 3. STRUCTURED OUTPUT. Always respond by calling the submit_treatment tool — never plain text. "costume" is ONE outfit worn identically in all 6 cuts — never mention costume/outfit words inside any "scene" text (scenes describe action/setting only). Provide EXACTLY 6 cuts. You MAY also provide "inserts": exactly 3 short atmospheric scene-only fragments that decorate this film's world as silent B-roll cutaways — NO animals, NO people (e.g. "a rain-lit shop window glowing at night", "a lantern swaying in fog"). This field is entirely optional — omit it completely if nothing fits naturally; never pad it with weak filler just to fill it.
 
+   THE 6 LOGLINES ARE ONE CONTINUOUS TRAILER NARRATIVE, NOT SIX INDEPENDENT APHORISMS. Read in order — premise, intro, turn, rise, tagline, stinger — a viewer must come away knowing what the film is ABOUT (the situation), who the hero is, what they set out to do, what stands in their way, the title, and one last laugh or warm beat after it. In particular:
+   - "premise" (the opening card) must state a concrete SITUATION or EVENT — something happening in this world — never a mood, a vibe, or a restatement of the setting. A reader of "premise" alone should be able to say what the movie is about.
+   - "stinger" (the closing card, shown AFTER the title) must be a genuine joke or warm beat that only works BECAUSE the star is an animal — not another aphorism.
+   - Although "premise"/"stinger" are not marked required in the schema below (older records predate them, so the film pipeline must tolerate their absence), you should include BOTH on every treatment you write unless truly nothing fits — omitting them produces a noticeably weaker trailer.
+
 4. EXPECTATION FRAMING. This is a 6-shot, ~60-second STYLIZED trailer starring the pet — not live-action 4K VFX, not a feature film, not a documentary. "treatmentText" should set that expectation gently while staying exciting: describe the world + vibe, the 6 beats in plain warm language, and close with the tagline.
 
 5. LANGUAGE. The customer's brief may be written in ANY language — read and understand it in whatever language it's in. However:
-   - "costume", "score", every "scene" inside "cuts", and all four "loglines" values (intro/turn/rise/tagline) MUST always be written in ENGLISH, no matter what language the brief is in. This is a hard technical constraint, not a style choice: loglines are rendered as trailer title cards using a Latin-only display font (non-Latin text would render as broken/missing glyphs), and the scene/costume text feeds English-optimized image and video generation models. Loglines keep their existing punchy ALL-CAPS trailer style regardless of the brief's language.
+   - "costume", "score", every "scene" inside "cuts", and all 6 "loglines" values (premise/intro/turn/rise/tagline/stinger, when present) MUST always be written in ENGLISH, no matter what language the brief is in. This is a hard technical constraint, not a style choice: loglines are rendered as trailer title cards using a Latin-only display font (non-Latin text would render as broken/missing glyphs), and the scene/costume text feeds English-optimized image and video generation models. Loglines keep their existing punchy ALL-CAPS trailer style regardless of the brief's language.
    - "treatmentText" is the one exception — it is customer-facing prose the customer will read and approve, so write it in the SAME language as the customer's brief (e.g. a Japanese brief gets a Japanese treatmentText), even though the rest of the bundle stays in English.
 
 When revising an existing treatment (a prior WorldBundle plus the customer's requested change will be provided), apply ONLY the requested change where reasonable and keep everything else — world, costume, tone, unaffected cuts — consistent with the prior draft unless the request implies a bigger change. The language rule above (rule 5) applies identically when revising.`;
@@ -113,12 +118,36 @@ const TREATMENT_TOOL: Anthropic.Tool = {
       },
       loglines: {
         type: "object",
-        description: "4 trailer text beats overlaid on the footage. {name} is allowed and will be replaced with the pet's name. ALWAYS IN ENGLISH regardless of the brief's language — rendered with a Latin-only display font, so non-English text would render as broken glyphs.",
+        description:
+          "6 trailer text beats overlaid on the footage, forming ONE continuous story read in order — premise, intro, turn, rise, tagline, stinger — NOT six independent aphorisms. {name} is allowed anywhere and will be replaced with the pet's name. ALWAYS IN ENGLISH regardless of the brief's language — rendered with a Latin-only display font, so non-English text would render as broken glyphs.",
         properties: {
-          intro: { type: "string" },
-          turn: { type: "string" },
-          rise: { type: "string" },
-          tagline: { type: "string" },
+          premise: {
+            type: "string",
+            description:
+              "OPENING CARD — states WHAT IS HAPPENING in this film in one line: the situation, event or problem that sets the story going. NOT a mood or an aphorism — this is the line that tells the audience what the movie is ABOUT. Include this on every treatment unless truly nothing fits (it is optional in this schema only for backward compatibility with older records). e.g. \"SOMETHING IS MISSING FROM THIS CITY.\"",
+          },
+          intro: {
+            type: "string",
+            description: "The hero arrives — the world plus who they are. e.g. \"THE CITY NEVER SLEEPS.\"",
+          },
+          turn: {
+            type: "string",
+            description:
+              "The turn — what the hero sets out to do. Often the first place {name} is woven into the sentence. e.g. \"NEITHER DOES {name}.\"",
+          },
+          rise: {
+            type: "string",
+            description: "The stakes — what stands in the way. e.g. \"EVERY CASE MEETS ITS MATCH.\"",
+          },
+          tagline: {
+            type: "string",
+            description: "The title punch, shown on the title card together with the pet's name. e.g. \"CASE CLOSED\"",
+          },
+          stinger: {
+            type: "string",
+            description:
+              "CLOSING JOKE — shown AFTER the title card, one last laugh or warm beat that lands specifically because the star is an animal, not another aphorism. Include this on every treatment unless truly nothing fits (optional in this schema only for backward compatibility with older records). e.g. \"{name} STILL CAN'T REACH THE DOORKNOB.\"",
+          },
         },
         required: ["intro", "turn", "rise", "tagline"],
       },
@@ -221,15 +250,26 @@ function parseToolInput(raw: unknown): TreatmentResult {
     if (cleaned.length === 3) inserts = cleaned;
   }
 
+  // premise/stinger are OPTIONAL new fields (TRAILER-STORY-SPEC.md §3.3) —
+  // same "accepts-if-valid, never throws" posture as inserts above. Neither
+  // is in the tool's `required` list (backward compat with pre-feature
+  // records), so a model that omits one — or an older cached response —
+  // must never fail the whole treatment over it; the film pipeline's EDL
+  // builder already falls back to the four-card cut when either is absent.
+  const premise = typeof l.premise === "string" && l.premise.trim() ? l.premise.trim() : undefined;
+  const stinger = typeof l.stinger === "string" && l.stinger.trim() ? l.stinger.trim() : undefined;
+
   const bundle: WorldBundle = {
     costume: costume.trim(),
     score: score.trim(),
     cuts: cuts.map((c) => ({ scene: c.scene.trim() })),
     loglines: {
+      ...(premise ? { premise } : {}),
       intro: l.intro.trim(),
       turn: l.turn.trim(),
       rise: l.rise.trim(),
       tagline: l.tagline.trim(),
+      ...(stinger ? { stinger } : {}),
     },
     ...(inserts ? { inserts } : {}),
   };
@@ -256,11 +296,15 @@ function mockTreatment(input: {
       { scene: "trotting along a tree-lined path as leaves drift past, purposeful and light on its feet" },
       { scene: "standing at the top of the porch steps at dusk, framed by warm string lights, triumphant" },
     ],
+    // All 6 fields present (spec §3.3 — mockTreatment always includes
+    // premise+stinger so local/e2e runs exercise the six-card EDL by default).
     loglines: {
+      premise: "EVERY QUIET NEIGHBORHOOD HIDES ONE STORY WORTH TELLING.",
       intro: "EVERY NEIGHBORHOOD HAS ITS QUIET LEGENDS.",
       turn: "THIS ONE BELONGS TO {name}.",
       rise: "SOME STARS DON'T NEED A STAGE.",
       tagline: "HOME IS WHERE THE STORY STARTS",
+      stinger: "{name} STILL WON'T SHARE THE PORCH SWING.",
     },
     inserts: [
       "a sunlit cobblestone square empty in the early morning, no animals, no people",

@@ -153,32 +153,157 @@ export const FILM_SCRIPTS: WorldMap<string[]> = {
 };
 
 /**
- * Trailer copy per arc — three escalating beats overlaid on the footage
- * (intro -> turn -> rise) plus a closing tagline. Combined with a "STARRING
- * [name]" beat and a COMING SOON close, this gives the movie-announcement feel.
+ * The six trailer text beats (TRAILER-STORY-SPEC.md §1.1) — ONE continuous
+ * arc read in order, never six independent aphorisms:
+ *
+ *   premise  opening card. WHAT IS HAPPENING — the situation/event that sets
+ *            the story going (an event, not a mood: "the fish are vanishing",
+ *            not "the city never sleeps"). OPTIONAL for backward compat (§1.2)
+ *   intro    the hero arrives — the world plus who they are
+ *   turn     the turn — what the hero sets out to do
+ *   rise     the stakes — what stands in the way
+ *   tagline  the title punch, shown with the pet's name
+ *   stinger  closing joke/warm beat, shown AFTER the title card. OPTIONAL,
+ *            same backward-compat reasoning as premise
+ *
+ * `premise`/`stinger` are OPTIONAL on this type (not on the preset data below,
+ * which always fills all six) because a Director's Cut order's generatedScript
+ * predating this feature — or a Claude response that omits them despite the
+ * system prompt asking firmly — must still resolve to a valid film: the film
+ * pipeline's EDL builder falls back to the pre-existing four-card cut whenever
+ * either is missing (lib/film-pipeline.ts's EDL_TEMPLATE_LEGACY), never throws.
  */
+export type Loglines = {
+  premise?: string;
+  intro: string;
+  turn: string;
+  rise: string;
+  tagline: string;
+  stinger?: string;
+};
+
 // {name} is filled with the pet's name at render time (see getLoglines) — woven
-// into the "turn" beat so the trailer names the star mid-story, not only on the
-// cards. Authored in caps (the display font is uppercase-only) and kept punchy;
-// taglines stay name-free (the closing card shows the name right above them).
-export const LOGLINES: WorldMap<{ intro: string; turn: string; rise: string; tagline: string }> = {
+// into "turn" (and sometimes "stinger") so the trailer names the star
+// mid-story, not only on the cards. Authored in caps (the display font is
+// uppercase-only) and kept punchy; taglines stay name-free (the closing card
+// shows the name right above them).
+//
+// All 12 sets below fill EVERY field (Required<Loglines>, not just the type's
+// optional minimum) because presets are static, curated data — there is no
+// reason for a preset order to ever fall back to the four-card cut. Each
+// `premise` states a concrete situation/event specific to that world (never a
+// restatement of mood), and each `stinger` is a joke or warm beat that only
+// works because the star is an animal — see TRAILER-STORY-SPEC.md §2.1.
+//
+// Keep the stingers structurally VARIED, not just textually different: an
+// earlier pass had eleven of the twelve opening on "{name} STILL ...", which
+// is one joke wearing twelve costumes (and two of them landed on the same
+// sleeps-with-the-light-on gag in different worlds). The shapes in use now —
+// the ironic "STILL", a deadpan report ("THE PRETZELS WERE NEVER RECOVERED."),
+// an imperative ("CHECK THE CROWN FOR CRUMBS."), a flat concession ("BRAVE
+// ENOUGH. BY DAYLIGHT.") — should stay mixed when any of these are edited.
+export const LOGLINES: WorldMap<Required<Loglines>> = {
   deepspace: {
-    brave: { intro: "THE GALAXY CRIED OUT FOR A HERO.", turn: "IT NEVER EXPECTED {name}.", rise: "COURAGE NEVER ASKED YOUR SIZE.", tagline: "TO THE STARS AND BACK" },
-    easygoing: { intro: "OUT PAST THE LAST STAR...", turn: "...{name} FOUND THE SLOW LANE.", rise: "THE VIEW IS BETTER SLOW.", tagline: "NO RUSH OUT HERE" },
-    playful: { intro: "ZERO GRAVITY. ZERO RULES.", turn: "THEN {name} FLOATED IN.", rise: "NO SNACK IN ORBIT IS SAFE.", tagline: "TROUBLE IN ORBIT" },
-    timid: { intro: "SPACE IS VERY, VERY BIG.", turn: "AND {name} IS VERY SMALL.", rise: "BUT COURAGE FINDS THE QUIET ONES.", tagline: "THE LONG WAY HOME" },
+    brave: {
+      premise: "THE LAST OUTPOST HAS GONE DARK.",
+      intro: "THE GALAXY CRIED OUT FOR A HERO.",
+      turn: "IT NEVER EXPECTED {name}.",
+      rise: "COURAGE NEVER ASKED YOUR SIZE.",
+      tagline: "TO THE STARS AND BACK",
+      stinger: "THE COCKPIT CAME WITH A BOOSTER SEAT.",
+    },
+    easygoing: {
+      premise: "THE ENTIRE FLEET IS RACING FOR THE FRONTIER.",
+      intro: "OUT PAST THE LAST STAR...",
+      turn: "...{name} FOUND THE SLOW LANE.",
+      rise: "THE VIEW IS BETTER SLOW.",
+      tagline: "NO RUSH OUT HERE",
+      stinger: "ARRIVAL TIME: EVENTUALLY.",
+    },
+    playful: {
+      premise: "THE SPACE STATION'S SUPPLIES KEEP DISAPPEARING.",
+      intro: "ZERO GRAVITY. ZERO RULES.",
+      turn: "THEN {name} FLOATED IN.",
+      rise: "NO SNACK IN ORBIT IS SAFE.",
+      tagline: "TROUBLE IN ORBIT",
+      stinger: "THE PRETZELS WERE NEVER RECOVERED.",
+    },
+    timid: {
+      premise: "A LITTLE SHIP DRIFTED OFF COURSE, ALONE.",
+      intro: "SPACE IS VERY, VERY BIG.",
+      turn: "AND {name} IS VERY SMALL.",
+      rise: "BUT COURAGE FINDS THE QUIET ONES.",
+      tagline: "THE LONG WAY HOME",
+      stinger: "THE CABIN LIGHT STAYS ON. NON-NEGOTIABLE.",
+    },
   },
   storybook: {
-    brave: { intro: "A KINGDOM THAT FORGOT ITS COURAGE...", turn: "...UNTIL {name} STOOD UP.", rise: "LEGENDS COME IN EVERY SIZE.", tagline: "A TAIL OF VALOR" },
-    easygoing: { intro: "IN A KINGDOM OF ENDLESS QUESTS...", turn: "...{name} CHOSE THE SCENIC ROUTE.", rise: "EVERY REALM NEEDS A REST.", tagline: "THE GENTLE REIGN" },
-    playful: { intro: "EVERY KINGDOM NEEDS A LEGEND.", turn: "THIS ONE GOT {name}.", rise: "LOCK UP THE ROYAL TARTS.", tagline: "ROYAL MISCHIEF" },
-    timid: { intro: "THE FOREST WAS DARK AND DEEP...", turn: "...BUT NOT {name}.", rise: "THE SMALLEST STEP IS STILL A STEP.", tagline: "INTO THE WOODS" },
+    brave: {
+      premise: "A DRAGON HAS TAKEN THE HIGH TOWER.",
+      intro: "A KINGDOM THAT FORGOT ITS COURAGE...",
+      turn: "...UNTIL {name} STOOD UP.",
+      rise: "LEGENDS COME IN EVERY SIZE.",
+      tagline: "A TAIL OF VALOR",
+      stinger: "THE KINGDOM WOULD LIKE ITS SLIPPER BACK.",
+    },
+    easygoing: {
+      premise: "THE KING HAS CALLED FOR ONE LAST GREAT QUEST.",
+      intro: "IN A KINGDOM OF ENDLESS QUESTS...",
+      turn: "...{name} CHOSE THE SCENIC ROUTE.",
+      rise: "EVERY REALM NEEDS A REST.",
+      tagline: "THE GENTLE REIGN",
+      stinger: "THE QUEST CAN WAIT UNTIL AFTER THE NAP.",
+    },
+    playful: {
+      premise: "THE ROYAL TARTS KEEP VANISHING BEFORE EVERY FEAST.",
+      intro: "EVERY KINGDOM NEEDS A LEGEND.",
+      turn: "THIS ONE GOT {name}.",
+      rise: "LOCK UP THE ROYAL TARTS.",
+      tagline: "ROYAL MISCHIEF",
+      stinger: "CHECK THE CROWN FOR CRUMBS.",
+    },
+    timid: {
+      premise: "SOMETHING HAS BEEN WATCHING THE CASTLE GATES AT NIGHT.",
+      intro: "THE FOREST WAS DARK AND DEEP...",
+      turn: "...BUT NOT {name}.",
+      rise: "THE SMALLEST STEP IS STILL A STEP.",
+      tagline: "INTO THE WOODS",
+      stinger: "BRAVE ENOUGH. BY DAYLIGHT.",
+    },
   },
   noir: {
-    brave: { intro: "THE CITY NEVER SLEEPS.", turn: "NEITHER DOES {name}.", rise: "EVERY CASE MEETS ITS MATCH.", tagline: "CASE CLOSED" },
-    easygoing: { intro: "EVERY CITY HAS ITS SHADOWS...", turn: "...{name} TAKES IT SLOW.", rise: "THE TRUTH CAN WAIT FOR COFFEE.", tagline: "AFTER HOURS" },
-    playful: { intro: "A CITY FULL OF MYSTERIES.", turn: "AND {name}: PURE NONSENSE.", rise: "THE ONLY CLUE IS CHAOS.", tagline: "THE USUAL SUSPECT" },
-    timid: { intro: "THE STREETS WERE COLD AND CRUEL...", turn: "...UNTIL {name} STEPPED UP.", rise: "BRAVERY WEARS A SMALL COAT.", tagline: "OUT OF THE FOG" },
+    brave: {
+      premise: "SOMETHING IS MISSING FROM THIS CITY.",
+      intro: "THE CITY NEVER SLEEPS.",
+      turn: "NEITHER DOES {name}.",
+      rise: "EVERY CASE MEETS ITS MATCH.",
+      tagline: "CASE CLOSED",
+      stinger: "{name} STILL CAN'T REACH THE DOORKNOB.",
+    },
+    easygoing: {
+      premise: "A CASE HAS GONE COLD FOR TEN YEARS.",
+      intro: "EVERY CITY HAS ITS SHADOWS...",
+      turn: "...{name} TAKES IT SLOW.",
+      rise: "THE TRUTH CAN WAIT FOR COFFEE.",
+      tagline: "AFTER HOURS",
+      stinger: "THE COFFEE OUTLASTED THE CASE.",
+    },
+    playful: {
+      premise: "SOMEONE HAS BEEN RANSACKING EVERY TRASH CAN IN TOWN.",
+      intro: "A CITY FULL OF MYSTERIES.",
+      turn: "AND {name}: PURE NONSENSE.",
+      rise: "THE ONLY CLUE IS CHAOS.",
+      tagline: "THE USUAL SUSPECT",
+      stinger: "NO ARRESTS. NO REMORSE.",
+    },
+    timid: {
+      premise: "A WITNESS WENT MISSING SOMEWHERE IN THE FOG.",
+      intro: "THE STREETS WERE COLD AND CRUEL...",
+      turn: "...UNTIL {name} STEPPED UP.",
+      rise: "BRAVERY WEARS A SMALL COAT.",
+      tagline: "OUT OF THE FOG",
+      stinger: "{name} STILL FLINCHES AT THUNDER.",
+    },
   },
 };
 
@@ -410,13 +535,25 @@ export function getCostume(world: string): string {
   return WORLD_COSTUMES[world] ?? WORLD_COSTUMES.deepspace;
 }
 
-export function getLoglines(world: string, personality: string | null, petName?: string) {
+export function getLoglines(world: string, personality: string | null, petName?: string): Required<Loglines> {
   const w = LOGLINES[world] ?? LOGLINES.deepspace;
   const l = w[(personality as Personality) ?? "easygoing"] ?? w.easygoing;
   // Caps to match the trailer style (Japanese names are unaffected by upcasing).
   const name = (petName ?? "").trim().toUpperCase() || "OUR HERO";
   const fill = (s: string) => s.replace(/\{name\}/g, name);
-  return { intro: fill(l.intro), turn: fill(l.turn), rise: fill(l.rise), tagline: fill(l.tagline) };
+  // premise/stinger get the SAME {name} substitution as the other four beats
+  // (TRAILER-STORY-SPEC.md §6 item 6) even though none of the 12 preset
+  // premises currently use {name} — the mechanism must work uniformly so a
+  // future copy edit (or a custom order routed through the same fill logic
+  // below in resolveWorld) can rely on it without a second code path.
+  return {
+    premise: fill(l.premise),
+    intro: fill(l.intro),
+    turn: fill(l.turn),
+    rise: fill(l.rise),
+    tagline: fill(l.tagline),
+    stinger: fill(l.stinger),
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -434,7 +571,12 @@ export type WorldBundle = {
   costume: string; // ONE locked costume, worn in every shot (no costume words in scenes)
   score: string; // music prompt for the original score
   cuts: { scene: string }[]; // EXACTLY 6 action/setting beats — NO costume words
-  loglines: { intro: string; turn: string; rise: string; tagline: string }; // trailer text beats; {name} allowed
+  // Trailer text beats; {name} allowed. premise/stinger are OPTIONAL (see
+  // Loglines doc) — absent on older generatedScript records, or when Claude's
+  // output omits them despite the system prompt asking firmly for both
+  // (TRAILER-STORY-SPEC.md §3.1/§3.2). The film pipeline falls back to the
+  // pre-existing four-card EDL whenever either is missing; it never throws.
+  loglines: Loglines;
   // OPTIONAL — exactly 3 no-pet insert scene prompts (English). Absent on
   // older generatedScript records or when Claude omits the field; the film
   // pipeline treats absence as "no inserts for this order" (spec §4.3), never
@@ -446,7 +588,11 @@ export type ResolvedWorld = {
   costume: string;
   arc: string[];
   score: string;
-  loglines: { intro: string; turn: string; rise: string; tagline: string };
+  // Same premise/stinger-optional shape as WorldBundle.loglines above — the
+  // film pipeline is the single place that decides what "absent" means for
+  // the EDL (four-card fallback), so this resolver never fills in a fake
+  // premise/stinger just to satisfy a stricter type.
+  loglines: Loglines;
   // 3 no-pet insert-scene prompts, or [] when unavailable (legacy order, or a
   // custom order whose generatedScript carries no inserts) — the film
   // pipeline's EDL builder drops the insert beats gracefully in that case.
@@ -469,15 +615,23 @@ export function resolveWorld(order: Order): ResolvedWorld {
     // Same upcasing rule as getLoglines above, applied to Claude's loglines.
     const name = (order.petName ?? "").trim().toUpperCase() || "OUR HERO";
     const fill = (s: string) => s.replace(/\{name\}/g, name);
+    // premise/stinger are OPTIONAL on WorldBundle (absent on pre-feature
+    // generatedScript records, or when Claude's output omits them) — fillOpt
+    // preserves "absent" as undefined rather than substituting into an empty
+    // string, so the film pipeline's presence check (both fields present ->
+    // six-card EDL) sees a real absence, not a blank card.
+    const fillOpt = (s: string | undefined) => (s ? fill(s) : undefined);
     return {
       costume: bundle.costume,
       arc: bundle.cuts.map((c) => c.scene),
       score: bundle.score,
       loglines: {
+        premise: fillOpt(bundle.loglines.premise),
         intro: fill(bundle.loglines.intro),
         turn: fill(bundle.loglines.turn),
         rise: fill(bundle.loglines.rise),
         tagline: fill(bundle.loglines.tagline),
+        stinger: fillOpt(bundle.loglines.stinger),
       },
       // §3.3 fallback: Claude-authored inserts win when present; otherwise
       // derive 3 empty-scene prompts from this order's own cuts rather than

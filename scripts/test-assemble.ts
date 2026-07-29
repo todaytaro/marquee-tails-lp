@@ -1,6 +1,7 @@
 /**
  * Local functional test for the beat-EDL assembler (TRAILER-EDIT-SPEC.md §8,
- * extended by FILM-QUALITY-V3-SPEC.md §7).
+ * extended by FILM-QUALITY-V3-SPEC.md §7, extended again by
+ * TRAILER-STORY-SPEC.md §6).
  * NO database, NO fal.ai, NO Trigger.dev — everything is synthesized locally
  * with ffmpeg (`lavfi` color/testsrc2 sources + a sine-wave "music" track) and
  * fed straight into the REAL production render path (assembleForTest ->
@@ -9,8 +10,8 @@
  * Asserts:
  *   1. master (16:9) duration is 60.0s ±1 frame
  *   2. social (9:16) duration is 60.0s ±1 frame
- *   3. beat count matches buildEdl() for both the with-inserts and
- *      without-inserts EDLs
+ *   3. beat count matches buildEdl() for the with-inserts/without-inserts x
+ *      six-card/legacy-four-card EDLs (4 combinations)
  *   4. removing the insert inputs still yields exactly 60.0s (graceful
  *      degradation, spec §4.3/§4.4)
  *   5. running once with the SFX files absent still assembles cleanly
@@ -24,6 +25,18 @@
  *      asserted larger than the pre-CRF-fix baseline captured from the same
  *      fixtures against the OLD (unset-CRF, preset veryfast) encode settings
  *      — evidence the CRF change actually raised delivered quality/bitrate
+ *   8. (TRAILER-STORY-SPEC §6 item 1) a SIX-card EDL (premise+stinger present)
+ *      assembles to exactly 60.0000s master AND social
+ *   9. (TRAILER-STORY-SPEC §6 item 2 — THE backward-compat assertion) a
+ *      FOUR-card/legacy EDL (premise/stinger absent, simulating an order
+ *      whose generatedScript predates this feature) ALSO assembles to
+ *      exactly 60.0000s master AND social
+ *  10. (TRAILER-STORY-SPEC §6 item 5) card order: `premise` is the first
+ *      card, `stinger` immediately follows `finale`, and `open`/`comingSoon`
+ *      never appear in the six-card EDL (and vice versa for the legacy EDL)
+ *  11. (TRAILER-STORY-SPEC §6 item 6) {name} substitution reaches `premise`
+ *      and `stinger`, both via the preset path (getLoglines) and the custom/
+ *      Director's Cut path (resolveWorld's fill() on a WorldBundle)
  *
  * Usage: npx tsx scripts/test-assemble.ts
  */
@@ -42,6 +55,7 @@ import {
   PUNCH_IN_Y_BIAS,
   FILM_FPS,
 } from "../lib/film-pipeline";
+import { getLoglines, resolveWorld, PERSONALITIES, type Loglines } from "../lib/film-script";
 
 const FFMPEG_BIN = process.env.FFMPEG_PATH ?? (ffmpegPath as string);
 const TRAILER_SECONDS = 60.0;
@@ -144,7 +158,23 @@ async function makeFakeMusic(dir: string): Promise<string> {
   return out;
 }
 
-const LOGLINES = {
+// Six-card fixture — premise + stinger both present, so assembleForTest picks
+// EDL_TEMPLATE (the current six-card cut, TRAILER-STORY-SPEC.md §1.3).
+const LOGLINES_WITH_STORY: Required<Loglines> = {
+  premise: "THE TEST SUITE CRIED OUT FOR PROOF.",
+  intro: "THE TEST SUITE CRIED OUT FOR A HERO.",
+  turn: "IT NEVER EXPECTED THIS FIXTURE.",
+  rise: "COVERAGE NEVER ASKED YOUR SIZE.",
+  tagline: "TO THE CI AND BACK",
+  stinger: "THE FIXTURE STILL WON'T CLEAN UP AFTER ITSELF.",
+};
+
+// Legacy fixture — premise/stinger BOTH absent, simulating an order whose
+// generatedScript predates this feature (or a preset order run through code
+// from before this change). assembleForTest must pick EDL_TEMPLATE_LEGACY
+// (today's four-card cut) and still land on exactly 60.0s — this is the
+// backward-compat assertion the spec calls out as mandatory (§6 item 2).
+const LOGLINES_LEGACY: Loglines = {
   intro: "THE TEST SUITE CRIED OUT FOR A HERO.",
   turn: "IT NEVER EXPECTED THIS FIXTURE.",
   rise: "COVERAGE NEVER ASKED YOUR SIZE.",
@@ -197,18 +227,96 @@ async function main() {
     const music = await makeFakeMusic(dir);
     console.log(`6 clips + 3 inserts + 1 music track ready`);
 
-    console.log("\n=== EDL beat counts (spec §1.2/§1.3) ===");
-    const edlWithInserts = buildEdl(true);
-    const edlNoInserts = buildEdl(false);
-    assertEqual("with-inserts beat count", edlWithInserts.length, 23);
-    assertEqual("without-inserts beat count", edlNoInserts.length, 20);
-    assertEqual("with-inserts insert-beat count", edlWithInserts.filter((b) => b.kind === "insert").length, 3);
-    assertEqual("without-inserts insert-beat count", edlNoInserts.filter((b) => b.kind === "insert").length, 0);
-    const sumSeconds = (beats: typeof edlWithInserts) => beats.reduce((s, b) => s + b.frames / 30, 0);
-    assertClose("with-inserts EDL sum", sumSeconds(edlWithInserts), TRAILER_SECONDS, 1 / 30);
-    assertClose("without-inserts EDL sum", sumSeconds(edlNoInserts), TRAILER_SECONDS, 1 / 30);
+    console.log("\n=== EDL beat counts (spec §1.2/§1.3, TRAILER-STORY-SPEC §1.3) ===");
+    // Four combinations: {six-card, legacy-four-card} x {with-inserts, without}.
+    // Card COUNT is identical across six-card vs. legacy (8 cards either way —
+    // premise+stinger replace open+comingSoon one-for-one, see EDL_TEMPLATE's
+    // doc comment) so all four combinations keep the SAME beat counts as
+    // before this feature landed — only which CardIds appear changes (checked
+    // separately below, in the card-order section).
+    const edlStoryWithInserts = buildEdl(true, true);
+    const edlStoryNoInserts = buildEdl(false, true);
+    const edlLegacyWithInserts = buildEdl(true, false);
+    const edlLegacyNoInserts = buildEdl(false, false);
+    assertEqual("six-card with-inserts beat count", edlStoryWithInserts.length, 23);
+    assertEqual("six-card without-inserts beat count", edlStoryNoInserts.length, 20);
+    assertEqual("legacy with-inserts beat count", edlLegacyWithInserts.length, 23);
+    assertEqual("legacy without-inserts beat count", edlLegacyNoInserts.length, 20);
+    assertEqual("six-card with-inserts insert-beat count", edlStoryWithInserts.filter((b) => b.kind === "insert").length, 3);
+    assertEqual("six-card without-inserts insert-beat count", edlStoryNoInserts.filter((b) => b.kind === "insert").length, 0);
+    const sumSeconds = (beats: typeof edlStoryWithInserts) => beats.reduce((s, b) => s + b.frames / 30, 0);
+    assertClose("six-card with-inserts EDL sum", sumSeconds(edlStoryWithInserts), TRAILER_SECONDS, 1 / 30);
+    assertClose("six-card without-inserts EDL sum", sumSeconds(edlStoryNoInserts), TRAILER_SECONDS, 1 / 30);
+    assertClose("legacy with-inserts EDL sum", sumSeconds(edlLegacyWithInserts), TRAILER_SECONDS, 1 / 30);
+    assertClose("legacy without-inserts EDL sum", sumSeconds(edlLegacyNoInserts), TRAILER_SECONDS, 1 / 30);
 
-    console.log("\n=== full assemble (clips + inserts + SFX present) ===");
+    console.log("\n=== card ORDER (TRAILER-STORY-SPEC §1.3, §6 item 5) ===");
+    const storyCards = edlStoryWithInserts.filter((b) => b.kind === "card").map((b) => (b as { card: string }).card);
+    const legacyCards = edlLegacyWithInserts.filter((b) => b.kind === "card").map((b) => (b as { card: string }).card);
+    console.log(`six-card order:  ${storyCards.join(" -> ")}`);
+    console.log(`legacy order:    ${legacyCards.join(" -> ")}`);
+    assertEqual("six-card EDL: premise is the FIRST card", storyCards[0], "premise");
+    assertEqual(
+      "six-card EDL: stinger immediately follows finale",
+      storyCards[storyCards.indexOf("finale") + 1],
+      "stinger"
+    );
+    assertEqual("six-card EDL: brand is the LAST card", storyCards[storyCards.length - 1], "brand");
+    assertTrue("six-card EDL never contains open/comingSoon", !storyCards.includes("open") && !storyCards.includes("comingSoon"));
+    assertEqual("legacy EDL: open is the FIRST card", legacyCards[0], "open");
+    assertEqual(
+      "legacy EDL: comingSoon immediately follows finale",
+      legacyCards[legacyCards.indexOf("finale") + 1],
+      "comingSoon"
+    );
+    assertEqual("legacy EDL: brand is the LAST card", legacyCards[legacyCards.length - 1], "brand");
+    assertTrue("legacy EDL never contains premise/stinger", !legacyCards.includes("premise") && !legacyCards.includes("stinger"));
+
+    console.log("\n=== {name} substitution in premise/stinger (TRAILER-STORY-SPEC §6 item 6) ===");
+    // Preset path: getLoglines fills ALL 12 static sets, including the two new
+    // fields (film-script.ts's getLoglines).
+    const presetFilled = getLoglines("noir", "brave", "Rex");
+    assertTrue("preset stinger substitutes {name}", presetFilled.stinger === "REX STILL CAN'T REACH THE DOORKNOB.");
+    assertTrue("preset premise has no leftover {name} token", !presetFilled.premise.includes("{name}"));
+    // Custom/Director's Cut path: resolveWorld's fill() must reach premise AND
+    // stinger on a WorldBundle, same as it already does for intro/turn/rise/tagline.
+    const fakeCustomOrder = {
+      id: "test-name-substitution",
+      tier: "custom",
+      petName: "Rex",
+      generatedScript: {
+        costume: "x",
+        score: "x",
+        cuts: Array.from({ length: 6 }, () => ({ scene: "x" })),
+        loglines: {
+          premise: "SOMETHING IS MISSING: {name}.",
+          intro: "i",
+          turn: "t",
+          rise: "r",
+          tagline: "tag",
+          stinger: "{name} STILL CAN'T REACH THE DOORKNOB.",
+        },
+      },
+    } as unknown as Parameters<typeof resolveWorld>[0];
+    const customResolved = resolveWorld(fakeCustomOrder);
+    assertEqual("custom-order premise substitutes {name}", customResolved.loglines.premise, "SOMETHING IS MISSING: REX.");
+    assertEqual("custom-order stinger substitutes {name}", customResolved.loglines.stinger, "REX STILL CAN'T REACH THE DOORKNOB.");
+
+    console.log("\n=== all 12 preset logline sets, full arc (TRAILER-STORY-SPEC §6 preset review) ===");
+    for (const world of ["deepspace", "storybook", "noir"] as const) {
+      for (const personality of PERSONALITIES) {
+        const l = getLoglines(world, personality, "Rex");
+        console.log(`\n--- ${world} / ${personality} ---`);
+        console.log(`premise: ${l.premise}`);
+        console.log(`intro:   ${l.intro}`);
+        console.log(`turn:    ${l.turn}`);
+        console.log(`rise:    ${l.rise}`);
+        console.log(`tagline: ${l.tagline}`);
+        console.log(`stinger: ${l.stinger}`);
+      }
+    }
+
+    console.log("\n=== full assemble, SIX-CARD EDL (clips + inserts + SFX present, TRAILER-STORY-SPEC §6 item 1) ===");
     const runDir1 = path.join(dir, "run1");
     const { masterPath, socialPath } = await assembleForTest(
       await ensureDir(runDir1),
@@ -216,7 +324,7 @@ async function main() {
       clips,
       inserts,
       music,
-      LOGLINES
+      LOGLINES_WITH_STORY
     );
     const masterDur = await probeDurationSeconds(masterPath);
     const socialDur = await probeDurationSeconds(socialPath);
@@ -266,18 +374,40 @@ async function main() {
 
     console.log("\n=== assemble WITHOUT inserts (graceful degradation, spec §4.3/§4.4) ===");
     const runDir2 = path.join(dir, "run2");
-    const noInserts = await assembleForTest(await ensureDir(runDir2), "Test Pet", clips, [], music, LOGLINES);
+    const noInserts = await assembleForTest(await ensureDir(runDir2), "Test Pet", clips, [], music, LOGLINES_WITH_STORY);
     const masterDurNoInserts = await probeDurationSeconds(noInserts.masterPath);
     assertClose("master duration with NO inserts", masterDurNoInserts, TRAILER_SECONDS, FRAME_TOLERANCE_SECONDS);
 
     console.log("\n=== assemble WITH SFX files temporarily absent (spec §2.1) ===");
     const runDir3 = path.join(dir, "run3");
     await withSfxHidden(async () => {
-      const noSfx = await assembleForTest(await ensureDir(runDir3), "Test Pet", clips, inserts, music, LOGLINES);
+      const noSfx = await assembleForTest(await ensureDir(runDir3), "Test Pet", clips, inserts, music, LOGLINES_WITH_STORY);
       const masterDurNoSfx = await probeDurationSeconds(noSfx.masterPath);
       assertClose("master duration with SFX absent", masterDurNoSfx, TRAILER_SECONDS, FRAME_TOLERANCE_SECONDS);
       assertTrue("assembly with SFX absent completed without throwing", true);
     });
+
+    console.log(
+      "\n=== full assemble, LEGACY FOUR-CARD EDL (premise/stinger absent — THE backward-compat assertion, TRAILER-STORY-SPEC §6 item 2) ==="
+    );
+    // This is the mandatory regression guard (spec §1.2): an order whose
+    // generatedScript predates premise/stinger — including the owner's live
+    // test order — must assemble with today's four-card EDL and STILL land on
+    // exactly 60.0s. LOGLINES_LEGACY carries no premise/stinger, so
+    // assembleToFiles's hasStoryCards check picks EDL_TEMPLATE_LEGACY.
+    const runDir4 = path.join(dir, "run4");
+    const legacyRun = await assembleForTest(
+      await ensureDir(runDir4),
+      "Test Pet",
+      clips,
+      inserts,
+      music,
+      LOGLINES_LEGACY
+    );
+    const masterDurLegacy = await probeDurationSeconds(legacyRun.masterPath);
+    const socialDurLegacy = await probeDurationSeconds(legacyRun.socialPath);
+    assertClose("LEGACY master (16:9) duration", masterDurLegacy, TRAILER_SECONDS, FRAME_TOLERANCE_SECONDS);
+    assertClose("LEGACY social (9:16) duration", socialDurLegacy, TRAILER_SECONDS, FRAME_TOLERANCE_SECONDS);
 
     console.log(`\n=== ${failures === 0 ? "ALL ASSERTIONS PASSED" : `${failures} ASSERTION(S) FAILED`} ===`);
     process.exit(failures === 0 ? 0 : 1);
@@ -286,7 +416,7 @@ async function main() {
   }
 }
 
-/** mkdir -p helper — used so each of the 3 assemble runs above gets its own
+/** mkdir -p helper — used so each of the 4 assemble runs above gets its own
  * subdirectory (assembleToFiles writes many intermediate files into `dir`
  * and doesn't namespace them itself). */
 async function ensureDir(dir: string): Promise<string> {

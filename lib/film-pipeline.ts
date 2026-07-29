@@ -11,7 +11,7 @@ import { fal } from "@fal-ai/client";
 import { OrderStatus, type Order } from "@/generated/prisma/client";
 import { prisma } from "./db";
 import { transitionOrder } from "./orders";
-import { TITLE_CARDS, resolveWorld, getShotMotion } from "./film-script";
+import { TITLE_CARDS, resolveWorld, getShotMotion, type Loglines } from "./film-script";
 import { publicUrl, scoreFrame } from "./identity";
 import { reshootCutStill } from "./stills-pipeline";
 
@@ -468,19 +468,27 @@ function fitFontSize(text: string, font: string, base: number): number {
  * the EDL template only has to say WHICH card a beat is, never HOW it looks.
  * petName always renders in FONT_NAME (JP-capable, per house convention);
  * loglines render in FONT_DISPLAY UNLESS they contain a non-Latin pet name
- * (the "turn" beat weaves the name into the sentence — see resolveWorld).
+ * (the "turn"/"premise"/"stinger" beats can weave the name into the sentence
+ * — see resolveWorld's {name} substitution).
+ *
+ * "premise"/"stinger" fall back to an empty string when absent (TRAILER-
+ * STORY-SPEC.md §1.2) — this function is only ever called for those CardIds
+ * when buildEdl already decided the six-card template applies (both fields
+ * present, see hasStoryCards below), so the `?? ""` is a defensive last
+ * resort, never the normal path.
  */
-function cardLinesFor(
-  card: CardId,
-  petName: string,
-  loglines: { intro: string; turn: string; rise: string; tagline: string }
-): CardLine[] {
+function cardLinesFor(card: CardId, petName: string, loglines: Loglines): CardLine[] {
   const asciiName = /^[\x00-\x7F]*$/.test(petName);
   switch (card) {
     case "open":
       return [
         { text: TITLE_CARDS.opening, size: fitFontSize(TITLE_CARDS.opening, FONT_DISPLAY, 90), y: "(h-text_h)/2", font: FONT_DISPLAY },
       ];
+    case "premise": {
+      const text = loglines.premise ?? "";
+      const font = asciiName ? FONT_DISPLAY : FONT_NAME;
+      return [{ text, size: fitFontSize(text, font, 68), y: "(h-text_h)/2", font }];
+    }
     case "intro":
       return [
         { text: loglines.intro, size: fitFontSize(loglines.intro, FONT_DISPLAY, 68), y: "(h-text_h)/2", font: FONT_DISPLAY },
@@ -503,6 +511,11 @@ function cardLinesFor(
         { text: petName, size: fitFontSize(petName, FONT_NAME, 156), y: "h/2-160", font: FONT_NAME },
         { text: loglines.tagline, size: fitFontSize(loglines.tagline, FONT_DISPLAY, 84), y: "h/2+30", font: FONT_DISPLAY },
       ];
+    case "stinger": {
+      const text = loglines.stinger ?? "";
+      const font = asciiName ? FONT_DISPLAY : FONT_NAME;
+      return [{ text, size: fitFontSize(text, font, 68), y: "(h-text_h)/2", font }];
+    }
     case "comingSoon":
       return [{ text: TITLE_CARDS.comingSoon, size: 58, y: "(h-text_h)/2", font: FONT_DISPLAY }];
     case "brand":
@@ -514,7 +527,21 @@ function cardLinesFor(
 /* Beat EDL (Edit Decision List) — TRAILER-EDIT-SPEC.md §1              */
 /* ------------------------------------------------------------------ */
 
-type CardId = "open" | "intro" | "starring" | "turn" | "rise" | "finale" | "comingSoon" | "brand";
+// "open"/"comingSoon" only appear in EDL_TEMPLATE_LEGACY (the backward-compat
+// four-card cut, TRAILER-STORY-SPEC.md §1.2); "premise"/"stinger" only appear
+// in EDL_TEMPLATE (the current six-card cut, §1.3). Both stay in one union
+// because cardLinesFor/render code is shared between the two templates.
+type CardId =
+  | "open"
+  | "premise"
+  | "intro"
+  | "starring"
+  | "turn"
+  | "rise"
+  | "finale"
+  | "stinger"
+  | "comingSoon"
+  | "brand";
 
 type EdlBeat =
   | { kind: "clip"; clip: number; punchIn: number; seconds: number }
@@ -549,17 +576,70 @@ if (PUNCH_IN_ZOOM > PUNCH_IN_ZOOM_MAX) {
 export const PUNCH_IN_Y_BIAS = 0.25;
 
 /**
- * The default beat template (spec §1.2) — 6 clips (each used twice: once
- * wide, once as a punch-in reframe of the SAME footage, §1.1), 3 no-pet
- * inserts, 8 title cards. Authored `seconds` here are the UNSCALED lengths
- * from the spec table (raw total ≈51.7s); buildEdl() below scales every
- * clip/insert beat so the assembled total lands on EXACTLY 60.0s (§1.3).
+ * The current beat template (TRAILER-STORY-SPEC.md §1.3) — 6 clips (each used
+ * twice: once wide, once as a punch-in reframe of the SAME footage, §1.1), 3
+ * no-pet inserts, 8 title cards. Authored `seconds` here are the UNSCALED
+ * lengths from the spec table; buildEdl() below scales every clip/insert beat
+ * so the assembled total lands on EXACTLY 60.0s (§1.3).
+ *
+ * Card lineup vs. the pre-story cut (EDL_TEMPLATE_LEGACY below): `open`
+ * (MARQUEE TAILS PRESENTS) is REPLACED by `premise` in the same lead
+ * position — the first thing the audience reads changes from the studio's
+ * own name to what the film is ABOUT (§0.1/§1.3). `comingSoon` is CUT
+ * entirely (a "coming soon" card after the title undercuts a stinger).
+ * `starring` shrinks 2.2 -> 2.0s. `stinger` is NEW, placed AFTER `finale`
+ * (the title) — putting it before the title would just read as another
+ * logline, not a punchline (§1.3). `brand` is unchanged and stays last.
+ * Net: brand-card time 7.7s -> 3.5s funds the story cards' 9.0s -> 13.4s
+ * (§1.4) with the SAME 8 total card beats either way.
+ *
+ * Only used when both `premise` AND `stinger` are present on the order's
+ * resolved loglines (see hasStoryCards in assembleToFiles) — otherwise
+ * buildEdl falls back to EDL_TEMPLATE_LEGACY so an order authored before this
+ * feature still assembles, unchanged (§1.2).
  *
  * This is a plain data literal on purpose: reordering the trailer, swapping
  * which cut gets the climax, or retiming a beat is a one-line edit here —
  * nothing else in the assembler needs to change.
  */
 const EDL_TEMPLATE: readonly EdlBeat[] = [
+  { kind: "card", card: "premise", seconds: 2.2 },
+  { kind: "clip", clip: 0, punchIn: NO_PUNCH_IN, seconds: 3.0 },
+  { kind: "card", card: "intro", seconds: 2.0 },
+  { kind: "clip", clip: 0, punchIn: PUNCH_IN_ZOOM, seconds: 2.0 },
+  { kind: "clip", clip: 1, punchIn: NO_PUNCH_IN, seconds: 2.5 },
+  { kind: "card", card: "starring", seconds: 2.0 },
+  { kind: "clip", clip: 1, punchIn: PUNCH_IN_ZOOM, seconds: 2.0 },
+  { kind: "insert", insert: 0, seconds: 2.0 },
+  { kind: "clip", clip: 2, punchIn: NO_PUNCH_IN, seconds: 2.5 },
+  { kind: "clip", clip: 2, punchIn: PUNCH_IN_ZOOM, seconds: 2.0 },
+  { kind: "card", card: "turn", seconds: 2.0 },
+  { kind: "clip", clip: 3, punchIn: NO_PUNCH_IN, seconds: 2.5 },
+  { kind: "insert", insert: 1, seconds: 2.0 },
+  { kind: "clip", clip: 3, punchIn: PUNCH_IN_ZOOM, seconds: 2.0 },
+  { kind: "clip", clip: 4, punchIn: NO_PUNCH_IN, seconds: 2.5 },
+  { kind: "card", card: "rise", seconds: 2.0 },
+  { kind: "clip", clip: 4, punchIn: PUNCH_IN_ZOOM, seconds: 2.0 },
+  { kind: "insert", insert: 2, seconds: 2.0 },
+  { kind: "clip", clip: 5, punchIn: NO_PUNCH_IN, seconds: 2.5 },
+  { kind: "clip", clip: 5, punchIn: PUNCH_IN_ZOOM, seconds: 3.5 }, // climax punch-in, held longer
+  { kind: "card", card: "finale", seconds: 3.0 },
+  { kind: "card", card: "stinger", seconds: 2.2 },
+  { kind: "card", card: "brand", seconds: 1.5 },
+];
+
+/**
+ * The PRE-story four-card cut (TRAILER-STORY-SPEC.md §1.2's mandatory
+ * backward-compat path) — byte-for-byte the ORIGINAL EDL_TEMPLATE before this
+ * feature, kept verbatim (not derived from EDL_TEMPLATE) so a legacy order's
+ * assembled film is provably unchanged: same card set (`open`/`starring`
+ * 2.2s/`comingSoon`/`brand`), same story cards (`intro`/`turn`/`rise`/
+ * `finale`), same clip/insert beats. Selected whenever an order's resolved
+ * loglines are missing `premise` or `stinger` — see hasStoryCards in
+ * assembleToFiles. "従来の4枚構成" per spec §1.2/§1.4: nothing about how a
+ * pre-feature order looks should change just because the code shipped.
+ */
+const EDL_TEMPLATE_LEGACY: readonly EdlBeat[] = [
   { kind: "card", card: "open", seconds: 2.0 },
   { kind: "clip", clip: 0, punchIn: NO_PUNCH_IN, seconds: 3.0 },
   { kind: "card", card: "intro", seconds: 2.0 },
@@ -637,8 +717,19 @@ export type ScaledBeat = EdlBeat & { frames: number };
  * entirely and reproduces the exact pre-fix output — no behavior change for
  * callers that don't have real files to probe.
  */
-export function buildEdl(hasInserts: boolean, clipDurationsSeconds?: number[]): ScaledBeat[] {
-  const template = hasInserts ? EDL_TEMPLATE : EDL_TEMPLATE.filter((b) => b.kind !== "insert");
+export function buildEdl(
+  hasInserts: boolean,
+  hasStoryCards: boolean,
+  clipDurationsSeconds?: number[]
+): ScaledBeat[] {
+  // hasStoryCards (TRAILER-STORY-SPEC.md §1.2) picks EDL_TEMPLATE (six-card,
+  // premise+stinger) when true, EDL_TEMPLATE_LEGACY (today's four-card cut)
+  // when false. The caller (assembleToFiles) decides this from whether the
+  // order's resolved loglines actually carry BOTH new fields, so a legacy
+  // order — or a custom order Claude scripted without them — assembles
+  // exactly as it always has, never a partially-populated six-card cut.
+  const cardTemplate = hasStoryCards ? EDL_TEMPLATE : EDL_TEMPLATE_LEGACY;
+  const template = hasInserts ? cardTemplate : cardTemplate.filter((b) => b.kind !== "insert");
 
   const cardFrames = template
     .filter((b) => b.kind === "card")
@@ -1143,9 +1234,15 @@ async function assembleToFiles(
   clipSources: string[],
   insertSources: string[],
   scoreSource: string,
-  loglines: { intro: string; turn: string; rise: string; tagline: string }
+  loglines: Loglines
 ): Promise<{ masterPath: string; socialPath: string }> {
   const hasInserts = insertSources.length >= 3;
+  // Backward compat (TRAILER-STORY-SPEC.md §1.2): the six-card EDL only
+  // applies when BOTH new fields are present. An order whose generatedScript
+  // predates this feature (or a custom order Claude scripted without them)
+  // has one or both undefined here, and falls back to EDL_TEMPLATE_LEGACY —
+  // today's four-card cut — rather than assembling a half-populated card.
+  const hasStoryCards = Boolean(loglines.premise && loglines.stinger);
 
   // --- Source prep: download (or adopt local paths) + normalize ONCE per
   // clip/insert, however many beats reference it (spec §1.1 — beats reuse the
@@ -1167,7 +1264,7 @@ async function assembleToFiles(
   // trims from the normalised file, so that's the length that actually
   // matters for the clamp.
   const clipDurationsSeconds = await Promise.all(normClips.map((p) => probeDurationSeconds(p)));
-  const edl = buildEdl(hasInserts, clipDurationsSeconds);
+  const edl = buildEdl(hasInserts, hasStoryCards, clipDurationsSeconds);
 
   const insertStills: string[] = [];
   if (hasInserts) {
@@ -1262,7 +1359,7 @@ export function assembleForTest(
   clipPaths: string[],
   insertPaths: string[],
   scorePath: string,
-  loglines: { intro: string; turn: string; rise: string; tagline: string }
+  loglines: Loglines
 ): Promise<{ masterPath: string; socialPath: string }> {
   return assembleToFiles(dir, petName, clipPaths, insertPaths, scorePath, loglines);
 }
@@ -1273,7 +1370,7 @@ async function assemble(
   clipUrls: string[],
   insertUrls: string[],
   scoreUrl: string,
-  loglines: { intro: string; turn: string; rise: string; tagline: string }
+  loglines: Loglines
 ): Promise<[string, string]> {
   const dir = await mkdtemp(path.join(tmpdir(), `mt-film-${orderId}-`));
   try {
