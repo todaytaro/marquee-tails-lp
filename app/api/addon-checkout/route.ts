@@ -109,8 +109,11 @@ export async function POST(req: Request) {
       consent_collection: { terms_of_service: "required" },
       custom_text: {
         terms_of_service_acceptance: {
-          message:
-            "I agree to the [Marquee Tails Terms of Service](URL) and [Refund Policy](URL).",
+          // Absolute URLs — see the same note in app/api/checkout/route.ts.
+          // `(URL)` was a literal placeholder in the consent line the buyer
+          // ticks; add-ons ship a physical good, so the refund terms matter
+          // here even more than at base checkout.
+          message: `I agree to the [Marquee Tails Terms of Service](${base}/terms) and [Refund Policy](${base}/refund).`,
         },
       },
       success_url: `${base}/approve/${order.approveToken}?addon=success`,

@@ -67,8 +67,12 @@ export async function POST(req: Request) {
       consent_collection: { terms_of_service: "required" },
       custom_text: {
         terms_of_service_acceptance: {
-          message:
-            "I agree to the [Marquee Tails Terms of Service](URL) and [Refund Policy](URL).",
+          // Absolute URLs, because this is the line the buyer actually ticks
+          // to agree. `(URL)` shipped here as a literal placeholder, so the
+          // consent pointed at nothing on the one page where it has to
+          // resolve — and Checkout is served from Stripe's domain, so a
+          // relative path would not work either.
+          message: `I agree to the [Marquee Tails Terms of Service](${base}/terms) and [Refund Policy](${base}/refund).`,
         },
       },
       success_url: `${base}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
