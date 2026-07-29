@@ -254,7 +254,7 @@ export const SHOT_MOTIONS_FINALE_POOL: string[] = [
  * A pure function of the order id guarantees the same pick every time,
  * with no state to persist or resume.
  */
-function stableHash(seed: string): number {
+export function stableHash(seed: string): number {
   let h = 0;
   for (let i = 0; i < seed.length; i++) {
     h = (h * 31 + seed.charCodeAt(i)) >>> 0; // >>>0 keeps it a positive uint32
@@ -312,6 +312,52 @@ export const TITLE_CARDS = {
   comingSoon: "COMING SOON",
 };
 
+/**
+ * Insert cuts (trailer-edit-spec §4) — world-flavored, NO-PET scene-only
+ * fragments used as silent B-roll (a rain-lit sign, a lantern in fog, a
+ * whiskey glass). Because no animal appears, there is no likeness risk and
+ * these never touch the identity gate (lib/film-pipeline.ts keeps them in a
+ * separate array from clipUrls/shotClipUrls — see pickWorldInserts below).
+ * 5 atmospheric options per world; pickWorldInserts chooses 3 deterministically.
+ */
+export const WORLD_INSERTS: Record<string, string[]> = {
+  deepspace: [
+    "a starship viewport streaked with drifting nebula dust and distant starlight, cinematic still, no animals, no people",
+    "a softly blinking control console in a dim ship corridor, red alert light pulsing along the walls, no animals, no people",
+    "a spacesuit glove resting on a frost-rimed airlock hatch wheel, cold blue light, no animals, no people",
+    "a star-chart hologram slowly rotating above an empty console, particles drifting through the beam, no animals, no people",
+    "the curved hull of a ship reflecting a distant nebula, tiny running lights along its length, no animals, no people",
+  ],
+  storybook: [
+    "an empty castle courtyard at dawn, banners stirring in the breeze, long golden shadows, no animals, no people",
+    "a single lantern glowing at the mouth of an ancient forest, fireflies drifting past, no animals, no people",
+    "a stone bridge over a misty river gorge, autumn leaves tumbling in the wind, no animals, no people",
+    "a windowsill in the royal library, an open storybook lit by candlelight, dust motes in the beam, no animals, no people",
+    "fireworks blooming over a sleeping kingdom skyline, seen from the castle wall, no animals, no people",
+  ],
+  noir: [
+    "a neon sign flickering above a rain-slicked city street, puddles mirroring the glow, no animals, no people",
+    "a vending machine humming alone in a dim alley, its light spilling onto wet pavement, no animals, no people",
+    "a rain-soaked crosswalk gleaming under a streetlamp, empty at midnight, no animals, no people",
+    "a close-up of a whiskey glass catching lamplight on a desk, smoke curling past, no animals, no people",
+    "the taillights of a car receding down a foggy street, red streaks on wet asphalt, no animals, no people",
+  ],
+};
+
+/**
+ * Deterministically pick 3 of a world's 5 insert prompts from stableHash(orderId)
+ * — same reasoning as getShotMotion's finale pick: a re-assemble of the same
+ * order (or a single-shot re-render, which reuses cached insertStillUrls but
+ * still calls resolveWorld) must land on the same 3 subjects every time.
+ * Offsets 0/1/2 from a rotating base give 3 distinct picks whenever the pool
+ * has >=3 entries (all WORLD_INSERTS pools have 5).
+ */
+export function pickWorldInserts(world: string, orderId: string): string[] {
+  const pool = WORLD_INSERTS[world] ?? WORLD_INSERTS.deepspace;
+  const base = stableHash(orderId) % pool.length;
+  return [0, 1, 2].map((k) => pool[(base + k) % pool.length]);
+}
+
 export function getArc(world: string, personality: string | null): string[] {
   const w = FILM_SCRIPTS[world] ?? FILM_SCRIPTS.deepspace;
   return w[(personality as Personality) ?? "easygoing"] ?? w.easygoing;
@@ -346,6 +392,11 @@ export type WorldBundle = {
   score: string; // music prompt for the original score
   cuts: { scene: string }[]; // EXACTLY 6 action/setting beats — NO costume words
   loglines: { intro: string; turn: string; rise: string; tagline: string }; // trailer text beats; {name} allowed
+  // OPTIONAL — exactly 3 no-pet insert scene prompts (English). Absent on
+  // older generatedScript records or when Claude omits the field; the film
+  // pipeline treats absence as "no inserts for this order" (spec §4.3), never
+  // a hard failure.
+  inserts?: string[];
 };
 
 export type ResolvedWorld = {
@@ -353,6 +404,10 @@ export type ResolvedWorld = {
   arc: string[];
   score: string;
   loglines: { intro: string; turn: string; rise: string; tagline: string };
+  // 3 no-pet insert-scene prompts, or [] when unavailable (legacy order, or a
+  // custom order whose generatedScript carries no inserts) — the film
+  // pipeline's EDL builder drops the insert beats gracefully in that case.
+  inserts: string[];
 };
 
 /**
@@ -381,6 +436,7 @@ export function resolveWorld(order: Order): ResolvedWorld {
         rise: fill(bundle.loglines.rise),
         tagline: fill(bundle.loglines.tagline),
       },
+      inserts: bundle.inserts ?? [],
     };
   }
   const world = order.world ?? "deepspace";
@@ -389,5 +445,6 @@ export function resolveWorld(order: Order): ResolvedWorld {
     arc: getArc(world, order.personality),
     score: WORLD_SCORES[world] ?? WORLD_SCORES.deepspace,
     loglines: getLoglines(world, order.personality, order.petName ?? undefined),
+    inserts: pickWorldInserts(world, order.id),
   };
 }

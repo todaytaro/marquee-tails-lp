@@ -66,7 +66,7 @@ Follow these rules strictly:
    - Prefer rewriting into an original take over rejecting outright; reject only when no reasonable, good-faith rewrite fits the brief's evident intent.
    - If the brief truly cannot be salvaged (abusive, sexual, insists on a real/copyrighted character with no workaround, or is nonsensical/empty of usable content), respond with status "rejected" and a short, warm, customer-facing "reason" telling them what to reword — never a technical or scolding tone, and never quote or repeat anything unsafe from the brief.
 
-3. STRUCTURED OUTPUT. Always respond by calling the submit_treatment tool — never plain text. "costume" is ONE outfit worn identically in all 6 cuts — never mention costume/outfit words inside any "scene" text (scenes describe action/setting only). Provide EXACTLY 6 cuts.
+3. STRUCTURED OUTPUT. Always respond by calling the submit_treatment tool — never plain text. "costume" is ONE outfit worn identically in all 6 cuts — never mention costume/outfit words inside any "scene" text (scenes describe action/setting only). Provide EXACTLY 6 cuts. You MAY also provide "inserts": exactly 3 short atmospheric scene-only fragments that decorate this film's world as silent B-roll cutaways — NO animals, NO people (e.g. "a rain-lit shop window glowing at night", "a lantern swaying in fog"). This field is entirely optional — omit it completely if nothing fits naturally; never pad it with weak filler just to fill it.
 
 4. EXPECTATION FRAMING. This is a 6-shot, ~60-second STYLIZED trailer starring the pet — not live-action 4K VFX, not a feature film, not a documentary. "treatmentText" should set that expectation gently while staying exciting: describe the world + vibe, the 6 beats in plain warm language, and close with the tagline.
 
@@ -121,6 +121,13 @@ const TREATMENT_TOOL: Anthropic.Tool = {
           tagline: { type: "string" },
         },
         required: ["intro", "turn", "rise", "tagline"],
+      },
+      inserts: {
+        type: "array",
+        description: "OPTIONAL: exactly 3 atmospheric scene-only fragments for silent B-roll cutaways — NO animals, NO people, NO pets, ENGLISH. Omit this field entirely if nothing fits naturally; never invent weak filler just to populate it.",
+        items: { type: "string" },
+        minItems: 3,
+        maxItems: 3,
       },
       treatmentText: {
         type: "string",
@@ -203,6 +210,17 @@ function parseToolInput(raw: unknown): TreatmentResult {
     throw new Error("submit_treatment: missing/empty treatmentText");
   }
 
+  // inserts is OPTIONAL garnish (spec §4.3) — accept-if-valid, silently ignore
+  // if absent or malformed. Never throw for a missing/partial inserts field;
+  // that would fail the whole treatment over a decoration nobody requires.
+  let inserts: string[] | undefined;
+  if (Array.isArray(o.inserts)) {
+    const cleaned = o.inserts
+      .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+      .map((s) => s.trim());
+    if (cleaned.length === 3) inserts = cleaned;
+  }
+
   const bundle: WorldBundle = {
     costume: costume.trim(),
     score: score.trim(),
@@ -213,6 +231,7 @@ function parseToolInput(raw: unknown): TreatmentResult {
       rise: l.rise.trim(),
       tagline: l.tagline.trim(),
     },
+    ...(inserts ? { inserts } : {}),
   };
   return { status: "ok", bundle, treatmentText: treatmentText.trim().slice(0, 4000) };
 }
@@ -243,6 +262,11 @@ function mockTreatment(input: {
       rise: "SOME STARS DON'T NEED A STAGE.",
       tagline: "HOME IS WHERE THE STORY STARTS",
     },
+    inserts: [
+      "a sunlit cobblestone square empty in the early morning, no animals, no people",
+      "a market stall awning fluttering in a quiet breeze, no animals, no people",
+      "string lights glowing over a porch at dusk, no animals, no people",
+    ],
   };
   // Mock revisions just echo the prior bundle unchanged (no compute spent) —
   // good enough to drive the state machine / e2e for free.

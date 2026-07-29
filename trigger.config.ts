@@ -15,7 +15,11 @@ export default defineConfig({
       ffmpeg(), // injects FFMPEG_PATH / FFPROBE_PATH
       additionalFiles({
         files: [
-          "public/fonts/**", // ffmpeg drawtext fonts (film-pipeline captions/title cards)
+          "public/fonts/**", // ffmpeg drawtext fonts (film-pipeline title cards)
+          // Trailer SFX bed (boom/riser/whoosh) mixed by ffmpeg in the film
+          // assembly. Without these here the task can't see them and every
+          // order silently falls back to the music-only mix.
+          "public/sfx/**",
           // Safety net for the custom Prisma client output (see prismaExtension
           // note below): make sure the generated client ships even if the
           // build snapshot is taken before `prisma generate` (postinstall) has

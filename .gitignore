@@ -56,3 +56,10 @@ next-env.d.ts
 
 # claude code local launch config
 /.claude/
+
+# NOTE: public/sfx/*.wav is deliberately NOT ignored. The trailer's SFX bed is
+# mixed by ffmpeg inside the Trigger.dev task, so the files must reach that
+# build via trigger.config.ts additionalFiles — and they can only get there if
+# git carries them. Ignoring them would leave production silently falling back
+# to the no-SFX mix on every order, i.e. the exact cheap-sounding result the
+# beat-edit rework existed to fix. Royalty-free sources only (public/sfx/README.md).

@@ -84,6 +84,12 @@ export default async function AdminOrderReviewPage({
     score: order.shotIdentityScores[i] ?? null,
     clip: order.shotClipUrls[i] ?? null,
   }));
+
+  // Insert (no-pet B-roll) stills — read-only Gate-2 view (trailer-edit-spec
+  // §4.5). Not scored/gated (no pet in frame — see lib/film-pipeline.ts'
+  // identity-isolation comment); simply cached in filmArtifacts, which is
+  // kept after completion so this still renders after Gate 2 approval too.
+  const insertStillUrls = (order.filmArtifacts as { insertStillUrls?: string[] } | null)?.insertStillUrls ?? [];
   const scored = shots
     .map((s) => s.score)
     .filter((s): s is number => s !== null);
@@ -297,6 +303,29 @@ export default async function AdminOrderReviewPage({
                   理由がスチルの撮り直しに反映。組み立て直しが終わるとここに戻ってきます。
                 </p>
               )}
+            </section>
+          )}
+
+          {/* Insert (no-pet B-roll) stills — read-only, trailer-edit-spec §4.5 */}
+          {insertStillUrls.length > 0 && (
+            <section className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4">
+              <h2 className="mb-3 font-display text-xl tracking-wide text-ivory">
+                インサート（情景カット）
+              </h2>
+              <p className="mb-3 text-xs text-muted">
+                犬が映らない世界観の情景カット（Ken Burnsで動画化）。差し替え操作はまだありません（読み取り表示のみ）。
+              </p>
+              <div className="grid grid-cols-3 gap-3">
+                {insertStillUrls.map((url, i) => (
+                  // Plain <img>: insert stills live on external storage.
+                  <img
+                    key={`${i}-${url}`}
+                    src={url}
+                    alt={`Insert scene ${i + 1} for ${order.petName ?? "this order"}`}
+                    className="aspect-video w-full rounded-[var(--radius-chip)] border border-hairline object-cover"
+                  />
+                ))}
+              </div>
             </section>
           )}
 
