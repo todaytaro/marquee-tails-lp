@@ -23,7 +23,9 @@ export default function RefundPage() {
         If your delivered film or poster has a defect — for example, your pet
         is clearly not recognizable against our human quality-review
         standard — we will remake or fix the affected material at no
-        additional cost.
+        additional cost, up to two (2) remakes per order. If the issue is
+        still not resolved after the second remake, we will issue a full
+        refund instead.
       </p>
 
       <h2>3. Non-Delivery</h2>
@@ -48,7 +50,7 @@ export default function RefundPage() {
         number and a description of the issue.
       </p>
 
-      <p className="mt-10 text-xs">Last updated: July 22, 2026</p>
+      <p className="mt-10 text-xs">Last updated: July 30, 2026</p>
     </>
   );
 }
