@@ -99,6 +99,55 @@ export async function rerenderShotAction(
   return { ok: true };
 }
 
+export type RekickGenerationResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * 生成中のまま止まった注文を再キックする（ステータスは変えない）。
+ *
+ * 生成タスクがクラッシュ（OOM等）で強制終了すると onFailure が走らないため、
+ * 注文は IMAGE_GENERATING / VIDEO_GENERATING のまま取り残される。FAILED には
+ * ならないので既存の「再実行」（retryFilmAction）では拾えず、顧客側も待ち画面
+ * のまま進めない。この操作はその取り残された注文を救う唯一の手段。
+ *
+ * どちらのパイプラインも再開可能なので再課金は最小限で済む:
+ *   - 絵コンテ: 写真解析とアイデンティティ画像がキャッシュ済みならスキップ
+ *   - 動画: filmArtifacts のクリップ・音楽を再利用し、未完了の工程だけやり直す
+ */
+export async function rekickGenerationAction(
+  orderId: string
+): Promise<RekickGenerationResult> {
+  if (!orderId) {
+    return { ok: false, error: "orderId が必要です。" };
+  }
+
+  try {
+    const order = await prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) {
+      return { ok: false, error: "注文が見つかりません。" };
+    }
+    // ステータスガード: 生成中の注文にだけ効く操作。すでに次のゲートへ進んだ
+    // 注文で押しても二重生成しないようにする。
+    if (order.status === OrderStatus.IMAGE_GENERATING) {
+      const { kickStillsGeneration } = await import("@/lib/stills-pipeline");
+      await kickStillsGeneration(order);
+    } else if (order.status === OrderStatus.VIDEO_GENERATING) {
+      await kickFilmGeneration(order);
+    } else {
+      return {
+        ok: false,
+        error: `この注文は生成中ではありません（現在: ${order.status}）。ページを更新してください。`,
+      };
+    }
+  } catch (err) {
+    console.error("[rekickGenerationAction]", err);
+    return { ok: false, error: "サーバー側でエラーが発生しました。もう一度お試しください。" };
+  }
+
+  revalidatePath("/admin");
+  revalidatePath(`/admin/${orderId}`);
+  return { ok: true };
+}
+
 export type RetryFilmResult = { ok: true } | { ok: false; error: string };
 
 /**

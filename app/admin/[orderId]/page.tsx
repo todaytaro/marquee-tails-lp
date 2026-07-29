@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { ApproveForm } from "./ApproveForm";
 import { RerenderShotButton } from "./RerenderShotButton";
 import { RetryFilmButton } from "../RetryFilmButton";
+import { RekickGenerationButton } from "../RekickGenerationButton";
 import { CopyLinkButton } from "./CopyLinkButton";
 import { ResendEmailButton } from "./ResendEmailButton";
 import MoviePosterOverlay from "@/components/MoviePosterOverlay";
@@ -60,6 +61,14 @@ export default async function AdminOrderReviewPage({
 
   const awaitingReview = order.status === OrderStatus.AWAITING_ADMIN_APPROVAL;
   const isFailed = order.status === OrderStatus.FAILED;
+  // 生成中で止まっている可能性がある状態。タスクがクラッシュで死ぬと onFailure
+  // が走らず FAILED にもならないので、ここから再キックできないと救えない。
+  const stalledStage =
+    order.status === OrderStatus.IMAGE_GENERATING
+      ? ("stills" as const)
+      : order.status === OrderStatus.VIDEO_GENERATING
+        ? ("film" as const)
+        : null;
   // Poster copy reuses the film's own loglines — no separate authoring, same
   // story as the trailer's title cards (see app/approve/[token]/page.tsx).
   const petName = order.petName ?? "Unnamed Pet";
@@ -154,6 +163,25 @@ export default async function AdminOrderReviewPage({
                   </p>
                 </div>
               </div>
+            </section>
+          )}
+
+          {/* 生成中 — 進捗が止まっているときの再キック（クラッシュ時の唯一の復旧手段） */}
+          {stalledStage && (
+            <section className="rounded-[var(--radius-card)] border border-gold/40 bg-gold/5 p-4">
+              <h2 className="mb-2 font-display text-xl tracking-wide text-gold-bright">
+                生成中
+              </h2>
+              <p className="mb-3 text-xs text-muted">
+                {stalledStage === "stills"
+                  ? "通常10分前後で絵コンテ待ちに進みます。"
+                  : "通常10〜15分で管理者確認待ちに進みます。"}
+                これを大きく超えている場合、生成タスクがクラッシュして止まっている
+                可能性があります（その場合ステータスは変わらないまま残ります）。
+                再実行すると、キャッシュ済みの素材は再利用され、未完了の工程だけが
+                やり直されます。
+              </p>
+              <RekickGenerationButton orderId={order.id} stage={stalledStage} />
             </section>
           )}
 
