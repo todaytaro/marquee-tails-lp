@@ -44,7 +44,7 @@ async function main() {
   const first = storyboard[0]?.options[0];
   if (first) {
     console.log("animating cut 0 / take 0 (5s)…");
-    const clip = await generateShotClipForTest(first, order.world ?? "deepspace", 0, 5);
+    const clip = await generateShotClipForTest(first, order.world ?? "deepspace", 0, order.id, 5);
     console.log(`  clip: ${clip}`);
     console.log("\n=== CLIP ===");
     console.log(clip);

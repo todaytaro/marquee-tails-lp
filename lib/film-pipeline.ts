@@ -10,7 +10,7 @@ import { fal } from "@fal-ai/client";
 import { OrderStatus, type Order } from "@/generated/prisma/client";
 import { prisma } from "./db";
 import { transitionOrder } from "./orders";
-import { SHOT_MOTIONS, TITLE_CARDS, resolveWorld } from "./film-script";
+import { TITLE_CARDS, resolveWorld, getShotMotion } from "./film-script";
 import { publicUrl, scoreFrame } from "./identity";
 import { reshootCutStill } from "./stills-pipeline";
 
@@ -38,7 +38,14 @@ import { reshootCutStill } from "./stills-pipeline";
  * VIDEO_PIPELINE_MOCK=1 short-circuits e2e.
  */
 
-const KLING_MODEL = "fal-ai/kling-video/v3/standard/image-to-video";
+// Env-overridable so the tier can be A/B'd or rolled back without a deploy.
+// standard -> pro: pro trades more $/s for tighter start-frame adherence,
+// which is the same direction as the cfg_scale bump below (less drift, at
+// the cost of some stiffness) — worth the spend after the profile-drift
+// production incident. NOTE: swap the KLING_MODEL env var to instantly
+// revert to standard if the pro endpoint id turns out to be wrong or the
+// tier underperforms.
+const KLING_MODEL = process.env.KLING_MODEL ?? "fal-ai/kling-video/v3/pro/image-to-video";
 const MUSIC_MODEL = "fal-ai/stable-audio-25/text-to-audio";
 
 // House setting: 8s cuts (Kling duration enum is 3-15s) → a 60s trailer.
@@ -129,10 +136,14 @@ async function generateShotClip(
   stillUrl: string,
   world: string,
   shotIndex: number,
+  orderId: string,
   durationSec: number = SHOT_SECONDS,
   directorNote?: string
 ): Promise<string> {
-  const camera = SHOT_MOTIONS[shotIndex] ?? SHOT_MOTIONS[0];
+  // getShotMotion resolves index 5 (the climax) to one of several variants,
+  // picked deterministically from orderId — see film-script.ts for why this
+  // must be stable across an original run and any later single-shot re-render.
+  const camera = getShotMotion(shotIndex, orderId);
   const atmosphere = WORLD_ATMOSPHERE[world] ?? "";
   const note = directorNote?.trim() ? ` Director's note, follow it strictly: ${directorNote.trim()}.` : "";
   return submitClip(
@@ -140,7 +151,12 @@ async function generateShotClip(
       start_image_url: publicUrl(stillUrl),
       duration: String(durationSec) as "8",
       generate_audio: false,
-      cfg_scale: 0.4,
+      // Tuning knob: 0.4 -> 0.55. Low cfg lets the model drift from the start
+      // frame on its own initiative, which is the same failure mode as the
+      // yaw problem — it invents detail the reference never showed. Higher
+      // cfg holds the start frame more strictly; trade-off is some stiffness
+      // if pushed too far, so this is a nudge, not a jump to 1.0.
+      cfg_scale: 0.55,
       negative_prompt: CLIP_NEGATIVE,
       prompt: `${camera}, ${atmosphere}.${note} The pet stays exactly the same individual — identical face, mouth/tongue color, tail length and ear carriage, coat markings and costume — lively but never morphing into a different dog.`,
     },
@@ -211,12 +227,13 @@ async function generateGatedClip(
   stillUrl: string,
   world: string,
   shotIndex: number,
+  orderId: string,
   portraitUrl?: string,
   directorNote?: string
 ): Promise<{ url: string; score: number }> {
   let best = { url: "", score: -1 };
   for (let attempt = 0; attempt <= MAX_CLIP_REROLLS; attempt++) {
-    const url = await generateShotClip(stillUrl, world, shotIndex, SHOT_SECONDS, directorNote);
+    const url = await generateShotClip(stillUrl, world, shotIndex, orderId, SHOT_SECONDS, directorNote);
     const score = portraitUrl ? await scoreClip(url, portraitUrl) : 100;
     console.log(`[film] shot ${shotIndex} clip attempt ${attempt}: identity ${score}`);
     if (score > best.score) best = { url, score };
@@ -314,9 +331,10 @@ export function generateShotClipForTest(
   stillUrl: string,
   world: string,
   shotIndex: number,
+  orderId: string,
   durationSec: number
 ): Promise<string> {
-  return generateShotClip(stillUrl, world, shotIndex, durationSec);
+  return generateShotClip(stillUrl, world, shotIndex, orderId, durationSec);
 }
 
 export async function runFilmGeneration(order: Order): Promise<void> {
@@ -342,7 +360,9 @@ export async function runFilmGeneration(order: Order): Promise<void> {
   // scoreClip re-scores already-cached clips on resume.
   if (!art.clipUrls) {
     console.log(`[film] animating ${shotStillUrls.length} shots (identity-gated) order=${order.id}`);
-    const gated = await Promise.all(shotStillUrls.map((s, i) => generateGatedClip(s, world, i, portraitUrl)));
+    const gated = await Promise.all(
+      shotStillUrls.map((s, i) => generateGatedClip(s, world, i, order.id, portraitUrl))
+    );
     art = await saveArtifacts(order.id, {
       clipUrls: gated.map((g) => g.url),
       clipScores: gated.map((g) => g.score),
@@ -531,7 +551,7 @@ export async function runShotRerender(
   console.log(
     `[film] re-render shot ${shotIndex} order=${order.id} mode=${opts.reshoot ? "reshoot" : "reanimate"}${opts.reason ? ` reason="${opts.reason}"` : ""}`
   );
-  const fixed = await generateGatedClip(still, world, shotIndex, portraitUrl, opts.reason);
+  const fixed = await generateGatedClip(still, world, shotIndex, order.id, portraitUrl, opts.reason);
   clipUrls[shotIndex] = fixed.url;
   clipScores[shotIndex] = fixed.score;
 

@@ -185,20 +185,97 @@ export const LOGLINES: WorldMap<{ intro: string; turn: string; rise: string; tag
 /**
  * Per-shot motion = LIVELY PET BEHAVIOR + a camera move. It must feel like a
  * film, not a static GIF, so the dog actually does something alive every shot
- * (looks around, ears perk, head tilt, sniff, eye contact). Identity is held
- * by the Kling character element (@Element1), NOT by freezing the pet — so we
- * choose motions that are lively but low-morph: head/ear/eye/tail movement and
- * small steps. We deliberately AVOID running, jumping, fast spins and big
- * action, which is what warps the face mid-clip.
+ * (blink, ear flick, tail swish, breathing, small weight shifts). Identity is
+ * held by the customer's hand-picked, identity-gated start frame — a FRONT-
+ * FACING portrait is the only reference the video model ever sees, so it has
+ * no idea what the pet's profile looks like and will happily invent one.
+ *
+ * Root-cause postmortem (first production film): three of the original six
+ * entries explicitly commanded yaw ("glancing left and right", "turns its
+ * head sharply to look off-camera", "turns its head") and the pet's profile
+ * came out looking like a different dog. That's not a wording problem, it's
+ * a reference-coverage problem — no amount of clever phrasing fixes a yaw
+ * turn when the model has never seen the side of the face. So the rule now
+ * is absolute:
+ *
+ *   NEVER YAW. No "left and right", no "turns its head", no "looks
+ *   off-camera", no "glances away". Any motion that rotates the head (or the
+ *   camera) around the vertical axis exposes geometry the identity reference
+ *   never showed, and the model fills the gap by drifting off-model.
+ *
+ * Safe subject motion (all keep the face toward the lens): blink / slow
+ * blink, ear flick or prick, nostril/nose twitch, breathing / chest rise,
+ * whiskers and fur stirring, tail swish or wag, weight shift, one small step
+ * toward camera, head TILT (roll) and head RAISE/LOWER (pitch). Roll and
+ * pitch keep the face pointed at the camera the whole time — only yaw is
+ * banned.
+ *
+ * Camera does the cinematic work instead: push-in, pull-back, vertical
+ * crane, gentle forward drift. Do NOT add an orbit, arc, or "circles around"
+ * move here later — moving the camera around the subject changes the viewing
+ * angle exactly the same way a head-turn does, and would reintroduce the
+ * same identity drift by another route. If a future edit wants more camera
+ * variety, add push/pull/crane variants, not rotation around the subject.
+ *
+ * Indices 0-4 are fixed per-cut beats (parallel to SHOT_FRAMINGS / the arc's
+ * first 5 beats). Index 5 (the climax) is NOT a single string — see
+ * SHOT_MOTIONS_FINALE_POOL + getShotMotion() below, so every order's ending
+ * isn't the same "raises its head proudly" template.
  */
 export const SHOT_MOTIONS: string[] = [
-  "the pet looks around alertly, glancing left and right, ears perking up as it takes in the scene; slow cinematic push-in",
-  "the pet tilts its head curiously and its ears twitch, then it takes one small step forward, tail swishing; camera dollies gently alongside",
-  "the pet's ears prick and it turns its head sharply to look off-camera, then back toward the lens, alert and lively; slow steady push-in",
-  "the pet lifts its nose to sniff the air and turns its head, fur and whiskers ruffling in the breeze; slow cinematic rise",
-  "the pet locks eyes with the camera, blinks, and lowers its head with a determined look, ears forward; gentle push-in toward the face",
-  "the pet raises its head proudly, ears up and tail high, a small triumphant shift of weight; slow upward crane",
+  "the pet holds its gaze on the camera and blinks slowly, ears lifting as it breathes, fur stirring slightly; slow cinematic push-in",
+  "the pet tilts its head gently to one side, ears twitching and tail swishing behind it, face staying toward the camera; camera drifts slowly forward",
+  "the pet's ears prick up and it lifts its chin slightly, eyes widening with alertness, chest rising as it breathes; slow steady push-in",
+  "the pet's nostrils flutter as it sniffs the air and lowers its chin a little, whiskers and fur ruffling in the breeze; slow cinematic rise",
+  "the pet locks eyes with the camera, blinks once, and lowers its head with quiet determination, ears forward; gentle push-in toward the face",
 ];
+
+/**
+ * Climax (shot index 5) variant pool — fixes "every film ends the same way".
+ * SHOT_MOTIONS[5] used to hardcode "raises its head proudly", so every order
+ * closed on an identical beat, which reads as a template and undercuts the
+ * $249 bespoke Director's Cut promise. All three variants are still
+ * yaw-free and face-forward (same rules as above); only the emotional beat
+ * and camera move differ.
+ */
+export const SHOT_MOTIONS_FINALE_POOL: string[] = [
+  "the pet lifts its chin high, ears up and tail raised, weight settling into a proud stance; slow upward crane",
+  "the pet holds perfectly still, staring straight down the lens as its fur moves in the wind, unblinking and resolute; slow push-in to a hero close-up",
+  "the pet's ears rise and its tail begins to wag, a small delighted shift of weight as it keeps its eyes on the camera; camera eases back to reveal the scene",
+];
+
+/**
+ * Deterministic string hash (djb2-ish rolling sum) — NOT Math.random()/
+ * Date.now(). The seed is the order id, and the same order must always pick
+ * the same finale variant: app/admin/actions.ts can re-render a single shot
+ * (kickShotRerender -> runShotRerender -> generateGatedClip) long after the
+ * original run, and if the finale motion changed between takes the
+ * re-rendered shot would no longer match the rest of that customer's film.
+ * A pure function of the order id guarantees the same pick every time,
+ * with no state to persist or resume.
+ */
+function stableHash(seed: string): number {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) {
+    h = (h * 31 + seed.charCodeAt(i)) >>> 0; // >>>0 keeps it a positive uint32
+  }
+  return h;
+}
+
+/**
+ * Resolves the camera/motion direction for one shot. Indices 0-4 are the
+ * fixed SHOT_MOTIONS beats; index 5 (the climax) is picked from
+ * SHOT_MOTIONS_FINALE_POOL by a stable hash of `seed` (the order id) so the
+ * ending varies between orders but never between an order's original render
+ * and any later single-shot re-render of it.
+ */
+export function getShotMotion(shotIndex: number, seed: string): string {
+  if (shotIndex >= 5) {
+    const pool = SHOT_MOTIONS_FINALE_POOL;
+    return pool[stableHash(seed) % pool.length];
+  }
+  return SHOT_MOTIONS[shotIndex] ?? SHOT_MOTIONS[0];
+}
 
 /**
  * Per-cut camera framing — the fix for "every shot looks the same". A single
