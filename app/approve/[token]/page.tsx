@@ -402,6 +402,25 @@ function PremiereView({ order, petName }: { order: Order; petName: string }) {
                 Vertical cut for TikTok / Reels
               </a>
             )}
+            {/*
+              The digital poster is a promised deliverable of BOTH plans
+              (PRICING-PRODUCT-V2-SPEC.md §2: 無料同梱, granted at delivery) and
+              the add-on section right below already tells the customer "the
+              free digital version is already yours" — but there was no way to
+              take it. posterPrintUrl, not posterUrl: posterUrl is the
+              text-free art, whose title block only exists as a CSS overlay in
+              this page, so downloading it would hand over artwork that is not
+              a movie poster. posterPrintUrl is the flattened composite.
+            */}
+            {order.posterPrintUrl && (
+              <a
+                href={order.posterPrintUrl}
+                download={`${petName.toLowerCase()}-marquee-tails-poster.png`}
+                className="inline-flex items-center rounded-[var(--radius-chip)] border border-gold/50 px-6 py-3 text-base text-gold transition-colors hover:bg-gold/10"
+              >
+                Download the poster
+              </a>
+            )}
           </div>
           <p className="max-w-md text-sm text-muted">
             {petName} earned the big screen — share the trailer with the rest
