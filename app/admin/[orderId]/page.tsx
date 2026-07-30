@@ -7,6 +7,7 @@ import { RerenderShotButton } from "./RerenderShotButton";
 import { RetryFilmButton } from "../RetryFilmButton";
 import { RekickGenerationButton } from "../RekickGenerationButton";
 import { CopyLinkButton } from "./CopyLinkButton";
+import { ResubmitPodButton } from "./ResubmitPodButton";
 import { ResendEmailButton } from "./ResendEmailButton";
 import MoviePosterOverlay from "@/components/MoviePosterOverlay";
 import { resolveWorld } from "@/lib/film-script";
@@ -547,7 +548,10 @@ export default async function AdminOrderReviewPage({
                         <CopyLinkButton value={order.podOrderId} />
                       </span>
                     ) : (
-                      "—"
+                      // Paid but never submitted — POD failures are swallowed
+                      // so they can't block film delivery, so this is the only
+                      // place the gap is visible, and the only way to close it.
+                      <ResubmitPodButton orderId={order.id} />
                     )
                   }
                 />

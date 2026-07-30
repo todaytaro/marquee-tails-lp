@@ -233,3 +233,65 @@ export async function resendCustomerEmailAction(
   return { ok: true };
 }
 
+
+export type ResubmitPodResult = { ok: true; podOrderId: string } | { ok: false; error: string };
+
+/**
+ * Re-submit a paid physical add-on to Printify.
+ *
+ * lib/mocks.ts#createPodOrder deliberately swallows POD failures so a print
+ * problem can never block film delivery, and its own comment says the admin
+ * must "manually submit the Printify order" when that fires — but there was no
+ * way to. The first real add-on purchase proved why that gap matters: a
+ * whitespace-corrupted PRINTIFY_API_KEY meant the customer paid, saw "your
+ * printed poster is on its way", and nothing was ever sent to the printer.
+ * Fixing the key does not rescue the order that already failed; this does.
+ *
+ * Guards: the add-on must be paid for (addonType + a Stripe session) and not
+ * already submitted (podOrderId), so pressing this twice cannot produce two
+ * physical prints. Clear the existing podOrderId in Printify first if a
+ * genuine re-print is ever needed.
+ */
+export async function resubmitPodOrderAction(orderId: string): Promise<ResubmitPodResult> {
+  if (!orderId) {
+    return { ok: false, error: "orderId が必要です。" };
+  }
+
+  try {
+    const order = await prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) {
+      return { ok: false, error: "注文が見つかりません。" };
+    }
+    if (!order.addonType || !order.addonStripeSessionId) {
+      return { ok: false, error: "この注文には支払い済みの物理アドオンがありません。" };
+    }
+    if (order.podOrderId) {
+      return {
+        ok: false,
+        error: `すでにPrintifyへ発注済みです（${order.podOrderId}）。再印刷が必要な場合はPrintify側で対応してください。`,
+      };
+    }
+
+    // createPrintifyOrder throws with an actionable message (missing shipping
+    // address, bad key, Printify 4xx) — surface it instead of the log-only
+    // treatment createPodOrder gives it, since an admin is watching this time.
+    const { createPrintifyOrder } = await import("@/lib/printify");
+    const result = await createPrintifyOrder(order);
+    if (!result) {
+      return { ok: false, error: "Printifyが未設定です（PRINTIFY_* の環境変数を確認してください）。" };
+    }
+    await prisma.order.update({
+      where: { id: orderId },
+      data: { podOrderId: result.printifyOrderId },
+    });
+    console.log(`[pod] re-submitted by admin order=${orderId} printifyOrderId=${result.printifyOrderId}`);
+    revalidatePath(`/admin/${orderId}`);
+    return { ok: true, podOrderId: result.printifyOrderId };
+  } catch (err) {
+    console.error("[resubmitPodOrderAction]", err);
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Printifyへの発注でエラーが発生しました。",
+    };
+  }
+}
