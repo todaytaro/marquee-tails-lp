@@ -16,6 +16,14 @@ import { useRouter } from "next/navigation";
  *     component with the new order.treatmentText.
  *
  * Mirrors StoryboardWizard / PhotoUploadForm's loading + error-state style.
+ *
+ * WHY the wardrobe block exists (WARDROBE-VISIBILITY-SPEC.md): this gate is
+ * the costume's actual point of no return — approving here moves the order
+ * straight to storyboard takes, which have no path back to wardrobe. Before
+ * this block, the costume Claude picked lived only inside the treatment
+ * prose (one parenthetical, no label), so a customer could approve a look
+ * they never consciously noticed. It's surfaced separately and ABOVE the
+ * prose so it's read first, not buried in it.
  */
 
 type Props = {
@@ -23,7 +31,38 @@ type Props = {
   approveToken: string;
   petName: string;
   treatmentText: string;
+  // WorldBundle.costume, threaded through as a primitive by the server
+  // component (see app/approve/[token]/page.tsx) — null whenever there is no
+  // structured costume to show: legacy generatedScript rows, a draft that
+  // hasn't finished generating, or (defensively) a non-custom order. Never
+  // throw or render an empty box for those cases — just skip the block.
+  costume: string | null;
 };
+
+/**
+ * The one outfit Claude locked in for every shot. Framed as craft, not
+ * limitation: a single costume worn identically across all six cuts is what
+ * keeps the pet reading as unmistakably itself, shot to shot — the same
+ * reason a series keeps its lead in one look across a trailer. Placed above
+ * TreatmentBody so it's the first thing read, and it explicitly points at
+ * the existing free-text revision box below rather than inventing a new
+ * "change costume" control.
+ */
+function WardrobeBlock({ costume }: { costume: string }) {
+  return (
+    <div className="mb-6 border-b border-hairline pb-6 text-left">
+      <p className="font-display text-xs tracking-[0.3em] text-gold uppercase">
+        Wardrobe — worn in every shot
+      </p>
+      <p className="mt-2 leading-relaxed text-ivory">{costume}</p>
+      <p className="mt-2 text-sm text-muted">
+        One outfit, locked in across all six scenes — it&apos;s what keeps
+        every shot unmistakably them. Not what you pictured? Ask for a
+        different look below.
+      </p>
+    </div>
+  );
+}
 
 type Phase = "idle" | "approving" | "revising" | "already" | "error";
 
@@ -44,7 +83,7 @@ function TreatmentBody({ text }: { text: string }) {
   );
 }
 
-export default function TreatmentApproval({ orderId, approveToken, petName, treatmentText }: Props) {
+export default function TreatmentApproval({ orderId, approveToken, petName, treatmentText, costume }: Props) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [rejection, setRejection] = useState<string | null>(null);
@@ -166,6 +205,9 @@ export default function TreatmentApproval({ orderId, approveToken, petName, trea
       </div>
 
       <div className="mt-10 rounded-[var(--radius-card)] border border-hairline bg-surface p-6 sm:p-8">
+        {/* Guard: only ever render this for a real, present costume string —
+            never an empty box for legacy orders or a still-drafting one. */}
+        {costume && <WardrobeBlock costume={costume} />}
         <TreatmentBody text={treatmentText} />
       </div>
 
@@ -216,7 +258,7 @@ export default function TreatmentApproval({ orderId, approveToken, petName, trea
                 onChange={(e) => setInstruction(e.target.value)}
                 rows={4}
                 maxLength={1000}
-                placeholder="e.g. Change scene 3 to the deep sea instead, and make the tagline punchier."
+                placeholder="e.g. Make the jacket a leather one, and change scene 3 to a rainy street instead."
                 className="mt-2 w-full rounded-lg border border-hairline bg-night/40 px-4 py-3 text-ivory placeholder:text-muted/50 focus:border-gold/60 focus:outline-none"
               />
             </label>

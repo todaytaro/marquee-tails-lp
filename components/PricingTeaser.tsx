@@ -43,6 +43,7 @@ const tiers: readonly Tier[] = [
     items: [
       "A fully bespoke trailer — your story, your world, not a preset",
       "You're the director: shape and approve the written treatment first",
+      "Your call on wardrobe too — one signature look, yours to approve or change",
       "Then approve the storyboard, shot by shot, before we film a frame",
       "Digital movie poster — included free",
       "Strictly limited slots each day — reserved, not mass-produced",

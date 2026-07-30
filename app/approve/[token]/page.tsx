@@ -6,7 +6,7 @@ import { prisma } from "@/lib/db";
 import StoryboardWizard from "@/components/StoryboardWizard";
 import PosterPicker from "@/components/PosterPicker";
 import { normalizeStoryboard } from "@/lib/stills-pipeline";
-import { resolveWorld } from "@/lib/film-script";
+import { resolveWorld, type WorldBundle } from "@/lib/film-script";
 import PhotoUploadForm from "@/components/PhotoUploadForm";
 import StatusPoller from "@/components/StatusPoller";
 import ProductionProgress from "@/components/ProductionProgress";
@@ -506,16 +506,27 @@ export default async function ApprovePage({
         </>
       );
       break;
-    case OrderStatus.AWAITING_TREATMENT_APPROVAL:
+    case OrderStatus.AWAITING_TREATMENT_APPROVAL: {
+      // generatedScript is Json, so this is read defensively: a legacy row
+      // (pre-costume feature) or a shape mismatch just yields undefined, not
+      // a throw — resolveWorld() is NOT reused here because its non-custom
+      // fallback branch (getCostume(order.world ?? "deepspace")) would hand
+      // back a made-up preset costume for a custom order with no
+      // generatedScript yet, which is not what the customer actually
+      // approved. This block only ever shows a REAL costume or nothing.
+      const bundle = order.generatedScript as unknown as WorldBundle | null;
+      const costume = typeof bundle?.costume === "string" ? bundle.costume : null;
       view = (
         <TreatmentApproval
           orderId={order.id}
           approveToken={order.approveToken}
           petName={petName}
           treatmentText={order.treatmentText ?? ""}
+          costume={costume}
         />
       );
       break;
+    }
     case OrderStatus.IMAGE_GENERATING:
       view = (
         <>

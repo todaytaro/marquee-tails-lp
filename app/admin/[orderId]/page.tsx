@@ -10,7 +10,7 @@ import { CopyLinkButton } from "./CopyLinkButton";
 import { ResubmitPodButton } from "./ResubmitPodButton";
 import { ResendEmailButton } from "./ResendEmailButton";
 import MoviePosterOverlay from "@/components/MoviePosterOverlay";
-import { resolveWorld } from "@/lib/film-script";
+import { resolveWorld, type WorldBundle } from "@/lib/film-script";
 
 export const dynamic = "force-dynamic";
 
@@ -77,6 +77,14 @@ export default async function AdminOrderReviewPage({
   const posterTagline = posterLoglines.intro;
   const posterSubtitle = posterLoglines.tagline;
   const isCustom = order.tier === "custom";
+  // Same defensive read as app/approve/[token]/page.tsx: pull costume
+  // straight off the raw generatedScript Json rather than through
+  // resolveWorld(), whose non-custom fallback would otherwise hand back a
+  // made-up preset costume for a custom order with no treatment drafted yet.
+  // null here just means "nothing to show" (legacy row or still drafting).
+  const generatedScriptBundle = order.generatedScript as unknown as WorldBundle | null;
+  const costume =
+    typeof generatedScriptBundle?.costume === "string" ? generatedScriptBundle.costume : null;
 
   // Per-shot identity audit — zip the customer's chosen stills with the video
   // identity gate's clip scores + clips (see lib/film-pipeline).
@@ -163,6 +171,18 @@ export default async function AdminOrderReviewPage({
                     {order.customBrief ?? "—"}
                   </p>
                 </div>
+                {/* Support needs to see the costume the customer actually
+                    approved at Gate 0 (WARDROBE-VISIBILITY-SPEC.md §3.4) —
+                    read-only, no controls, same "don't show an empty box"
+                    guard as the customer-facing approval page. */}
+                {costume && (
+                  <div>
+                    <p className="text-[10px] uppercase tracking-widest text-muted">
+                      Costume (worn in every shot)
+                    </p>
+                    <p className="mt-1 whitespace-pre-wrap text-ivory">{costume}</p>
+                  </div>
+                )}
                 <div>
                   <p className="text-[10px] uppercase tracking-widest text-muted">Current treatment</p>
                   <p className="mt-1 whitespace-pre-wrap text-ivory">
