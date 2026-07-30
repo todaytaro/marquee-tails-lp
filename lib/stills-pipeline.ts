@@ -39,7 +39,10 @@ import { watermarkTakeForPreview } from "./watermark";
  * revert to UPLOADING on failure, VIDEO_PIPELINE_MOCK short-circuit for e2e.
  */
 
-const EDIT_MODEL = "fal-ai/nano-banana-pro/edit";
+// Exported: film-pipeline.ts reuses this exact model id for §5.2's end-frame
+// generation (same nano-banana edit call, different caller) rather than
+// hardcoding a second copy of the endpoint id.
+export const EDIT_MODEL = "fal-ai/nano-banana-pro/edit";
 
 const NUM_CUTS = 6;
 const TAKES_PER_CUT = 3;

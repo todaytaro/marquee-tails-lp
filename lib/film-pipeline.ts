@@ -11,9 +11,9 @@ import { fal } from "@fal-ai/client";
 import { OrderStatus, type Order } from "@/generated/prisma/client";
 import { prisma } from "./db";
 import { transitionOrder } from "./orders";
-import { TITLE_CARDS, resolveWorld, getShotMotion, type Loglines } from "./film-script";
-import { publicUrl, scoreFrame } from "./identity";
-import { reshootCutStill } from "./stills-pipeline";
+import { TITLE_CARDS, resolveWorld, getShotMotion, SHOT_END_POSES, type Loglines } from "./film-script";
+import { publicUrl, scoreFrame, scoreIdentity } from "./identity";
+import { reshootCutStill, EDIT_MODEL, IDENTITY_RULES, STYLE_RULES } from "./stills-pipeline";
 
 /**
  * Film pipeline — the trailer assembler (TRAILER-EDIT-SPEC.md v2).
@@ -235,6 +235,17 @@ async function submitClip(input: Record<string, unknown>, capMs: number): Promis
  * NOT use Kling's `elements` character lock — measured to add queue flakiness
  * without improving on a strong start frame, and the storyboard picks already
  * give us six high-identity frames to animate.
+ *
+ * `endFrameUrl` (FILM-QUALITY-V3-SPEC.md §5.3): when this cut opted into
+ * start+end interpolation (SHOT_END_POSES[shotIndex] is non-null) AND that end
+ * frame generated + cleared the identity gate, this is its url and gets
+ * passed straight through as `end_image_url` — confirmed present on THIS
+ * exact endpoint's typed input (KlingVideoV3ProImageToVideoInput in
+ * @fal-ai/client, "URL of the image to be used for the end of the video"), so
+ * no separate interpolation-only model/env var is needed (spec §5.3's other
+ * two branches don't apply here). Undefined means either the cut isn't
+ * enrolled or its end frame failed to earn identity clearance — either way
+ * this silently falls back to the original single-frame i2v call, unchanged.
  */
 async function generateShotClip(
   stillUrl: string,
@@ -242,7 +253,8 @@ async function generateShotClip(
   shotIndex: number,
   orderId: string,
   durationSec: number = SHOT_SECONDS,
-  directorNote?: string
+  directorNote?: string,
+  endFrameUrl?: string
 ): Promise<string> {
   // getShotMotion resolves index 5 (the climax) to one of several variants,
   // picked deterministically from orderId — see film-script.ts for why this
@@ -250,22 +262,28 @@ async function generateShotClip(
   const camera = getShotMotion(shotIndex, orderId);
   const atmosphere = WORLD_ATMOSPHERE[world] ?? "";
   const note = directorNote?.trim() ? ` Director's note, follow it strictly: ${directorNote.trim()}.` : "";
-  return submitClip(
-    {
-      start_image_url: publicUrl(stillUrl),
-      duration: String(durationSec),
-      generate_audio: false,
-      // Tuning knob: 0.4 -> 0.55. Low cfg lets the model drift from the start
-      // frame on its own initiative, which is the same failure mode as the
-      // yaw problem — it invents detail the reference never showed. Higher
-      // cfg holds the start frame more strictly; trade-off is some stiffness
-      // if pushed too far, so this is a nudge, not a jump to 1.0.
-      cfg_scale: 0.55,
-      negative_prompt: CLIP_NEGATIVE,
-      prompt: `${camera}, ${atmosphere}.${note} The pet stays exactly the same individual — identical face, mouth/tongue color, tail length and ear carriage, coat markings and costume — lively but never morphing into a different dog.`,
-    },
-    15 * 60 * 1000
-  );
+  // §5.1: when an end frame is supplied, the model's only job is to fill the
+  // gap between two already-approved stills — say so explicitly so it doesn't
+  // treat the camera/atmosphere text above as license to invent extra motion
+  // beyond that transition.
+  const interpolationNote = endFrameUrl
+    ? " The final frame of this clip must match the provided end reference image exactly — interpolate smoothly toward it, inventing no motion beyond that transition."
+    : "";
+  const input: Record<string, unknown> = {
+    start_image_url: publicUrl(stillUrl),
+    duration: String(durationSec),
+    generate_audio: false,
+    // Tuning knob: 0.4 -> 0.55. Low cfg lets the model drift from the start
+    // frame on its own initiative, which is the same failure mode as the
+    // yaw problem — it invents detail the reference never showed. Higher
+    // cfg holds the start frame more strictly; trade-off is some stiffness
+    // if pushed too far, so this is a nudge, not a jump to 1.0.
+    cfg_scale: 0.55,
+    negative_prompt: CLIP_NEGATIVE,
+    prompt: `${camera}, ${atmosphere}.${note} The pet stays exactly the same individual — identical face, mouth/tongue color, tail length and ear carriage, coat markings and costume — lively but never morphing into a different dog.${interpolationNote}`,
+  };
+  if (endFrameUrl) input.end_image_url = publicUrl(endFrameUrl);
+  return submitClip(input, 15 * 60 * 1000);
 }
 
 // The video identity gate. Clips can hold a strong start frame yet drift into
@@ -333,11 +351,12 @@ async function generateGatedClip(
   shotIndex: number,
   orderId: string,
   portraitUrl?: string,
-  directorNote?: string
+  directorNote?: string,
+  endFrameUrl?: string
 ): Promise<{ url: string; score: number }> {
   let best = { url: "", score: -1 };
   for (let attempt = 0; attempt <= MAX_CLIP_REROLLS; attempt++) {
-    const url = await generateShotClip(stillUrl, world, shotIndex, orderId, SHOT_SECONDS, directorNote);
+    const url = await generateShotClip(stillUrl, world, shotIndex, orderId, SHOT_SECONDS, directorNote, endFrameUrl);
     const score = portraitUrl ? await scoreClip(url, portraitUrl) : 100;
     console.log(`[film] shot ${shotIndex} clip attempt ${attempt}: identity ${score}`);
     if (score > best.score) best = { url, score };
@@ -347,6 +366,103 @@ async function generateGatedClip(
     `[film] shot ${shotIndex}: best clip identity ${best.score} (< ${CLIP_IDENTITY_THRESHOLD}), using best attempt`
   );
   return best;
+}
+
+/* ------------------------------------------------------------------ */
+/* Start+end frame interpolation (FILM-QUALITY-V3-SPEC.md §5)           */
+/* ------------------------------------------------------------------ */
+
+// The end frame IS a still (it becomes a real frame of the finished film,
+// same as any chosen storyboard take), so it clears the STILLS bar
+// (stills-pipeline.ts's IDENTITY_THRESHOLD = 80), not the looser clip bar
+// (CLIP_IDENTITY_THRESHOLD = 75) — a clip is allowed a little drift because
+// it's judged across a whole animated shot, but a still has no excuse.
+const END_FRAME_IDENTITY_THRESHOLD = 80;
+const MAX_END_FRAME_REROLLS = 1;
+// Base seed for end-frame generation — offset far from STILL_SEED
+// (stills-pipeline.ts) so a shared order id never collides an end-frame seed
+// with a storyboard-take seed.
+const END_FRAME_SEED = 84931;
+
+/**
+ * Generate ONE candidate end frame (spec §5.2): the nano-banana EDIT model
+ * (same EDIT_MODEL stills-pipeline.ts uses for every storyboard take),
+ * referenced to (1) the start frame itself and (2) the hero sheet, asked for
+ * the SAME scene a few seconds later with exactly ONE change (`endPose`,
+ * from SHOT_END_POSES). No new API/dependency: same model, same identity/
+ * style rule strings, just a different caller and a different prompt.
+ */
+async function generateEndFrame(
+  startFrameUrl: string,
+  heroSheetUrl: string | undefined,
+  endPose: string,
+  seed: number
+): Promise<string> {
+  const refs = [publicUrl(startFrameUrl), ...(heroSheetUrl ? [publicUrl(heroSheetUrl)] : [])];
+  const r = await fal.subscribe(EDIT_MODEL, {
+    input: {
+      // The change has to be asserted as hard as the sameness. Handed
+      // "identical pet, identical costume, identical location, lighting and
+      // framing" plus IDENTITY_RULES, an edit model will happily hand the
+      // reference straight back — and two identical anchors interpolate to a
+      // static shot, which is exactly the dead air start+end exists to fix.
+      // So the pose is stated twice: as the single permitted change, and as a
+      // requirement that it be plainly visible.
+      prompt:
+        `The FIRST reference image is this exact frame of the film. Generate the SAME scene a few seconds later: ` +
+        `identical pet, identical costume, identical location, lighting and camera framing. The ONLY change: ${endPose}. ` +
+        `That change must be OBVIOUS at a glance — this frame must NOT look like a copy of the reference image; the ` +
+        `pet's body has clearly moved into the new pose, while its face stays turned the same way and the camera has ` +
+        `not moved. ${STYLE_RULES} ${IDENTITY_RULES}`,
+      image_urls: refs,
+      num_images: 1,
+      resolution: "2K",
+      // 16:9 — this becomes a real film frame (the video model's end anchor),
+      // same reasoning as every storyboard take in stills-pipeline.ts.
+      aspect_ratio: "16:9",
+      output_format: "png",
+      seed,
+    },
+  });
+  const url = (r.data as { images?: { url?: string }[] })?.images?.[0]?.url;
+  if (!url) throw new Error("end frame result missing url");
+  return url;
+}
+
+/**
+ * Generate + identity-gate one shot's end frame, with the mandatory
+ * non-fatal fallback posture (spec §5.2/§5.4): re-roll once on a fresh seed,
+ * and if it STILL doesn't clear the (stills-grade) identity bar — or the
+ * generation call itself throws — give up on start+end for this cut entirely
+ * rather than risk shipping a mismatched final frame. Returns null in either
+ * case; callers treat null exactly like a `SHOT_END_POSES` entry of `null`
+ * (today's single-frame i2v path, unchanged). Never throws.
+ */
+async function generateGatedEndFrame(
+  startFrameUrl: string,
+  heroSheetUrl: string | undefined,
+  endPose: string,
+  portraitUrl: string | undefined,
+  shotIndex: number
+): Promise<string | null> {
+  try {
+    let best: { url: string; score: number } | null = null;
+    for (let attempt = 0; attempt <= MAX_END_FRAME_REROLLS; attempt++) {
+      const seed = END_FRAME_SEED + shotIndex * 100 + attempt * 7919; // same reroll-offset convention as generateGatedTake
+      const url = await generateEndFrame(startFrameUrl, heroSheetUrl, endPose, seed);
+      const score = portraitUrl ? await scoreIdentity(portraitUrl, url) : 100;
+      console.log(`[film] shot ${shotIndex} end frame attempt ${attempt}: identity ${score}`);
+      if (score >= END_FRAME_IDENTITY_THRESHOLD) return url;
+      if (!best || score > best.score) best = { url, score };
+    }
+    console.warn(
+      `[film] shot ${shotIndex}: end frame identity ${best?.score ?? -1} (< ${END_FRAME_IDENTITY_THRESHOLD}) after ${MAX_END_FRAME_REROLLS} reroll(s) — falling back to single-frame i2v for this cut`
+    );
+    return null;
+  } catch (e) {
+    console.warn(`[film] shot ${shotIndex}: end frame generation failed — falling back to single-frame i2v for this cut`, e);
+    return null;
+  }
 }
 
 /**
@@ -1112,6 +1228,20 @@ type FilmArtifacts = {
   // unavailable (custom order with no `inserts`, or generation failed —
   // both fall back to an insert-less EDL, never a failed film).
   insertStillUrls?: string[];
+  // Start+end interpolation end frames (spec §5.2), one slot per shot,
+  // parallel to clipUrls/clipScores. undefined = not yet attempted for this
+  // order; once attempted this is always a full-length array (one entry per
+  // shot) whose entries are:
+  //   string = a generated, identity-gated end frame — reused as-is on
+  //            resume/re-render, never regenerated (spec §5.4/§7).
+  //   null   = this shot is not enrolled (SHOT_END_POSES[i] is null) OR its
+  //            end frame failed to clear the identity gate even after a
+  //            re-roll — either way that shot stays on the original
+  //            single-frame i2v path, permanently for this cached run.
+  // (The spec's own §5.2 note types this `string[]`; `null` entries are the
+  // concrete encoding of "attempted, not available" — still a plain JSON
+  // array inside the existing filmArtifacts Json column, no schema change.)
+  endFrameUrls?: (string | null)[];
 };
 
 async function saveArtifacts(orderId: string, patch: FilmArtifacts): Promise<FilmArtifacts> {
@@ -1127,9 +1257,10 @@ export function generateShotClipForTest(
   world: string,
   shotIndex: number,
   orderId: string,
-  durationSec: number
+  durationSec: number,
+  endFrameUrl?: string
 ): Promise<string> {
-  return generateShotClip(stillUrl, world, shotIndex, orderId, durationSec);
+  return generateShotClip(stillUrl, world, shotIndex, orderId, durationSec, undefined, endFrameUrl);
 }
 
 export async function runFilmGeneration(order: Order): Promise<void> {
@@ -1169,6 +1300,25 @@ export async function runFilmGeneration(order: Order): Promise<void> {
     }
   }
 
+  // Stage II. Start+end frame interpolation (spec §5.2/§5.4) — cached
+  // SEPARATELY from clipUrls/clipScores, same reasoning as insertStillUrls
+  // above: an `undefined` cache means "not yet attempted" (run it), while a
+  // defined array (even one full of `null`s) means "already attempted, reuse
+  // as-is" — a resume must never re-spend on an already-gated end frame.
+  // SHOT_END_POSES enrolls only a couple of cuts (§5.4's staged rollout);
+  // every other cut resolves to `null` here with no fal call at all.
+  if (art.endFrameUrls === undefined) {
+    console.log(`[film] generating end frames for interpolated cuts order=${order.id}`);
+    const endFrameUrls = await Promise.all(
+      shotStillUrls.map((stillUrl, i) => {
+        const endPose = SHOT_END_POSES[i] ?? null;
+        if (!endPose) return Promise.resolve(null);
+        return generateGatedEndFrame(stillUrl, order.heroSheetUrl ?? undefined, endPose, portraitUrl, i);
+      })
+    );
+    art = await saveArtifacts(order.id, { endFrameUrls });
+  }
+
   // Stage C. Three independent, separately-cached steps so a resume only redoes
   // what's missing — crucially, clip GENERATION (Kling, expensive) is decoupled
   // from clip SCORING (VLM, cheap), so a scoring failure never forces a costly
@@ -1176,8 +1326,11 @@ export async function runFilmGeneration(order: Order): Promise<void> {
   // scoreClip re-scores already-cached clips on resume.
   if (!art.clipUrls) {
     console.log(`[film] animating ${shotStillUrls.length} shots (identity-gated) order=${order.id}`);
+    const endFrameUrls = art.endFrameUrls ?? [];
     const gated = await Promise.all(
-      shotStillUrls.map((s, i) => generateGatedClip(s, world, i, order.id, portraitUrl))
+      shotStillUrls.map((s, i) =>
+        generateGatedClip(s, world, i, order.id, portraitUrl, undefined, endFrameUrls[i] ?? undefined)
+      )
     );
     art = await saveArtifacts(order.id, {
       clipUrls: gated.map((g) => g.url),
@@ -1450,22 +1603,51 @@ export async function runShotRerender(
   // Inserts are untouched by a shot fix (spec §4.4 isolation) — reuse
   // whatever was cached (possibly []) rather than regenerating.
   const insertStillUrls = art.insertStillUrls ?? [];
+  // End frames (spec §5.2/§5.4): reuse the cached one for every OTHER shot
+  // untouched, same isolation as inserts above. For THIS shot, a reshoot
+  // invalidates the cached end frame — it was posed FROM the old still, so it
+  // no longer matches the new one — and, if this cut is enrolled
+  // (SHOT_END_POSES non-null), a fresh end frame is generated + gated from
+  // the new still before the clip re-animates. A plain reanimate (no reshoot)
+  // reuses the cached end frame as-is, since the still it was posed from
+  // hasn't changed.
+  const endFrameUrls = [...(art.endFrameUrls ?? clipUrls.map(() => null))];
+  const endPose = SHOT_END_POSES[shotIndex] ?? null;
 
   if (opts.reshoot) {
     // Look/style problem: the still itself is retaken (reason steers it),
     // then animated fresh.
     still = await reshootCutStill(order, shotIndex, opts.reason);
+    endFrameUrls[shotIndex] = null; // stale — posed from the still just replaced
+  }
+
+  if (endPose && !endFrameUrls[shotIndex]) {
+    endFrameUrls[shotIndex] = await generateGatedEndFrame(
+      still,
+      order.heroSheetUrl ?? undefined,
+      endPose,
+      portraitUrl,
+      shotIndex
+    );
   }
 
   console.log(
     `[film] re-render shot ${shotIndex} order=${order.id} mode=${opts.reshoot ? "reshoot" : "reanimate"}${opts.reason ? ` reason="${opts.reason}"` : ""}`
   );
-  const fixed = await generateGatedClip(still, world, shotIndex, order.id, portraitUrl, opts.reason);
+  const fixed = await generateGatedClip(
+    still,
+    world,
+    shotIndex,
+    order.id,
+    portraitUrl,
+    opts.reason,
+    endFrameUrls[shotIndex] ?? undefined
+  );
   clipUrls[shotIndex] = fixed.url;
   clipScores[shotIndex] = fixed.score;
 
   const scoreUrl = art.scoreUrl ?? (await generateScore(resolved.score));
-  await saveArtifacts(order.id, { clipUrls, clipScores, scoreUrl });
+  await saveArtifacts(order.id, { clipUrls, clipScores, scoreUrl, endFrameUrls });
 
   console.log(`[film] assembling (shot ${shotIndex} fixed) order=${order.id}`);
   const [masterUrl, socialUrl] = await assemble(order.id, petName, clipUrls, insertStillUrls, scoreUrl, loglines);

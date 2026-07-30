@@ -99,6 +99,19 @@ export default async function AdminOrderReviewPage({
   // identity-isolation comment); simply cached in filmArtifacts, which is
   // kept after completion so this still renders after Gate 2 approval too.
   const insertStillUrls = (order.filmArtifacts as { insertStillUrls?: string[] } | null)?.insertStillUrls ?? [];
+  // start+end interpolation (FILM-QUALITY-V3-SPEC.md §5): pair each generated
+  // end frame with the chosen still it was generated FROM. Without seeing the
+  // two side by side there is no way to tell the feature's two failure modes
+  // apart — an end frame too close to its start interpolates to a static shot,
+  // one too far apart morphs mid-clip — and no basis for tuning
+  // SHOT_END_POSES either way. A cut with no end frame simply isn't listed
+  // (not enrolled, or its frame failed the identity gate and fell back).
+  const endFrameUrls = (order.filmArtifacts as { endFrameUrls?: (string | null)[] } | null)?.endFrameUrls ?? [];
+  const endFramePairs = endFrameUrls
+    .map((endUrl, i) => ({ index: i, endUrl, startUrl: order.chosenStills[i] ?? null }))
+    .filter((p): p is { index: number; endUrl: string; startUrl: string } =>
+      typeof p.endUrl === "string" && typeof p.startUrl === "string"
+    );
   const scored = shots
     .map((s) => s.score)
     .filter((s): s is number => s !== null);
@@ -345,6 +358,47 @@ export default async function AdminOrderReviewPage({
                     alt={`Insert scene ${i + 1} for ${order.petName ?? "this order"}`}
                     className="aspect-video w-full rounded-[var(--radius-chip)] border border-hairline object-cover"
                   />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {endFramePairs.length > 0 && (
+            <section className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4">
+              <h2 className="mb-3 font-display text-xl tracking-wide text-ivory">
+                始点 → 終点フレーム（start+end 補間）
+              </h2>
+              <p className="mb-3 text-xs text-muted">
+                このカットは2枚のフレームの間を動画モデルに補間させています。
+                <strong className="text-ivory">2枚に見て分かる差がなければ動きません</strong>
+                （＝静止画のまま）。逆に差が大きすぎるとクリップ途中で別の犬に変形します。
+                どちらかが起きていたら SHOT_END_POSES（lib/film-script.ts）のポーズを強める／弱めて調整します。
+              </p>
+              <div className="space-y-3">
+                {endFramePairs.map((pair) => (
+                  <div key={pair.index} className="grid grid-cols-2 gap-3">
+                    {/* Plain <img>: these live on external storage. */}
+                    <figure>
+                      <img
+                        src={pair.startUrl}
+                        alt={`Cut ${pair.index + 1} start frame`}
+                        className="aspect-video w-full rounded-[var(--radius-chip)] border border-hairline object-cover"
+                      />
+                      <figcaption className="mt-1 text-[10px] uppercase tracking-widest text-muted">
+                        カット{pair.index + 1} 始点
+                      </figcaption>
+                    </figure>
+                    <figure>
+                      <img
+                        src={pair.endUrl}
+                        alt={`Cut ${pair.index + 1} end frame`}
+                        className="aspect-video w-full rounded-[var(--radius-chip)] border border-gold/40 object-cover"
+                      />
+                      <figcaption className="mt-1 text-[10px] uppercase tracking-widest text-gold">
+                        カット{pair.index + 1} 終点
+                      </figcaption>
+                    </figure>
+                  </div>
                 ))}
               </div>
             </section>

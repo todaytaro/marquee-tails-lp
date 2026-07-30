@@ -403,6 +403,58 @@ export function getShotMotion(shotIndex: number, seed: string): string {
 }
 
 /**
+ * Start+end frame interpolation targets (FILM-QUALITY-V3-SPEC.md §5.2) — the
+ * deliberate counterpart to SHOT_MOTIONS above. Where SHOT_MOTIONS describes
+ * small alive-ness WITHIN one still frame, this describes a small, ONE-CHANGE
+ * pose delta between the customer-approved START frame and a to-be-generated,
+ * identity-gated END frame; the video model's only job for that cut becomes
+ * interpolating the two approved stills instead of inventing motion.
+ *
+ * `null` means "not enrolled" — that cut stays on today's single-frame i2v
+ * path unchanged (film-pipeline.ts checks this array and skips end-frame
+ * generation entirely for a null entry, spec §5.4 item c).
+ *
+ * SAME yaw ban as getShotMotion, same reason: the identity reference is a
+ * front-facing still, so any pose delta that rotates the head/body around the
+ * vertical axis exposes geometry the gate never saw and invites drift. Keep
+ * each enabled entry to exactly ONE small change (a step, a stand, a chin
+ * lift, a raised paw) — start and end drifting too far apart gives the video
+ * model two dissimilar anchors to reconcile, and it morphs between them
+ * (visibly "un-dogging" mid-clip) instead of interpolating cleanly.
+ *
+ * STAGED ROLLOUT (spec §5.4): only the two cuts where real action matters most
+ * are enabled at launch —
+ *   - cut 2 (index 1): SHOT_FRAMINGS[1] is the one framing actually composed
+ *     to SHOW full-body action, so it's the best return on the extra
+ *     end-frame spend.
+ *   - cut 6 (index 5): the climax — the last thing the audience sees, worth
+ *     spending the one extra still on.
+ * Widening the rollout (or narrowing it back) is a one-line edit: flip an
+ * entry between `null` and a pose string. Do NOT enable all six at once.
+ */
+/*
+ * TUNING, honestly: there are two ways to waste this feature, and the failure
+ * modes pull in opposite directions. Too small a delta and the two anchors are
+ * near-identical, so the interpolation is a static shot with an extra still's
+ * cost attached — which is the whole reason the trailer felt dead before. Too
+ * large and the model morphs between mismatched anchors. Where the line sits
+ * cannot be reasoned out in advance; it has to be looked at. So the poses
+ * below are written to be UNMISTAKABLE at a glance while holding framing and
+ * head direction fixed, and the admin page shows the start and end frames side
+ * by side (app/admin/[orderId]) so the two can actually be compared before
+ * spending on video. Weaken them if morphing appears; strengthen them if the
+ * pair looks like the same photograph twice.
+ */
+export const SHOT_END_POSES: (string | null)[] = [
+  null, // cut 1 — opening hero shot: safest framing, stays static
+  "the pet has walked a clear stride closer to the camera and now fills noticeably more of the frame, front paws planted mid-step, head still square to the camera",
+  null, // cut 3
+  null, // cut 4
+  null, // cut 5
+  "the pet has risen into a full hero stance — chest lifted and pushed forward, head raised high, one front paw clearly off the ground mid-stride, mouth closed, face still toward the camera",
+];
+
+/**
  * Per-cut camera framing — the fix for "every shot looks the same". A single
  * face-forward medium framing kept likeness perfect but made all six cuts
  * compositionally identical (only the background changed). This varies distance
