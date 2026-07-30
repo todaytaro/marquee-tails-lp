@@ -45,9 +45,24 @@ export async function createPrintifyOrder(order: Order): Promise<{ printifyOrder
   const config = configFor(order.addonType);
   if (!config) return null; // no physical add-on purchased yet, or Printify not configured
 
-  const apiKey = process.env.PRINTIFY_API_KEY;
-  const shopId = process.env.PRINTIFY_SHOP_ID;
+  // Strip whitespace before these ever reach a header. A Printify API key is a
+  // JWT and the shop id is digits — neither can legitimately contain
+  // whitespace, but pasting a long key into a dashboard field can pick up a
+  // newline, and `Headers.append` then throws `TypeError: Headers.append:
+  // "Bearer <the whole key>"`. That failure cost us a silent POD outage AND
+  // wrote the key into the runtime logs, so validate here and keep the key out
+  // of every message below.
+  const apiKey = process.env.PRINTIFY_API_KEY?.replace(/\s+/g, "");
+  const shopId = process.env.PRINTIFY_SHOP_ID?.trim();
   if (!apiKey || !shopId) throw new Error("Printify not configured (PRINTIFY_API_KEY/PRINTIFY_SHOP_ID missing)");
+  if (process.env.PRINTIFY_API_KEY !== apiKey) {
+    console.warn("[printify] PRINTIFY_API_KEY contained whitespace — stripped. Re-paste it without line breaks.");
+  }
+  // Header values must be ISO-8859-1 and free of control characters; fail with
+  // a message that names the variable instead of quoting its value.
+  if (!/^[\x21-\x7e]+$/.test(apiKey)) {
+    throw new Error("PRINTIFY_API_KEY contains characters that are invalid in an HTTP header — re-paste the key");
+  }
 
   if (!order.posterPrintUrl) throw new Error(`Order ${order.id} has no posterPrintUrl to print`);
   if (!order.shippingLine1 || !order.shippingCity || !order.shippingCountry) {
