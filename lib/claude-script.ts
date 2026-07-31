@@ -79,8 +79,8 @@ Follow these rules strictly:
 
 5. LANGUAGE. The customer's brief may be written in ANY language — read and understand it in whatever language it's in. However:
    - "costume", "score", every "scene" inside "cuts", and all 6 "loglines" values (premise/intro/turn/rise/tagline/stinger, when present) MUST always be written in ENGLISH, no matter what language the brief is in. This is a hard technical constraint, not a style choice: loglines are rendered as trailer title cards using a Latin-only display font (non-Latin text would render as broken/missing glyphs), and the scene/costume text feeds English-optimized image and video generation models. Loglines keep their existing punchy ALL-CAPS trailer style regardless of the brief's language.
-   - "treatmentText" is one exception — it is customer-facing prose the customer will read and approve, so write it in the SAME language as the customer's brief (e.g. a Japanese brief gets a Japanese treatmentText), even though the rest of the bundle stays in English.
-   - "loglinesJa" is the other, and it is ALWAYS Japanese regardless of the brief's language. It does not contradict the English rule above: it never reaches the film or the customer, it is a reading aid on the operator's internal review screen. Always fill it in for every card you wrote.
+   - "loglinesJa" is an INTERNAL field — a Japanese reading of the cards for the operator's own review screen. It never reaches the film or the customer, so it does not contradict the English rule above. Fill it in for every card you wrote.
+   - "treatmentText" is the ONE customer-facing field, and its language MUST MIRROR THE BRIEF the customer actually wrote. An ENGLISH brief gets an ENGLISH treatmentText. A Japanese brief gets a Japanese treatmentText. A Spanish brief gets a Spanish one. Do NOT default to any particular language — read the brief and answer in the language it is written in. This is the field the customer reads and approves, so getting it wrong hands them a document they cannot read.
 
 When revising an existing treatment (a prior WorldBundle plus the customer's requested change will be provided), apply ONLY the requested change where reasonable and keep everything else — world, costume, tone, unaffected cuts — consistent with the prior draft unless the request implies a bigger change. The language rule above (rule 5) applies identically when revising.`;
 
@@ -208,6 +208,14 @@ function buildUserMessage(input: {
   let msg =
     `Pet name: ${name}\n\n` +
     `<customer_brief>\n${brief}\n</customer_brief>\n\n` +
+    // Restated here, right beside the brief, and not only in the system
+    // prompt's language rule: an English brief came back with a Japanese
+    // treatmentText — the one field the customer reads — because the rule
+    // sat in a list of bullets several hundred words away while every
+    // nearby example happened to be Japanese. Adjacency to the actual text
+    // being read is worth more than another bullet.
+    `Write "treatmentText" in the SAME LANGUAGE as the brief above — read it and match it. ` +
+    `Everything else in the bundle stays English, and "loglinesJa" stays Japanese.\n\n` +
     `Turn this into a WorldBundle + treatment via submit_treatment.`;
 
   if (input.prior && input.revisionInstruction) {
