@@ -74,6 +74,10 @@ export default async function AdminOrderReviewPage({
   // story as the trailer's title cards (see app/approve/[token]/page.tsx).
   const petName = order.petName ?? "Unnamed Pet";
   const posterLoglines = resolveWorld(order).loglines;
+  // Same resolved loglines, but read as the film's cards rather than as poster
+  // copy — {name} already substituted, so this is verbatim what appears on
+  // screen (see the 字幕 section below).
+  const trailerCards = posterLoglines;
   const posterTagline = posterLoglines.intro;
   const posterSubtitle = posterLoglines.tagline;
   const isCustom = order.tier === "custom";
@@ -341,6 +345,45 @@ export default async function AdminOrderReviewPage({
               )}
             </section>
           )}
+
+          {/*
+            The trailer's own text, in the order it appears on screen. The
+            treatment above is the story we pitched the customer; THIS is what
+            the film actually says, and until now there was no way to read it
+            before (or after) the film was cut — you could watch the video and
+            squint, or nothing. It's the only way to check the cards actually
+            match the footage they sit between.
+          */}
+          <section className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4">
+            <h2 className="mb-3 font-display text-xl tracking-wide text-ivory">
+              字幕（トレーラーカード）
+            </h2>
+            <p className="mb-3 text-xs text-muted">
+              完成動画に出るカード文言を、出る順に表示しています。英語固定です（表示フォントBebas Neueがラテン文字専用のため）。
+              映像と食い違っていたら、トリートメントを直して再生成します。
+            </p>
+            <dl className="space-y-2 text-sm">
+              {[
+                ["① 冒頭（何の映画か）", trailerCards.premise],
+                ["② 登場", trailerCards.intro],
+                ["③ 転機", trailerCards.turn],
+                ["④ 危機", trailerCards.rise],
+                ["⑤ タイトル", `${petName.toUpperCase()} / ${trailerCards.tagline}`],
+                ["⑥ オチ（タイトル後）", trailerCards.stinger],
+              ].map(([label, text]) => (
+                <div key={label} className="flex flex-col gap-0.5 sm:flex-row sm:gap-3">
+                  <dt className="shrink-0 text-[10px] uppercase tracking-widest text-muted sm:w-44 sm:pt-1">
+                    {label}
+                  </dt>
+                  <dd className="font-display tracking-wide text-gold">
+                    {/* premise/stinger are optional — a pre-story-cards order
+                        simply has no such card in its film. */}
+                    {text || <span className="font-sans text-xs tracking-normal text-muted">— このカードなし（旧構成の注文）—</span>}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </section>
 
           {/* Insert (no-pet B-roll) stills — read-only, trailer-edit-spec §4.5 */}
           {insertStillUrls.length > 0 && (
