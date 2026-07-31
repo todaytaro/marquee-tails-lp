@@ -6,7 +6,7 @@ import { prisma } from "@/lib/db";
 import StoryboardWizard from "@/components/StoryboardWizard";
 import PosterPicker from "@/components/PosterPicker";
 import { normalizeStoryboard } from "@/lib/stills-pipeline";
-import { resolveWorld, type WorldBundle } from "@/lib/film-script";
+import { resolveWorld, fillPetName, type WorldBundle } from "@/lib/film-script";
 import PhotoUploadForm from "@/components/PhotoUploadForm";
 import StatusPoller from "@/components/StatusPoller";
 import ProductionProgress from "@/components/ProductionProgress";
@@ -521,7 +521,10 @@ export default async function ApprovePage({
           orderId={order.id}
           approveToken={order.approveToken}
           petName={petName}
-          treatmentText={order.treatmentText ?? ""}
+          // Claude writes the title as "{name} AND THE LAST GREAT SPELL", so the
+          // token has to be filled or the customer is asked to approve prose
+          // with a raw template placeholder sitting in it.
+          treatmentText={fillPetName(order.treatmentText ?? "", order.petName)}
           costume={costume}
         />
       );

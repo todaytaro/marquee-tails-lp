@@ -587,12 +587,26 @@ export function getCostume(world: string): string {
   return WORLD_COSTUMES[world] ?? WORLD_COSTUMES.deepspace;
 }
 
+/**
+ * Replace the `{name}` placeholder with the pet's name, upper-cased to match
+ * the trailer's card style (Japanese names are unaffected by upcasing).
+ *
+ * Shared because it is needed in two places that are easy to forget are
+ * related: the loglines, and Claude's `treatmentText`. It was applied only to
+ * loglines at first, so a customer opening the approval gate read
+ * `タイトルは「{name} AND THE LAST GREAT SPELL」` — a raw template token sitting
+ * in the prose they are being asked to sign off. Anything rendering
+ * Claude-authored copy should go through this.
+ */
+export function fillPetName(text: string, petName: string | null | undefined): string {
+  const name = (petName ?? "").trim().toUpperCase() || "OUR HERO";
+  return text.replace(/\{name\}/g, name);
+}
+
 export function getLoglines(world: string, personality: string | null, petName?: string): Required<Loglines> {
   const w = LOGLINES[world] ?? LOGLINES.deepspace;
   const l = w[(personality as Personality) ?? "easygoing"] ?? w.easygoing;
-  // Caps to match the trailer style (Japanese names are unaffected by upcasing).
-  const name = (petName ?? "").trim().toUpperCase() || "OUR HERO";
-  const fill = (s: string) => s.replace(/\{name\}/g, name);
+  const fill = (s: string) => fillPetName(s, petName);
   // premise/stinger get the SAME {name} substitution as the other four beats
   // (TRAILER-STORY-SPEC.md §6 item 6) even though none of the 12 preset
   // premises currently use {name} — the mechanism must work uniformly so a
@@ -664,9 +678,7 @@ export type ResolvedWorld = {
 export function resolveWorld(order: Order): ResolvedWorld {
   if (order.tier === "custom" && order.generatedScript) {
     const bundle = order.generatedScript as unknown as WorldBundle;
-    // Same upcasing rule as getLoglines above, applied to Claude's loglines.
-    const name = (order.petName ?? "").trim().toUpperCase() || "OUR HERO";
-    const fill = (s: string) => s.replace(/\{name\}/g, name);
+    const fill = (s: string) => fillPetName(s, order.petName);
     // premise/stinger are OPTIONAL on WorldBundle (absent on pre-feature
     // generatedScript records, or when Claude's output omits them) — fillOpt
     // preserves "absent" as undefined rather than substituting into an empty

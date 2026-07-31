@@ -10,7 +10,7 @@ import { CopyLinkButton } from "./CopyLinkButton";
 import { ResubmitPodButton } from "./ResubmitPodButton";
 import { ResendEmailButton } from "./ResendEmailButton";
 import MoviePosterOverlay from "@/components/MoviePosterOverlay";
-import { resolveWorld, type WorldBundle } from "@/lib/film-script";
+import { resolveWorld, fillPetName, type WorldBundle } from "@/lib/film-script";
 
 export const dynamic = "force-dynamic";
 
@@ -199,7 +199,9 @@ export default async function AdminOrderReviewPage({
                 <div>
                   <p className="text-[10px] uppercase tracking-widest text-muted">Current treatment</p>
                   <p className="mt-1 whitespace-pre-wrap text-ivory">
-                    {order.treatmentText ?? "— not drafted yet —"}
+                    {order.treatmentText
+                      ? fillPetName(order.treatmentText, order.petName)
+                      : "— not drafted yet —"}
                   </p>
                 </div>
               </div>
