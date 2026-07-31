@@ -208,13 +208,24 @@ function buildUserMessage(input: {
   let msg =
     `Pet name: ${name}\n\n` +
     `<customer_brief>\n${brief}\n</customer_brief>\n\n` +
-    // Restated here, right beside the brief, and not only in the system
-    // prompt's language rule: an English brief came back with a Japanese
-    // treatmentText — the one field the customer reads — because the rule
-    // sat in a list of bullets several hundred words away while every
-    // nearby example happened to be Japanese. Adjacency to the actual text
-    // being read is worth more than another bullet.
-    `Write "treatmentText" in the SAME LANGUAGE as the brief above — read it and match it. ` +
+    // NAME the language instead of asking the model to infer it. An English
+    // brief twice came back with a Japanese treatmentText — the one field the
+    // customer reads — and one response even spliced an English word into a
+    // Japanese sentence, which reads like a model genuinely torn rather than
+    // one ignoring an instruction. Restating "mirror the brief" more loudly
+    // did not fix it, so stop relying on inference: the script is trivially
+    // detectable here, and a named language is a directive rather than a
+    // mapping to work out.
+    //
+    // Deliberately narrow: a CJK character means Japanese, and everything
+    // else is told what it is NOT, so a Spanish brief still gets Spanish
+    // rather than being forced into English. The failure being fixed is
+    // "defaults to Japanese", not "cannot identify Portuguese".
+    `Write "treatmentText" in ${
+      /[぀-ヿ一-龯]/.test(brief)
+        ? "JAPANESE — the brief above is written in Japanese"
+        : "THE SAME LANGUAGE AS THE BRIEF ABOVE, which is NOT Japanese. Do not answer in Japanese"
+    }. ` +
     `Everything else in the bundle stays English, and "loglinesJa" stays Japanese.\n\n` +
     `Turn this into a WorldBundle + treatment via submit_treatment.`;
 
