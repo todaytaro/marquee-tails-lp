@@ -62,6 +62,10 @@ export const STYLE_RULES =
 // before they ever reach the customer.
 const IDENTITY_THRESHOLD = 80;
 const MAX_TAKE_REROLLS = 2;
+// How many Gate-1 preview derivatives to render at once (see stage 4 below).
+// Each one decodes a 2K PNG in ffmpeg, so this is a memory ceiling, not a
+// rate limit — 4 keeps the peak flat no matter how many takes exist.
+const WATERMARK_CONCURRENCY = 4;
 // Base seed; each (cut, take, reroll) gets a distinct offset so the three
 // takes of a cut are genuinely different renders, not near-duplicates.
 const STILL_SEED = 77021;
@@ -389,24 +393,43 @@ export async function runStillsGeneration(order: Order): Promise<void> {
   }
 
   // Stage 4 (PRICING-PRODUCT-V2-SPEC.md §3.5(C)) — watermark + downscale every
-  // clean take into its Gate-1 preview derivative, ALL 18 concurrently (no
-  // reason to throttle this the way generation is throttled: it's local
-  // ffmpeg work plus one upload per take, not a rate-limited generation
-  // model). watermarkTakeForPreview never throws — a single take's derivative
-  // failing falls back to that take's clean url (logged), never the whole
-  // order failing over one bad watermark render.
+  // clean take into its Gate-1 preview derivative.
+  //
+  // THROTTLED, and not for rate-limit reasons: an earlier pass fired all 18 at
+  // once on the theory that local ffmpeg work needs no throttle, and the first
+  // production order to run it crashed the task outright — eighteen concurrent
+  // 2K decodes plus their downloads exhausted the machine's memory (Trigger.dev
+  // showed "Crashed" with no compute recorded, the same signature the film task
+  // hit before it moved to large-1x). The task is on large-1x now too, but a
+  // fixed-width queue is the actual fix: peak memory stops scaling with the
+  // number of takes, so adding cuts later can't quietly re-break this.
+  //
+  // watermarkTakeForPreview never throws — one take's derivative failing falls
+  // back to that take's clean url (logged) rather than failing the order.
   console.log(`[stills] stage 4: watermarking ${cleanStoryboard.length}×${TAKES_PER_CUT} previews order=${order.id}`);
-  const storyboard: StoryboardCut[] = await Promise.all(
-    cleanStoryboard.map(async (cut, cutIdx) => ({
-      scene: cut.scene,
-      options: await Promise.all(
-        cut.options.map(async (clean, takeIdx) => ({
-          clean,
-          preview: await watermarkTakeForPreview(clean, `order=${order.id}-cut=${cutIdx}-take=${takeIdx}`),
-        }))
-      ),
-    }))
+  const jobs = cleanStoryboard.flatMap((cut, cutIdx) =>
+    cut.options.map((clean, takeIdx) => ({ cutIdx, takeIdx, clean }))
   );
+  const previews = new Map<string, string>();
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(WATERMARK_CONCURRENCY, jobs.length) }, async () => {
+      for (let i = next++; i < jobs.length; i = next++) {
+        const { cutIdx, takeIdx, clean } = jobs[i];
+        previews.set(
+          `${cutIdx}:${takeIdx}`,
+          await watermarkTakeForPreview(clean, `order=${order.id}-cut=${cutIdx}-take=${takeIdx}`)
+        );
+      }
+    })
+  );
+  const storyboard: StoryboardCut[] = cleanStoryboard.map((cut, cutIdx) => ({
+    scene: cut.scene,
+    options: cut.options.map((clean, takeIdx) => ({
+      clean,
+      preview: previews.get(`${cutIdx}:${takeIdx}`) ?? clean,
+    })),
+  }));
 
   await completeStillsGeneration(order.id, storyboard);
 }

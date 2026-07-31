@@ -19,6 +19,13 @@ import { transitionOrder } from "@/lib/orders";
  */
 export const generateStillsTask = task({
   id: "generate-stills",
+  // large-1x, same as the film task. Stage 4 runs ffmpeg over 2K PNGs to build
+  // the Gate-1 watermarked previews, and the first production order to do that
+  // crashed outright on the default small-1x — "Crashed" with no compute
+  // recorded, the OOM signature the film task hit before its own bump. The
+  // render is also throttled now (WATERMARK_CONCURRENCY in lib/stills-pipeline)
+  // so the machine size is headroom rather than the fix.
+  machine: "large-1x",
   maxDuration: 1800,
   retry: { maxAttempts: 2 },
   run: async ({ orderId }: { orderId: string }) => {
