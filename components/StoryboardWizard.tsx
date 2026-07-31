@@ -333,6 +333,19 @@ export default function StoryboardWizard({
         <p className="mx-auto mt-2 max-w-2xl text-sm text-muted">
           Three takes of this scene — pick the one that&apos;s unmistakably them.
         </p>
+        {/*
+          These previews are watermarked and downscaled on purpose
+          (PRICING-PRODUCT-V2-SPEC.md §3.5(C)) — but a customer who has just
+          paid $249 and is shown marked-up, soft artwork with no explanation
+          reads it as the product being cheap. Say it plainly, right where the
+          marks are visible: this is the proof sheet, the film is clean.
+          Deliberately does NOT invent a friendlier reason for the marks; the
+          reassurance that matters is what the finished film looks like.
+        */}
+        <p className="mx-auto mt-3 max-w-2xl text-xs text-muted">
+          These proof sheets are watermarked previews. Your finished film is
+          rendered clean and at full quality — no marks, nothing held back.
+        </p>
       </div>
 
       {/* progress bar */}
