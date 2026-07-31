@@ -6,7 +6,7 @@ import { prisma } from "@/lib/db";
 import StoryboardWizard from "@/components/StoryboardWizard";
 import PosterPicker from "@/components/PosterPicker";
 import { normalizeStoryboard } from "@/lib/stills-pipeline";
-import { STORYBOARD_REROLL_CAP } from "@/lib/safety-net";
+import { STORYBOARD_REROLL_CAP, TREATMENT_REVISION_CAP } from "@/lib/safety-net";
 import { resolveWorld, fillPetName, type WorldBundle } from "@/lib/film-script";
 import PhotoUploadForm from "@/components/PhotoUploadForm";
 import StatusPoller from "@/components/StatusPoller";
@@ -578,6 +578,7 @@ export default async function ApprovePage({
           // with a raw template placeholder sitting in it.
           treatmentText={fillPetName(order.treatmentText ?? "", order.petName)}
           costume={costume}
+          initialRevisionsRemaining={Math.max(0, TREATMENT_REVISION_CAP - order.treatmentRevisionCount)}
         />
       );
       break;

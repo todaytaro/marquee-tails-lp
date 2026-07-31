@@ -42,7 +42,7 @@ const tiers: readonly Tier[] = [
     price: "$249",
     items: [
       "A fully bespoke trailer — your story, your world, not a preset",
-      "You're the director: shape and approve the written treatment first",
+      "You're the director: shape and approve the written treatment first — up to 2 free revisions",
       "Your call on wardrobe too — one signature look, yours to approve or change",
       "Then approve the storyboard, shot by shot, before we film a frame",
       // B2-SAFETY-NET-SPEC.md §5 disclosure point 1 — must be visible BEFORE

@@ -36,7 +36,7 @@ export default function RefundPage() {
         storyboard.
       </p>
       <p>
-        Director&rsquo;s Cut ($249) orders include unlimited free text
+        Director&rsquo;s Cut ($249) orders include up to two (2) free text
         revisions to your written treatment, plus up to three (3) free
         re-rolls of any single storyboard scene at Gate 1 (before filming
         begins). If, after using all three re-rolls, you still cannot approve

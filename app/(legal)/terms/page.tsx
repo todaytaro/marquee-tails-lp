@@ -63,6 +63,10 @@ export default function TermsPage() {
         specifically for you.
       </p>
       <p>
+        Before the storyboard stage, Director&rsquo;s Cut orders may request
+        up to two (2) free revisions to the written treatment.
+      </p>
+      <p>
         Director&rsquo;s Cut orders may re-roll (regenerate) any single
         storyboard scene up to three (3) times at no additional cost before
         approving it. If, after using all three re-rolls, you still cannot

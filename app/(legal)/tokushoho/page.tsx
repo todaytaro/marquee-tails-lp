@@ -80,7 +80,7 @@ export default function TokushohoPage() {
             <td>
               受注生産のため、ご注文後の顧客都合による返品・返金・キャンセルは原則お受けできません。納品物に不備がある場合は、1注文につき2回を上限として無償で再制作いたします（2回の再制作でも解決しない場合は全額返金いたします）。当方の事由により納品できない場合は全額返金いたします。
               <br />
-              Director&rsquo;s Cut（$249）に限り、上記とは別に、撮影開始前の絵コンテ確定段階（Gate
+              Director&rsquo;s Cut（$249）に限り、上記とは別に、文章トリートメントの無償修正を2回まで、その後の撮影開始前の絵コンテ確定段階（Gate
               1）で1シーンにつき3回までの無償リロールをご利用いただけ、3回すべて使ってもなお承認いただけない場合は、撮影開始前に限り$200を返金いたします（企画・絵コンテ費$49は非返金）。Gate
               1承認後（撮影開始後）はこの制度の対象外です。詳細は
               <a href="/refund">Refund &amp; Cancellation Policy</a>
@@ -90,7 +90,7 @@ export default function TokushohoPage() {
         </tbody>
       </table>
 
-      <p className="mt-10 text-xs">最終更新日: 2026年7月31日</p>
+      <p className="mt-10 text-xs">最終更新日: 2026年8月1日</p>
     </>
   );
 }

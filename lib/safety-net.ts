@@ -31,6 +31,14 @@
 // re-hardcoded as a bare `3` in a route, a component, or a test.
 export const STORYBOARD_REROLL_CAP = 3;
 
+// Gate 0's free treatment-revision limit. A customer-facing product ceiling
+// (not the old internal anti-abuse cap of 20 the field once carried) — the
+// number appears in five disclosure surfaces (PricingTeaser, checkout
+// consent, terms, refund policy, Tokushoho) and MUST match this constant, the
+// route's REVISION_CAP, and the counter shown on the treatment approval
+// screen. Change it in exactly one place.
+export const TREATMENT_REVISION_CAP = 2;
+
 // Customer-facing dollar figures from the same spec section. COPY constants
 // ONLY: the app never feeds these into a Stripe call and never treats them as
 // the source of truth for what was actually refunded — the admin reads $200

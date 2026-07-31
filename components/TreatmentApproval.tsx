@@ -9,11 +9,11 @@ import { useRouter } from "next/navigation";
  * Shows Claude's treatment (order.treatmentText) and offers two paths:
  *   - Approve -> POST approve-treatment -> IMAGE_GENERATING (existing stills
  *     pipeline takes over, unchanged from here on).
- *   - Request changes (free text, framed as unlimited to the customer — the
- *     API's revision cap is an internal anti-abuse guard only) -> POST
- *     revise-treatment -> a fresh treatment comes back on the SAME status
- *     (AWAITING_TREATMENT_APPROVAL), so router.refresh() re-renders this
- *     component with the new order.treatmentText.
+ *   - Request changes (free text, TREATMENT_REVISION_CAP free revisions —
+ *     shown to the customer, same posture as the Gate-1 re-roll counter)
+ *     -> POST revise-treatment -> a fresh treatment comes back on the SAME
+ *     status (AWAITING_TREATMENT_APPROVAL), so router.refresh() re-renders
+ *     this component with the new order.treatmentText.
  *
  * Mirrors StoryboardWizard / PhotoUploadForm's loading + error-state style.
  *
@@ -37,6 +37,10 @@ type Props = {
   // hasn't finished generating, or (defensively) a non-custom order. Never
   // throw or render an empty box for those cases — just skip the block.
   costume: string | null;
+  // Server-computed (TREATMENT_REVISION_CAP - order.treatmentRevisionCount),
+  // never recomputed here — this component has no access to the cap and
+  // must not duplicate it (lib/safety-net.ts is the one place it's defined).
+  initialRevisionsRemaining: number;
 };
 
 /**
@@ -83,12 +87,20 @@ function TreatmentBody({ text }: { text: string }) {
   );
 }
 
-export default function TreatmentApproval({ orderId, approveToken, petName, treatmentText, costume }: Props) {
+export default function TreatmentApproval({
+  orderId,
+  approveToken,
+  petName,
+  treatmentText,
+  costume,
+  initialRevisionsRemaining,
+}: Props) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [rejection, setRejection] = useState<string | null>(null);
   const [instruction, setInstruction] = useState("");
   const [showRevise, setShowRevise] = useState(false);
+  const [revisionsRemaining, setRevisionsRemaining] = useState(initialRevisionsRemaining);
   const [pending, startTransition] = useTransition();
   const router = useRouter();
 
@@ -134,10 +146,11 @@ export default function TreatmentApproval({ orderId, approveToken, petName, trea
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ orderId, approveToken, instruction: trimmed }),
         });
-        const json = (await res.json()) as { ok: boolean; error?: string };
+        const json = (await res.json()) as { ok: boolean; error?: string; revisionsRemaining?: number };
         if (json.ok) {
           setInstruction("");
           setShowRevise(false);
+          if (typeof json.revisionsRemaining === "number") setRevisionsRemaining(json.revisionsRemaining);
           // Must go back to idle: a revision returns on the SAME status, so
           // this component stays mounted across the refresh — leaving phase at
           // "revising" keeps `busy` true and disables Approve and Request
@@ -198,9 +211,16 @@ export default function TreatmentApproval({ orderId, approveToken, petName, trea
               treatment come back in whichever language the customer writes in
               (lib/claude-script.ts rule 5), so promising English would be
               wrong for everyone who didn't use it. */}
-          Read through the world your director wrote around {petName}. You can
-          ask for as many tweaks as you like, in your own words — nothing goes
-          to storyboard until you approve.
+          Read through the world your director wrote around {petName}. Nothing
+          goes to storyboard until you approve.
+        </p>
+        {/* Same "state the number plainly" posture as the Gate-1 re-roll
+            counter — a limit that's hidden until you hit it reads as a
+            broken promise, not a limit. */}
+        <p className="mx-auto mt-2 max-w-xl text-sm text-muted">
+          {revisionsRemaining > 0
+            ? `${revisionsRemaining} of 2 free revisions left, in your own words.`
+            : "Both free revisions used — you can still approve and shape it further at the storyboard."}
         </p>
       </div>
 
@@ -238,7 +258,16 @@ export default function TreatmentApproval({ orderId, approveToken, petName, trea
       </div>
 
       <div className="mt-6 text-center">
-        {!showRevise ? (
+        {revisionsRemaining <= 0 ? (
+          // Same posture as StoryboardWizard once its re-rolls are spent: the
+          // limit is disclosed up front, so hitting it removes the control
+          // rather than letting a customer burn a request they were told
+          // they don't have.
+          <p className="text-sm text-muted">
+            Both free revisions are used. Approve to move to the storyboard —
+            you can keep shaping it there.
+          </p>
+        ) : !showRevise ? (
           <button
             type="button"
             onClick={() => setShowRevise(true)}

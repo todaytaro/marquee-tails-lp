@@ -3,14 +3,19 @@ import { OrderStatus } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { transitionOrder, TransitionError } from "@/lib/orders";
 import { generateTreatment, type WorldBundle } from "@/lib/claude-script";
+import { TREATMENT_REVISION_CAP } from "@/lib/safety-net";
 
 /**
  * Director's Cut "Gate 0" — the customer asks for a treatment revision.
  *
  * POST { orderId, approveToken, instruction }
  *
- * Framed to the customer as "unlimited free text revisions"; REVISION_CAP is
- * an internal anti-abuse guard only, never a customer-facing limit.
+ * REVISION_CAP is a customer-facing limit — two free revisions, disclosed
+ * up front (PricingTeaser, checkout consent, terms, refund policy,
+ * Tokushoho — all five updated together with this cap). Past the cap the
+ * customer still has the Gate-1 storyboard re-rolls (B2-SAFETY-NET-SPEC.md)
+ * and, failing those, the $200 refund path — the cap doesn't strand anyone,
+ * it moves them to the next lever.
  *
  * AWAITING_TREATMENT_APPROVAL -> TREATMENT_GENERATING (increment
  * treatmentRevisionCount) -> generateTreatment() runs INLINE with the prior
@@ -24,7 +29,7 @@ import { generateTreatment, type WorldBundle } from "@/lib/claude-script";
 // TREATMENT_GENERATING (a killed process skips the compensating revert below).
 export const maxDuration = 60;
 
-const REVISION_CAP = 20;
+const REVISION_CAP = TREATMENT_REVISION_CAP;
 const INSTRUCTION_MAX = 1000;
 
 export async function POST(req: Request) {
@@ -52,12 +57,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Order not found." }, { status: 404 });
   }
 
-  // Internal abuse cap only — the customer-facing framing is "unlimited".
   if (order.treatmentRevisionCount >= REVISION_CAP) {
     return NextResponse.json(
       {
         ok: false,
-        error: "You've made a lot of changes already — let's hop on email and get this just right. Reply to any of our messages.",
+        error:
+          "You've used both free treatment revisions. Approve to move to the storyboard — you'll get 3 more free re-rolls there, one scene at a time. Still not right after that? You can end production for a $200 refund.",
       },
       { status: 429 }
     );
@@ -104,7 +109,12 @@ export async function POST(req: Request) {
         { generatedScript: result.bundle, treatmentText: result.treatmentText },
         "revised treatment ready"
       );
-      return NextResponse.json({ ok: true, status: revised.status, treatmentText: revised.treatmentText });
+      return NextResponse.json({
+        ok: true,
+        status: revised.status,
+        treatmentText: revised.treatmentText,
+        revisionsRemaining: Math.max(0, REVISION_CAP - revised.treatmentRevisionCount),
+      });
     } catch (genErr) {
       console.error(`[revise-treatment] generation failed, reverting order=${order.id}`, genErr);
       await transitionOrder(
