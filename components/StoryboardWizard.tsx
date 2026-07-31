@@ -334,18 +334,16 @@ export default function StoryboardWizard({
           Three takes of this scene — pick the one that&apos;s unmistakably them.
         </p>
         {/*
-          These previews are watermarked and downscaled on purpose
-          (PRICING-PRODUCT-V2-SPEC.md §3.5(C)) — but a customer who has just
-          paid $249 and is shown marked-up, soft artwork with no explanation
-          reads it as the product being cheap. Say it plainly, right where the
-          marks are visible: this is the proof sheet, the film is clean.
-          Deliberately does NOT invent a friendlier reason for the marks; the
-          reassurance that matters is what the finished film looks like.
+          A line explaining the watermarks used to sit here, and came out with
+          them (WATERMARK_PREVIEWS_ENABLED in lib/stills-pipeline.ts). With the
+          marks off it would be describing something the customer cannot see —
+          telling a paying customer their clean artwork is watermarked would
+          invent a flaw rather than excuse one. Restore it in the same change
+          that turns the marks back on; it read:
+
+            These proof sheets are watermarked previews. Your finished film is
+            rendered clean and at full quality — no marks, nothing held back.
         */}
-        <p className="mx-auto mt-3 max-w-2xl text-xs text-muted">
-          These proof sheets are watermarked previews. Your finished film is
-          rendered clean and at full quality — no marks, nothing held back.
-        </p>
       </div>
 
       {/* progress bar */}

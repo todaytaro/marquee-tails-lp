@@ -62,6 +62,29 @@ export const STYLE_RULES =
 // before they ever reach the customer.
 const IDENTITY_THRESHOLD = 80;
 const MAX_TAKE_REROLLS = 2;
+/*
+ * OFF until the $200 pre-production refund exists.
+ *
+ * Watermarking Gate 1 has exactly one justification (PRICING-PRODUCT-V2-SPEC
+ * §3.5(C)): stopping someone from paying $249, keeping the storyboard,
+ * claiming the $200 back and walking off with 18 usable 2K stills for $49.
+ * That refund is B2 and is not built, so right now the customer cannot get
+ * their money back and there is nothing to walk away with — the exploit the
+ * marks defend against has no entry point.
+ *
+ * What the marks do cost is real: soft, marked-up artwork at the exact moment
+ * the customer first sees their pet as the star, a paragraph of reassurance
+ * that only exists to explain the marks, and a production order lost to an OOM
+ * in the render pass. Chargebacks don't argue for it either — the finished
+ * film ships clean, so the marks protect nothing there.
+ *
+ * Set this back to `true` in the same change that ships the refund. Nothing
+ * else needs touching: with it off, `preview === clean`, which is already the
+ * shape a legacy row and a failed watermark render both produce, so every
+ * downstream read (normalizeStoryboard, the props-stripping in Gate1View, the
+ * pick resolution in approve-storyboard) behaves exactly as it does today.
+ */
+const WATERMARK_PREVIEWS_ENABLED = false;
 // How many Gate-1 preview derivatives to render at once (see stage 4 below).
 // Each one decodes a 2K PNG in ffmpeg, so this is a memory ceiling, not a
 // rate limit — 4 keeps the peak flat no matter how many takes exist.
@@ -406,6 +429,20 @@ export async function runStillsGeneration(order: Order): Promise<void> {
   //
   // watermarkTakeForPreview never throws — one take's derivative failing falls
   // back to that take's clean url (logged) rather than failing the order.
+  if (!WATERMARK_PREVIEWS_ENABLED) {
+    // Off until the refund it defends exists — see WATERMARK_PREVIEWS_ENABLED.
+    // preview === clean is the same shape a failed render produces, so nothing
+    // downstream can tell the difference.
+    console.log(`[stills] stage 4 skipped (watermark previews disabled) order=${order.id}`);
+    await completeStillsGeneration(
+      order.id,
+      cleanStoryboard.map((cut) => ({
+        scene: cut.scene,
+        options: cut.options.map((clean) => ({ clean, preview: clean })),
+      }))
+    );
+    return;
+  }
   console.log(`[stills] stage 4: watermarking ${cleanStoryboard.length}×${TAKES_PER_CUT} previews order=${order.id}`);
   const jobs = cleanStoryboard.flatMap((cut, cutIdx) =>
     cut.options.map((clean, takeIdx) => ({ cutIdx, takeIdx, clean }))
