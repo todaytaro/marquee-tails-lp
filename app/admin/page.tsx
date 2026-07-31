@@ -45,6 +45,9 @@ const STATUS_LABELS: Record<OrderStatus, string> = {
 const CUSTOMER_STALL_STATUSES: OrderStatus[] = [
   OrderStatus.UPLOADING,
   OrderStatus.AWAITING_CUSTOMER_APPROVAL,
+  // Gate 0 is a customer-side wait too: a Director's Cut sitting here is a
+  // paying customer who hasn't approved their treatment yet.
+  OrderStatus.AWAITING_TREATMENT_APPROVAL,
 ];
 
 /** 48h SLA per business rules: amber past 36h, red past 44h. */
@@ -252,6 +255,12 @@ export default async function AdminDashboardPage({
               OrderStatus.UPLOADING,
               OrderStatus.IMAGE_GENERATING,
               OrderStatus.AWAITING_CUSTOMER_APPROVAL,
+              // B1's Gate 0 states. Without these a Director's Cut is
+              // invisible to ops for the whole treatment phase — the $249
+              // plan, during the one stage where the customer is most likely
+              // to stall or churn on revisions.
+              OrderStatus.TREATMENT_GENERATING,
+              OrderStatus.AWAITING_TREATMENT_APPROVAL,
             ],
           },
         },
