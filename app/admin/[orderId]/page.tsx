@@ -10,7 +10,8 @@ import { CopyLinkButton } from "./CopyLinkButton";
 import { ResubmitPodButton } from "./ResubmitPodButton";
 import { ResendEmailButton } from "./ResendEmailButton";
 import MoviePosterOverlay from "@/components/MoviePosterOverlay";
-import { resolveWorld, fillPetName, type WorldBundle } from "@/lib/film-script";
+import { resolveWorld, fillPetName, type WorldBundle, type Personality } from "@/lib/film-script";
+import { LOGLINES_JA } from "@/lib/film-script-ja";
 
 export const dynamic = "force-dynamic";
 
@@ -78,6 +79,17 @@ export default async function AdminOrderReviewPage({
   // copy — {name} already substituted, so this is verbatim what appears on
   // screen (see the 字幕 section below).
   const trailerCards = posterLoglines;
+  // Japanese gloss of those same cards, admin-only (lib/film-script-ja.ts).
+  // Preset orders map straight to their world/personality; a Director's Cut
+  // has no preset to look up, so it shows English only until Claude authors
+  // its own translation. Absent is always fine — this is a reading aid, never
+  // something the film depends on.
+  const cardsJa =
+    order.tier === "custom"
+      ? null
+      : LOGLINES_JA[order.world ?? "deepspace"]?.[
+          (order.personality ?? "easygoing") as Personality
+        ] ?? null;
   const posterTagline = posterLoglines.intro;
   const posterSubtitle = posterLoglines.tagline;
   const isCustom = order.tier === "custom";
@@ -364,21 +376,31 @@ export default async function AdminOrderReviewPage({
             </p>
             <dl className="space-y-2 text-sm">
               {[
-                ["① 冒頭（何の映画か）", trailerCards.premise],
-                ["② 登場", trailerCards.intro],
-                ["③ 転機", trailerCards.turn],
-                ["④ 危機", trailerCards.rise],
-                ["⑤ タイトル", `${petName.toUpperCase()} / ${trailerCards.tagline}`],
-                ["⑥ オチ（タイトル後）", trailerCards.stinger],
-              ].map(([label, text]) => (
+                ["① 冒頭（何の映画か）", trailerCards.premise, cardsJa?.premise],
+                ["② 登場", trailerCards.intro, cardsJa?.intro],
+                ["③ 転機", trailerCards.turn, cardsJa?.turn],
+                ["④ 危機", trailerCards.rise, cardsJa?.rise],
+                ["⑤ タイトル", `${petName.toUpperCase()} / ${trailerCards.tagline}`, cardsJa?.tagline],
+                ["⑥ オチ（タイトル後）", trailerCards.stinger, cardsJa?.stinger],
+              ].map(([label, text, ja]) => (
                 <div key={label} className="flex flex-col gap-0.5 sm:flex-row sm:gap-3">
                   <dt className="shrink-0 text-[10px] uppercase tracking-widest text-muted sm:w-44 sm:pt-1">
                     {label}
                   </dt>
-                  <dd className="font-display tracking-wide text-gold">
-                    {/* premise/stinger are optional — a pre-story-cards order
-                        simply has no such card in its film. */}
-                    {text || <span className="font-sans text-xs tracking-normal text-muted">— このカードなし（旧構成の注文）—</span>}
+                  <dd>
+                    <span className="font-display tracking-wide text-gold">
+                      {/* premise/stinger are optional — a pre-story-cards order
+                          simply has no such card in its film. */}
+                      {text || <span className="font-sans text-xs tracking-normal text-muted">— このカードなし（旧構成の注文）—</span>}
+                    </span>
+                    {/* Reading aid only (lib/film-script-ja.ts) — never shown to
+                        the customer and never fed to a model. Absent for a
+                        Director's Cut, whose cards Claude writes per order. */}
+                    {text && ja && (
+                      <span className="mt-0.5 block text-xs text-muted">
+                        {fillPetName(ja, order.petName)}
+                      </span>
+                    )}
                   </dd>
                 </div>
               ))}
