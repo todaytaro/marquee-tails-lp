@@ -68,6 +68,8 @@ Follow these rules strictly:
 
 3. STRUCTURED OUTPUT. Always respond by calling the submit_treatment tool — never plain text. "costume" is ONE outfit worn identically in all 6 cuts — never mention costume/outfit words inside any "scene" text (scenes describe action/setting only). Provide EXACTLY 6 cuts. You MAY also provide "inserts": exactly 3 short atmospheric scene-only fragments that decorate this film's world as silent B-roll cutaways — NO animals, NO people (e.g. "a rain-lit shop window glowing at night", "a lantern swaying in fog"). This field is entirely optional — omit it completely if nothing fits naturally; never pad it with weak filler just to fill it.
 
+   You MAY also provide "endPoses": a story-aware second pose for AT MOST 3 of the 6 cuts, used to generate a second, identity-checked still frame so the video model interpolates BETWEEN two approved frames instead of inventing motion on its own. This is entirely optional and should be used SPARINGLY and DELIBERATELY — most entries should be null; do not fill in all 6 just because you can. When you do enrol a cut, the pose must serve THAT cut's own story beat, not a generic "gets more heroic" template — reread the brief's ending before choosing: a story that ends with the pet falling asleep should end on the pet settling deeper into sleep, not standing up into a triumphant stance. This is the entire reason the field exists: a fixed, one-size-fits-all end pose previously overrode a customer's actual ending. Each enrolled pose must describe the SAME scene a few seconds later — identical location, lighting, costume and camera framing as that cut's own "scene" — with exactly ONE clearly visible change to the pet's body (a step closer, sitting up, one paw raised, eyes closing). Never a head turn, head rotation, or any change in which way the face points — the identity check only ever verified a front-facing photo, so turning the head or body exposes an angle nothing has confirmed and risks the pet drifting off-model. See the endPoses schema field below for the full constraints and examples.
+
    THE 6 LOGLINES ARE ONE CONTINUOUS TRAILER NARRATIVE, NOT SIX INDEPENDENT APHORISMS. Read in order — premise, intro, turn, rise, tagline, stinger — a viewer must come away knowing what the film is ABOUT (the situation), who the hero is, what they set out to do, what stands in their way, the title, and one last laugh or warm beat after it. In particular:
    - "premise" (the opening card) must state a concrete SITUATION or EVENT — something happening in this world — never a mood, a vibe, or a restatement of the setting. A reader of "premise" alone should be able to say what the movie is about.
    - "stinger" (the closing card, shown AFTER the title) must be a genuine joke or warm beat that only works BECAUSE the star is an animal — not another aphorism.
@@ -157,6 +159,18 @@ const TREATMENT_TOOL: Anthropic.Tool = {
         items: { type: "string" },
         minItems: 3,
         maxItems: 3,
+      },
+      endPoses: {
+        type: "array",
+        description:
+          "OPTIONAL: a story-aware end pose for AT MOST 3 of the 6 cuts — the pipeline generates this as a second, identity-gated still and hands BOTH frames to the video model, so it interpolates between two approved images instead of inventing motion. This array, when provided, MUST be exactly 6 entries long and index-aligned with `cuts` (endPoses[i] is the end pose for cuts[i]); use `null` for every cut that should stay on the ordinary single-frame animation path — that is most cuts, so most entries should be null. Omit this field entirely if no cut needs it.\n" +
+          "Only enrol a cut if a visible change actually serves ITS OWN story beat — never a generic \"gets more heroic\" pose applied out of habit. Reread the brief's actual ending before choosing: a film that ends with the pet falling asleep beside something should end on the pet settling deeper into sleep, NOT standing up into a hero stance — the pose must follow THIS story, not a template. Concentrate the (at most 3) enrolled poses on the cuts where motion matters most to this specific film; that is often, but not always, the final cut.\n" +
+          "Each enrolled entry describes the SAME scene a few seconds later: identical location, lighting, costume and camera framing as that cut's own `scene` text, with the pet's body making exactly ONE clearly visible change. Good examples: \"has settled down into a curled sleeping position, eyes closed, breathing slow\"; \"has walked a clear stride closer to the camera and now fills more of the frame\"; \"has sat up and lifted one front paw, mouth closed\". Keep the change to exactly one thing — two anchors that are nearly identical waste the extra still on a shot that still looks static, and two that are too different make the video model morph between mismatched poses instead of animating cleanly between them.\n" +
+          "NEVER describe a head turn, head rotation, or any change in which direction the face points (no yaw, in either the pet or the camera) — the identity check that gates this still only ever verified a straight-on, front-facing photo, so any pose that turns the head or body away from that angle exposes geometry nothing has confirmed, and the pet can drift off-model. The face must stay oriented the same way as it is in that cut's start frame; a chin lift/lower or head tilt is fine, a turn is not.\n" +
+          "Write these in ENGLISH regardless of the brief's language, for the same reason as `costume` and `cuts[].scene`: this text feeds an image generation model, not the customer.",
+        items: { type: ["string", "null"] },
+        minItems: 6,
+        maxItems: 6,
       },
       treatmentText: {
         type: "string",
@@ -259,6 +273,20 @@ function parseToolInput(raw: unknown): TreatmentResult {
   const premise = typeof l.premise === "string" && l.premise.trim() ? l.premise.trim() : undefined;
   const stinger = typeof l.stinger === "string" && l.stinger.trim() ? l.stinger.trim() : undefined;
 
+  // endPoses is OPTIONAL and story-aware (WorldBundle.endPoses doc, film-
+  // script.ts) — same "accept-if-valid, never throw" posture as inserts/
+  // premise/stinger above: a missing field, or one with the wrong length or
+  // an unusable entry type, must never fail the whole treatment over a
+  // feature that is inherently optional. This function only checks the SHAPE
+  // is usable (exactly 6 entries, each null or a string); the "at most 3
+  // enrolled" cap is enforced downstream in resolveWorld/resolveCustomEndPoses
+  // (lib/film-script.ts), deterministically, so it isn't duplicated or
+  // allowed to drift between the two call sites.
+  let endPoses: (string | null)[] | undefined;
+  if (Array.isArray(o.endPoses) && o.endPoses.length === 6 && o.endPoses.every((p) => p === null || typeof p === "string")) {
+    endPoses = o.endPoses.map((p) => (typeof p === "string" && p.trim() ? p.trim() : null));
+  }
+
   const bundle: WorldBundle = {
     costume: costume.trim(),
     score: score.trim(),
@@ -272,6 +300,7 @@ function parseToolInput(raw: unknown): TreatmentResult {
       ...(stinger ? { stinger } : {}),
     },
     ...(inserts ? { inserts } : {}),
+    ...(endPoses ? { endPoses } : {}),
   };
   return { status: "ok", bundle, treatmentText: treatmentText.trim().slice(0, 4000) };
 }
@@ -310,6 +339,21 @@ function mockTreatment(input: {
       "a sunlit cobblestone square empty in the early morning, no animals, no people",
       "a market stall awning fluttering in a quiet breeze, no animals, no people",
       "string lights glowing over a porch at dusk, no animals, no people",
+    ],
+    // 2 of 6 enrolled (well under the 3-cut cap) so local/e2e runs exercise
+    // the story-aware endPoses path by default, same reasoning as always
+    // including premise/stinger above. Each follows THIS mock story's own
+    // beats rather than a generic pose: cut 3 completes "climbing onto a low
+    // garden wall" into having arrived up top; cut 6 turns "standing... at
+    // dusk, triumphant" into settling in for the evening a moment later —
+    // both are a single visible change, no head turn, face held the same way.
+    endPoses: [
+      null,
+      null,
+      "the pet has fully climbed atop the wall and now stands there on all four paws, chin raised as it surveys the neighborhood, face still toward the camera",
+      null,
+      null,
+      "the pet has sat down on the top porch step, tail curled around its paws, settling in for the evening, face still toward the camera",
     ],
   };
   // Mock revisions just echo the prior bundle unchanged (no compute spent) —

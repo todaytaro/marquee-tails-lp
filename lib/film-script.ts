@@ -578,6 +578,52 @@ export function deriveCustomInserts(cuts: { scene: string }[], orderId: string):
   return indices.map((i) => `the setting of: ${cuts[i].scene} — empty scene, no animals, no people`);
 }
 
+/** At most this many of the 6 cuts may carry a Claude-authored end pose — see resolveCustomEndPoses. */
+const MAX_CUSTOM_END_POSES = 3;
+
+/**
+ * Validates + caps a custom order's Claude-authored `endPoses` (spec §5,
+ * WorldBundle.endPoses doc above) before resolveWorld hands them to the film
+ * pipeline. Mirrors deriveCustomInserts's "never throw, degrade to a safe
+ * default" posture, but the default here is SHOT_END_POSES rather than an
+ * empty result — an end-pose-less custom order should behave exactly like a
+ * preset order (spec's explicit fallback), not like one with zero B-roll.
+ *
+ * Two independent failure modes are handled, both by falling back rather than
+ * throwing (a malformed generatedScript must still produce a film):
+ *
+ * 1. WRONG SHAPE ENTIRELY — not an array, wrong length, or an entry that
+ *    isn't `null`/a non-empty string (e.g. a legacy generatedScript predating
+ *    this field, where `endPoses` is simply absent, or a model response that
+ *    got the schema wrong despite the forced tool call). No per-entry
+ *    salvage is attempted here — a bundle that's the wrong shape at all is
+ *    treated as "not provided", same as the field being absent.
+ *
+ * 2. TOO MANY ENROLLED — the "at most 3 of 6" cap from the schema
+ *    description is a prompt-level ask, not a runtime guarantee, so a model
+ *    that fills in all 6 must be TRIMMED, not trusted. The trim keeps the
+ *    FIRST N (in cut order) and nulls out the rest — deterministic, so
+ *    runShotRerender re-assembling this order later (spec §7) always lands
+ *    on the same enrolled cuts. It must NOT depend on which entries happen to
+ *    look "most important", array iteration order, or anything else that
+ *    could vary between the original run and a later re-render.
+ */
+function resolveCustomEndPoses(bundle: WorldBundle): (string | null)[] {
+  const raw = bundle.endPoses;
+  const isValidShape =
+    Array.isArray(raw) &&
+    raw.length === 6 &&
+    raw.every((p) => p === null || (typeof p === "string" && p.trim().length > 0));
+  if (!isValidShape) return SHOT_END_POSES;
+
+  let enrolledSoFar = 0;
+  return raw.map((pose) => {
+    if (pose === null) return null;
+    enrolledSoFar += 1;
+    return enrolledSoFar <= MAX_CUSTOM_END_POSES ? pose.trim() : null;
+  });
+}
+
 export function getArc(world: string, personality: string | null): string[] {
   const w = FILM_SCRIPTS[world] ?? FILM_SCRIPTS.deepspace;
   return w[(personality as Personality) ?? "easygoing"] ?? w.easygoing;
@@ -648,6 +694,29 @@ export type WorldBundle = {
   // pipeline treats absence as "no inserts for this order" (spec §4.3), never
   // a hard failure.
   inserts?: string[];
+  // OPTIONAL — story-aware end poses for the start+end interpolation feature
+  // (spec §5). Parallel to `cuts`, same 6-length, same index alignment:
+  // endPoses[i] is the ONE-CHANGE pose delta for cuts[i]'s end frame, or
+  // `null` if that cut stays on the ordinary single-frame i2v path. See
+  // SHOT_END_POSES above for the full pose-writing rules this must also
+  // follow (yaw ban, one obvious change, at most 3 of 6 enrolled).
+  //
+  // Why this exists at all, when SHOT_END_POSES already covers preset
+  // orders: SHOT_END_POSES is two fixed strings applied to EVERY order
+  // regardless of story. The production film that validated start+end
+  // interpolation was a Director's Cut whose brief ended with the pet
+  // falling asleep beside the dragon — but SHOT_END_POSES[5] ("rises into a
+  // full hero stance") made the trailer's LAST image the pet standing up out
+  // of the ending the customer asked for. The mechanism (identity-gated end
+  // frame -> clean interpolation) was proven correct; the poses were
+  // story-blind. Only Claude knows what a given cut's beat is FOR, because it
+  // wrote the cut — so for custom orders, the end pose has to be authored
+  // alongside the cuts themselves rather than pulled from a static table.
+  //
+  // Absent, or the wrong shape entirely -> resolveWorld falls back to
+  // SHOT_END_POSES, same posture as every other optional field on this type
+  // (never throw). See resolveWorld's endPoses resolution, below.
+  endPoses?: (string | null)[];
 };
 
 export type ResolvedWorld = {
@@ -663,6 +732,13 @@ export type ResolvedWorld = {
   // custom order whose generatedScript carries no inserts) — the film
   // pipeline's EDL builder drops the insert beats gracefully in that case.
   inserts: string[];
+  // Always a full 6-entry (string | null)[], same shape as SHOT_END_POSES —
+  // preset orders get SHOT_END_POSES unchanged; custom orders get Claude's
+  // own endPoses (validated + capped, see resolveCustomEndPoses) when
+  // present, or SHOT_END_POSES as a fallback otherwise. film-pipeline.ts
+  // reads this instead of importing SHOT_END_POSES directly so the
+  // preset/custom branch stays in this one function.
+  endPoses: (string | null)[];
 };
 
 /**
@@ -701,6 +777,13 @@ export function resolveWorld(order: Order): ResolvedWorld {
       // derive 3 empty-scene prompts from this order's own cuts rather than
       // leaving the $249 tier with zero B-roll (see deriveCustomInserts).
       inserts: bundle.inserts?.length ? bundle.inserts : deriveCustomInserts(bundle.cuts, order.id),
+      // §5 fallback: Claude's own story-aware endPoses win when present and
+      // valid (capped to at most 3 enrolled cuts); otherwise fall back to the
+      // same static SHOT_END_POSES a preset order uses, so a custom order
+      // whose generatedScript predates this field — or a malformed one —
+      // still gets the mechanism, just with generic poses instead of
+      // story-aware ones (see resolveCustomEndPoses).
+      endPoses: resolveCustomEndPoses(bundle),
     };
   }
   const world = order.world ?? "deepspace";
@@ -710,5 +793,7 @@ export function resolveWorld(order: Order): ResolvedWorld {
     score: WORLD_SCORES[world] ?? WORLD_SCORES.deepspace,
     loglines: getLoglines(world, order.personality, order.petName ?? undefined),
     inserts: pickWorldInserts(world, order.id),
+    // Preset orders are untouched by this feature — always the static table.
+    endPoses: SHOT_END_POSES,
   };
 }

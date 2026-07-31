@@ -11,7 +11,7 @@ import { fal } from "@fal-ai/client";
 import { OrderStatus, type Order } from "@/generated/prisma/client";
 import { prisma } from "./db";
 import { transitionOrder } from "./orders";
-import { TITLE_CARDS, resolveWorld, getShotMotion, SHOT_END_POSES, type Loglines } from "./film-script";
+import { TITLE_CARDS, resolveWorld, getShotMotion, type Loglines } from "./film-script";
 import { publicUrl, scoreFrame, scoreIdentity } from "./identity";
 import { reshootCutStill, EDIT_MODEL, IDENTITY_RULES, STYLE_RULES } from "./stills-pipeline";
 
@@ -237,8 +237,10 @@ async function submitClip(input: Record<string, unknown>, capMs: number): Promis
  * give us six high-identity frames to animate.
  *
  * `endFrameUrl` (FILM-QUALITY-V3-SPEC.md §5.3): when this cut opted into
- * start+end interpolation (SHOT_END_POSES[shotIndex] is non-null) AND that end
- * frame generated + cleared the identity gate, this is its url and gets
+ * start+end interpolation (resolveWorld(order).endPoses[shotIndex] is
+ * non-null — SHOT_END_POSES for presets, or a custom order's own
+ * Claude-authored pose) AND that end frame generated + cleared the identity
+ * gate, this is its url and gets
  * passed straight through as `end_image_url` — confirmed present on THIS
  * exact endpoint's typed input (KlingVideoV3ProImageToVideoInput in
  * @fal-ai/client, "URL of the image to be used for the end of the video"), so
@@ -1305,13 +1307,20 @@ export async function runFilmGeneration(order: Order): Promise<void> {
   // above: an `undefined` cache means "not yet attempted" (run it), while a
   // defined array (even one full of `null`s) means "already attempted, reuse
   // as-is" — a resume must never re-spend on an already-gated end frame.
-  // SHOT_END_POSES enrolls only a couple of cuts (§5.4's staged rollout);
-  // every other cut resolves to `null` here with no fal call at all.
+  //
+  // resolved.endPoses (NOT the SHOT_END_POSES constant directly) enrolls only
+  // a couple of cuts for preset orders (§5.4's staged rollout); every other
+  // cut resolves to `null` here with no fal call at all. For a Director's Cut
+  // custom order, resolveWorld already substituted Claude's own story-aware
+  // poses in place of the generic SHOT_END_POSES when the order's
+  // generatedScript provided them (see resolveWorld/resolveCustomEndPoses in
+  // film-script.ts) — this call site doesn't need to know which branch it
+  // got, which is the whole point of going through resolveWorld.
   if (art.endFrameUrls === undefined) {
     console.log(`[film] generating end frames for interpolated cuts order=${order.id}`);
     const endFrameUrls = await Promise.all(
       shotStillUrls.map((stillUrl, i) => {
-        const endPose = SHOT_END_POSES[i] ?? null;
+        const endPose = resolved.endPoses[i] ?? null;
         if (!endPose) return Promise.resolve(null);
         return generateGatedEndFrame(stillUrl, order.heroSheetUrl ?? undefined, endPose, portraitUrl, i);
       })
@@ -1606,13 +1615,14 @@ export async function runShotRerender(
   // End frames (spec §5.2/§5.4): reuse the cached one for every OTHER shot
   // untouched, same isolation as inserts above. For THIS shot, a reshoot
   // invalidates the cached end frame — it was posed FROM the old still, so it
-  // no longer matches the new one — and, if this cut is enrolled
-  // (SHOT_END_POSES non-null), a fresh end frame is generated + gated from
-  // the new still before the clip re-animates. A plain reanimate (no reshoot)
-  // reuses the cached end frame as-is, since the still it was posed from
-  // hasn't changed.
+  // no longer matches the new one — and, if this cut is enrolled (resolved
+  // via resolveWorld's endPoses — SHOT_END_POSES for presets, or a custom
+  // order's own Claude-authored pose, non-null either way), a fresh end frame
+  // is generated + gated from the new still before the clip re-animates. A
+  // plain reanimate (no reshoot) reuses the cached end frame as-is, since the
+  // still it was posed from hasn't changed.
   const endFrameUrls = [...(art.endFrameUrls ?? clipUrls.map(() => null))];
-  const endPose = SHOT_END_POSES[shotIndex] ?? null;
+  const endPose = resolved.endPoses[shotIndex] ?? null;
 
   if (opts.reshoot) {
     // Look/style problem: the still itself is retaken (reason steers it),
