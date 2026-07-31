@@ -447,7 +447,12 @@ export function getShotMotion(shotIndex: number, seed: string): string {
  */
 export const SHOT_END_POSES: (string | null)[] = [
   null, // cut 1 — opening hero shot: safest framing, stays static
-  "the pet has walked a clear stride closer to the camera and now fills noticeably more of the frame, front paws planted mid-step, head still square to the camera",
+  // Distinct from cut 6's below, on purpose. Both originally ended on a
+  // raised front paw, and seeing them side by side in admin the owner spotted
+  // it at once — two cuts in the same film resolving into the same gesture
+  // reads as the pipeline having one idea, not as two moments. This one moves
+  // the whole body through space; cut 6's rises in place.
+  "the pet has walked a clear stride closer to the camera and now fills noticeably more of the frame, all four paws planted, head still square to the camera",
   null, // cut 3
   null, // cut 4
   null, // cut 5

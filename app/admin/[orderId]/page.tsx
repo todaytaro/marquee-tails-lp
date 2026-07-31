@@ -456,7 +456,7 @@ export default async function AdminOrderReviewPage({
                 インサート（情景カット）
               </h2>
               <p className="mb-3 text-xs text-muted">
-                犬が映らない世界観の情景カット（Ken Burnsで動画化）。差し替え操作はまだありません（読み取り表示のみ）。
+                犬が映らない世界観の情景カット。Klingで動画化します（生成に失敗した分だけKen Burnsにフォールバック）。差し替え操作はまだありません（読み取り表示のみ）。
               </p>
               <div className="grid grid-cols-3 gap-3">
                 {insertStillUrls.map((url, i) => (

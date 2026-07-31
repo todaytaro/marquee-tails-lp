@@ -1370,7 +1370,11 @@ type SfxName = keyof typeof SFX_FILES;
 // Levels relative to the music bed (spec §2.2) — boom sits at unity (it's the
 // accent that punches through a duck), riser and whoosh sit lower so they
 // support the music instead of fighting it.
-const SFX_LEVEL_DB: Record<SfxName, number> = { boom: 0, riser: -3, whoosh: -6 };
+// Boom sat at unity and was the first thing the owner flinched at. It still
+// wants to be the loudest accent in the mix — it just doesn't need to be as
+// loud as a sound can be, and pulling it down a few dB costs nothing now that
+// BOOM_CARD_IDS stops it firing eight times.
+const SFX_LEVEL_DB: Record<SfxName, number> = { boom: -4, riser: -3, whoosh: -6 };
 const MUSIC_DUCK_DB = -2.5; // music dips this much under each card's boom hit
 const MUSIC_DUCK_SECONDS = 0.6; // duck window length — just the transient, not the whole card
 const MUSIC_FADE_OUT_SECONDS = 1.5; // final fade so the 60s mark doesn't cut off abruptly
@@ -1381,6 +1385,22 @@ const MIX_SAMPLE_RATE = 44100;
 // are the biggest story beats; open/comingSoon/brand stay clean so the
 // bookends don't feel over-produced.
 const WHOOSH_CARD_IDS: CardId[] = ["intro", "starring", "turn", "rise", "finale"];
+
+/*
+ * Which cards get the boom. NOT all of them, which is what shipped first: a
+ * boom on every one of the eight cards meant three identical hits inside the
+ * opening twelve seconds (premise, intro, starring), and the owner heard it
+ * immediately — "the same sound about three times, twice would do". A boom is
+ * punctuation; used on every card it stops being punctuation and becomes
+ * wallpaper, and the loudest wallpaper in the mix at that.
+ *
+ * These four are the structural beats — the film opening, the two story turns,
+ * and the title reveal — and no two of them are adjacent, so the hit always
+ * lands after picture rather than after another hit. The cards left out
+ * (intro, starring, stinger, brand) still get their whoosh where the list
+ * above says so; they just stop competing for the same accent.
+ */
+const BOOM_CARD_IDS: CardId[] = ["premise", "turn", "rise", "finale"];
 
 /** Checked ONCE per assembly — spec §2.1's mandatory fallback: any file
  * missing means "assemble without SFX", never a partial/broken mix. */
@@ -1411,7 +1431,9 @@ function buildSfxEvents(beats: ScaledBeat[]): SfxEvent[] {
   const events: SfxEvent[] = [];
   beats.forEach((b, i) => {
     if (b.kind === "card") {
-      events.push({ file: "boom", atSeconds: starts[i] });
+      if (BOOM_CARD_IDS.includes(b.card)) {
+        events.push({ file: "boom", atSeconds: starts[i] });
+      }
       if (WHOOSH_CARD_IDS.includes(b.card)) {
         events.push({ file: "whoosh", atSeconds: Math.max(0, starts[i] - WHOOSH_LEAD_SECONDS) });
       }
@@ -1559,6 +1581,49 @@ export function generateShotClipForTest(
   return generateShotClip(stillUrl, world, shotIndex, orderId, durationSec, undefined, endFrameUrl);
 }
 
+/**
+ * Animate the cached insert stills into real Kling clips, once, and cache the
+ * result. Returns the (possibly updated) artifacts.
+ *
+ * Shared by runFilmGeneration and runShotRerender because it was originally
+ * only in the former, and the first re-render after shipping it produced a
+ * film whose inserts were still Ken-Burns stills — the owner's report was
+ * simply "the inserts weren't moving". A re-render re-assembles the whole
+ * film, so anything the assembly reads has to be *ensured* here, not assumed
+ * to have been produced by the original run: this cache is empty for every
+ * order made before insert clips existed, which is exactly the population
+ * most likely to be re-rendered.
+ *
+ * Cached per insert, so one failure falls back to Ken Burns for that insert
+ * alone. Caches `[]` when there aren't three stills to animate, so the check
+ * doesn't re-run on every future re-render of an order that has none.
+ */
+async function ensureInsertClips(
+  orderId: string,
+  art: FilmArtifacts,
+  insertSubjects: string[]
+): Promise<FilmArtifacts> {
+  if (art.insertClipUrls !== undefined) return art;
+  const stillsToAnimate = art.insertStillUrls ?? [];
+  if (stillsToAnimate.length < 3) {
+    return saveArtifacts(orderId, { insertClipUrls: [] });
+  }
+  console.log(
+    `[film] animating ${stillsToAnimate.length} insert stills (Kling i2v, ${INSERT_CLIP_SECONDS}s min duration) order=${orderId}`
+  );
+  const urls = await Promise.all(
+    stillsToAnimate.slice(0, 3).map(async (stillUrl, i): Promise<string | null> => {
+      try {
+        return await generateInsertClip(stillUrl, insertSubjects[i] ?? "");
+      } catch (e) {
+        console.warn(`[film] insert ${i} clip generation failed — falling back to Ken Burns for this insert order=${orderId}:`, e);
+        return null;
+      }
+    })
+  );
+  return saveArtifacts(orderId, { insertClipUrls: urls });
+}
+
 export async function runFilmGeneration(order: Order): Promise<void> {
   assertEnv("FAL_KEY");
   fal.config({ credentials: process.env.FAL_KEY });
@@ -1605,27 +1670,7 @@ export async function runFilmGeneration(order: Order): Promise<void> {
   // fallback"). Skips entirely (caches []) when there aren't 3 stills to
   // animate — nothing for renderInsertClipBeat to use, every insert beat
   // stays Ken Burns, same as it always has been for those orders.
-  if (art.insertClipUrls === undefined) {
-    const stillsToAnimate = art.insertStillUrls ?? [];
-    if (stillsToAnimate.length >= 3) {
-      console.log(
-        `[film] animating ${stillsToAnimate.length} insert stills (Kling i2v, ${INSERT_CLIP_SECONDS}s min duration) order=${order.id}`
-      );
-      const urls = await Promise.all(
-        stillsToAnimate.slice(0, 3).map(async (stillUrl, i): Promise<string | null> => {
-          try {
-            return await generateInsertClip(stillUrl, resolved.inserts[i] ?? "");
-          } catch (e) {
-            console.warn(`[film] insert ${i} clip generation failed — falling back to Ken Burns for this insert order=${order.id}:`, e);
-            return null;
-          }
-        })
-      );
-      art = await saveArtifacts(order.id, { insertClipUrls: urls });
-    } else {
-      art = await saveArtifacts(order.id, { insertClipUrls: [] });
-    }
-  }
+  art = await ensureInsertClips(order.id, art, resolved.inserts);
 
   // Stage II. Start+end frame interpolation (spec §5.2/§5.4) — cached
   // SEPARATELY from clipUrls/clipScores, same reasoning as insertStillUrls
@@ -1990,11 +2035,15 @@ export async function runShotRerender(
   const clipUrls = [...(art.clipUrls ?? order.shotClipUrls)];
   const clipScores = [...(art.clipScores ?? order.shotIdentityScores)];
   if (!clipUrls[shotIndex]) throw new Error(`order ${order.id} has no clip to replace at shot ${shotIndex}`);
-  // Inserts (both the stills AND their animated clips) are untouched by a
-  // shot fix (spec §4.4 isolation) — reuse whatever was cached (possibly [])
-  // rather than regenerating.
+  // Insert STILLS are untouched by a shot fix (spec §4.4 isolation) — reuse
+  // whatever was cached. Their CLIPS, though, have to be ensured rather than
+  // read: an order made before insert clips existed has an empty cache, and a
+  // re-render re-assembles the entire film, so reading it here left the
+  // inserts as Ken-Burns stills in the re-rendered cut. Ensuring is a no-op
+  // once cached, so a second re-render costs nothing.
   const insertStillUrls = art.insertStillUrls ?? [];
-  const insertClipUrls = art.insertClipUrls ?? [];
+  const artWithInsertClips = await ensureInsertClips(order.id, art, resolved.inserts);
+  const insertClipUrls = artWithInsertClips.insertClipUrls ?? [];
   // End frames (spec §5.2/§5.4): reuse the cached one for every OTHER shot
   // untouched, same isolation as inserts above. For THIS shot, a reshoot
   // invalidates the cached end frame — it was posed FROM the old still, so it
