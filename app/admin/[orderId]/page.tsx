@@ -487,7 +487,7 @@ export default async function AdminOrderReviewPage({
               </p>
               {order.posterOptions.length > 0 && !order.posterUrl && (
                 <p className="mb-3 rounded-[var(--radius-chip)] border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
-                  ⚠ 顧客がまだポスターを選んでいません。承認するとポスター未確定のまま完了します。
+                  ⚠ 顧客がまだポスターを選んでいません。承認すると1案目で確定します（顧客にもその旨を表示済み）。急ぐ理由がなければ、選ぶ時間を残してください。
                 </p>
               )}
               <ApproveForm orderId={order.id} />

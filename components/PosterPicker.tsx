@@ -73,6 +73,15 @@ export default function PosterPicker({
         Three one-sheets of your chosen scene, finished and titled. Pick the one
         that goes to print — this is the wall copy.
       </p>
+      {/*
+        States the default, because there now is one: an order approved with no
+        pick ships candidate 1 (lib/approvals.ts). Silently substituting a
+        poster the customer never chose would be worse than the gap it closes —
+        saying it here makes it their informed default rather than our guess.
+      */}
+      <p className="mx-auto mt-2 max-w-xl text-center text-xs text-muted">
+        No favourite? The first one ships — you won&apos;t miss out either way.
+      </p>
 
       <div
         role="radiogroup"

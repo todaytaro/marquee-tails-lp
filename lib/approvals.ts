@@ -31,6 +31,27 @@ export async function approveVideo(
     "Gate 2: admin approved final video"
   );
 
+  // Default the poster to the first candidate when the customer never picked.
+  //
+  // Everything downstream keys off posterUrl: no pick means no posterPrintUrl,
+  // which means the free digital poster promised in BOTH plans is never
+  // delivered and the $59/$99 print upsell never renders — the customer
+  // quietly loses something they paid for, and we lose the add-on entirely.
+  // A default they didn't choose is strictly better than nothing at all: all
+  // three candidates are of their pet, in their film's world, and the picker
+  // says up front that the first one ships if they don't choose.
+  //
+  // Only fills a genuine blank, so a real pick is never overwritten.
+  if (!updated.posterUrl && updated.posterOptions.length > 0) {
+    console.log(
+      `[approvals] order=${updated.id} completed with no poster pick — defaulting to candidate 1`
+    );
+    updated = await prisma.order.update({
+      where: { id: updated.id },
+      data: { posterUrl: updated.posterOptions[0] },
+    });
+  }
+
   // Flatten the customer's poster pick (text-free art) into the print-ready
   // PNG that ships to POD once (and if) the customer buys a physical add-on
   // — same design as the on-screen MoviePosterOverlay, baked once via satori
