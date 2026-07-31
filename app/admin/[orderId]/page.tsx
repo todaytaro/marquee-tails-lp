@@ -81,14 +81,14 @@ export default async function AdminOrderReviewPage({
   // copy — {name} already substituted, so this is verbatim what appears on
   // screen (see the 字幕 section below).
   const trailerCards = posterLoglines;
-  // Japanese gloss of those same cards, admin-only (lib/film-script-ja.ts).
-  // Preset orders map straight to their world/personality; a Director's Cut
-  // has no preset to look up, so it shows English only until Claude authors
-  // its own translation. Absent is always fine — this is a reading aid, never
-  // something the film depends on.
+  // Japanese reading of those same cards, admin-only. Preset copy is fixed so
+  // it maps straight to its world/personality (lib/film-script-ja.ts); a
+  // Director's Cut has no preset to look up, so Claude writes the Japanese
+  // alongside the cards it invents (loglinesJa). Absent either way is fine —
+  // a reading aid, never something the film depends on.
   const cardsJa =
     order.tier === "custom"
-      ? null
+      ? ((order.generatedScript as unknown as WorldBundle | null)?.loglinesJa ?? null)
       : LOGLINES_JA[order.world ?? "deepspace"]?.[
           (order.personality ?? "easygoing") as Personality
         ] ?? null;

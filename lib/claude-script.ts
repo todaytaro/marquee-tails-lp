@@ -79,7 +79,8 @@ Follow these rules strictly:
 
 5. LANGUAGE. The customer's brief may be written in ANY language — read and understand it in whatever language it's in. However:
    - "costume", "score", every "scene" inside "cuts", and all 6 "loglines" values (premise/intro/turn/rise/tagline/stinger, when present) MUST always be written in ENGLISH, no matter what language the brief is in. This is a hard technical constraint, not a style choice: loglines are rendered as trailer title cards using a Latin-only display font (non-Latin text would render as broken/missing glyphs), and the scene/costume text feeds English-optimized image and video generation models. Loglines keep their existing punchy ALL-CAPS trailer style regardless of the brief's language.
-   - "treatmentText" is the one exception — it is customer-facing prose the customer will read and approve, so write it in the SAME language as the customer's brief (e.g. a Japanese brief gets a Japanese treatmentText), even though the rest of the bundle stays in English.
+   - "treatmentText" is one exception — it is customer-facing prose the customer will read and approve, so write it in the SAME language as the customer's brief (e.g. a Japanese brief gets a Japanese treatmentText), even though the rest of the bundle stays in English.
+   - "loglinesJa" is the other, and it is ALWAYS Japanese regardless of the brief's language. It does not contradict the English rule above: it never reaches the film or the customer, it is a reading aid on the operator's internal review screen. Always fill it in for every card you wrote.
 
 When revising an existing treatment (a prior WorldBundle plus the customer's requested change will be provided), apply ONLY the requested change where reasonable and keep everything else — world, costume, tone, unaffected cuts — consistent with the prior draft unless the request implies a bigger change. The language rule above (rule 5) applies identically when revising.`;
 
@@ -152,6 +153,19 @@ const TREATMENT_TOOL: Anthropic.Tool = {
           },
         },
         required: ["intro", "turn", "rise", "tagline"],
+      },
+      loglinesJa: {
+        type: "object",
+        description:
+          "OPTIONAL. NEVER shown to the customer and NEVER rendered into the film — a Japanese reading of the six loglines above, for the operator's internal review screen only. The operator reads Japanese and otherwise cannot check whether a card matches the footage it sits between before approving the film. Translate meaning and TONE rather than word-for-word: a trailer card is terse, so the Japanese should read like a Japanese trailer card, not like a literal gloss. Keep the {name} placeholder wherever it appears. Provide the same keys you filled in above; omit any you left out.",
+        properties: {
+          premise: { type: "string" },
+          intro: { type: "string" },
+          turn: { type: "string" },
+          rise: { type: "string" },
+          tagline: { type: "string" },
+          stinger: { type: "string" },
+        },
       },
       inserts: {
         type: "array",
@@ -273,6 +287,24 @@ function parseToolInput(raw: unknown): TreatmentResult {
   const premise = typeof l.premise === "string" && l.premise.trim() ? l.premise.trim() : undefined;
   const stinger = typeof l.stinger === "string" && l.stinger.trim() ? l.stinger.trim() : undefined;
 
+  // loglinesJa is the admin-only Japanese reading of those same cards. Same
+  // accept-if-valid posture, and deliberately the most forgiving of the lot:
+  // it is a reading aid on an internal screen, so a missing or half-filled
+  // translation must never cost a customer their treatment. Keys are picked
+  // one by one rather than trusting the object wholesale, so a model that
+  // returns a stray key or a non-string can't put junk on the review page.
+  const ja = (o.loglinesJa ?? {}) as Record<string, unknown>;
+  const pickJa = (k: string) =>
+    typeof ja[k] === "string" && (ja[k] as string).trim() ? (ja[k] as string).trim() : undefined;
+  const loglinesJa = {
+    ...(pickJa("premise") ? { premise: pickJa("premise") } : {}),
+    ...(pickJa("intro") ? { intro: pickJa("intro") } : {}),
+    ...(pickJa("turn") ? { turn: pickJa("turn") } : {}),
+    ...(pickJa("rise") ? { rise: pickJa("rise") } : {}),
+    ...(pickJa("tagline") ? { tagline: pickJa("tagline") } : {}),
+    ...(pickJa("stinger") ? { stinger: pickJa("stinger") } : {}),
+  };
+
   // endPoses is OPTIONAL and story-aware (WorldBundle.endPoses doc, film-
   // script.ts) — same "accept-if-valid, never throw" posture as inserts/
   // premise/stinger above: a missing field, or one with the wrong length or
@@ -299,6 +331,7 @@ function parseToolInput(raw: unknown): TreatmentResult {
       tagline: l.tagline.trim(),
       ...(stinger ? { stinger } : {}),
     },
+    ...(Object.keys(loglinesJa).length ? { loglinesJa } : {}),
     ...(inserts ? { inserts } : {}),
     ...(endPoses ? { endPoses } : {}),
   };
@@ -334,6 +367,17 @@ function mockTreatment(input: {
       rise: "SOME STARS DON'T NEED A STAGE.",
       tagline: "HOME IS WHERE THE STORY STARTS",
       stinger: "{name} STILL WON'T SHARE THE PORCH SWING.",
+    },
+    // Admin-only Japanese reading, included here so local/e2e runs exercise
+    // the custom branch of the review screen's 字幕 section rather than
+    // silently falling back to English-only.
+    loglinesJa: {
+      premise: "どんな静かな街にも、語るに足る物語がひとつある。",
+      intro: "この街にも、知る人ぞ知る伝説がいた。",
+      turn: "その名は{name}。",
+      rise: "輝くのに、舞台はいらない。",
+      tagline: "物語は、いつも家から始まる",
+      stinger: "{name}は今日もポーチのブランコを譲らない。",
     },
     inserts: [
       "a sunlit cobblestone square empty in the early morning, no animals, no people",

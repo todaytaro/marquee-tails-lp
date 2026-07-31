@@ -717,6 +717,13 @@ export type WorldBundle = {
   // SHOT_END_POSES, same posture as every other optional field on this type
   // (never throw). See resolveWorld's endPoses resolution, below.
   endPoses?: (string | null)[];
+  // Admin-only Japanese reading of `loglines`, authored by Claude alongside
+  // them (lib/claude-script.ts). NEVER rendered into a film and never shown
+  // to a customer — the cards stay English, and Bebas Neue is Latin-only
+  // anyway. It exists so the operator, who reads Japanese, can tell whether a
+  // card matches the footage it sits between before approving the film. The
+  // preset equivalent is the static LOGLINES_JA table in film-script-ja.ts.
+  loglinesJa?: Partial<Loglines>;
 };
 
 export type ResolvedWorld = {
