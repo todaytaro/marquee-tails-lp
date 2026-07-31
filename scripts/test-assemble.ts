@@ -1,7 +1,8 @@
 /**
  * Local functional test for the beat-EDL assembler (TRAILER-EDIT-SPEC.md §8,
  * extended by FILM-QUALITY-V3-SPEC.md §7, extended again by
- * TRAILER-STORY-SPEC.md §6).
+ * TRAILER-STORY-SPEC.md §6, extended again by this task's punch-in/insert-clip/
+ * SHOT_SECONDS=8 change).
  * NO database, NO fal.ai, NO Trigger.dev — everything is synthesized locally
  * with ffmpeg (`lavfi` color/testsrc2 sources + a sine-wave "music" track) and
  * fed straight into the REAL production render path (assembleForTest ->
@@ -37,6 +38,17 @@
  *  11. (TRAILER-STORY-SPEC §6 item 6) {name} substitution reaches `premise`
  *      and `stinger`, both via the preset path (getLoglines) and the custom/
  *      Director's Cut path (resolveWorld's fill() on a WorldBundle)
+ *  12. (this task, change #1) a clip's wide beat and its punch-in beat trim
+ *      from DIFFERENT source offsets — asserted against punchInSourceWindow
+ *      directly AND printed, then verified against the REAL rendered
+ *      intermediate segment durations from a live assemble run
+ *  13. (this task, change #1) a slow-motion punch-in beat's RENDERED segment
+ *      still lands on its exact EDL on-screen duration (±1 frame) despite
+ *      consuming only PUNCH_IN_SPEED as much source footage
+ *  14. (this task, change #2) a full 60.0000s run with REAL insert CLIPS
+ *      present (not just Ken-Burns stills), and a mixed run where only SOME
+ *      inserts have a clip (the rest fall back to Ken Burns) also lands on
+ *      exactly 60.0000s
  *
  * Usage: npx tsx scripts/test-assemble.ts
  */
@@ -50,9 +62,13 @@ import {
   buildEdl,
   assembleForTest,
   punchInFilter,
+  punchInSourceWindow,
   gradeFilterChain,
   PUNCH_IN_ZOOM,
   PUNCH_IN_Y_BIAS,
+  PUNCH_IN_SPEED,
+  SHOT_SECONDS,
+  INSERT_CLIP_SECONDS,
   FILM_FPS,
 } from "../lib/film-pipeline";
 import { getLoglines, resolveWorld, PERSONALITIES, type Loglines } from "../lib/film-script";
@@ -124,14 +140,18 @@ function assertTrue(label: string, ok: boolean) {
 
 const CLIP_COLORS = ["0xd94f4f", "0xd98b4f", "0xd9c94f", "0x6fd94f", "0x4fa8d9", "0x8a4fd9"];
 const INSERT_COLORS = ["0x2b2b3d", "0x3d2b2b", "0x2b3d2f"];
+const INSERT_CLIP_COLORS = ["0x6b2b8a", "0x8a6b2b", "0x2b8a6b"];
 
-/** One fake SHOT_SECONDS(5)-long source "clip" — a solid color field with a
+/** One fake SHOT_SECONDS(8)-long source "clip" — a solid color field with a
  * big index label, so which source clip landed in which output beat is
- * visually obvious on playback (distinct colors per clip, per spec §8). */
+ * visually obvious on playback (distinct colors per clip, per spec §8).
+ * Length is SHOT_SECONDS itself (this task's change #3, fixtures at the new
+ * source length) — every offset/clamping assertion below only means anything
+ * if the fixtures are exactly as long as a real Kling clip would be. */
 async function makeFakeClip(dir: string, index: number): Promise<string> {
   const out = path.join(dir, `fake-clip-${index}.mp4`);
   await ffmpeg([
-    "-f", "lavfi", "-i", `color=c=${CLIP_COLORS[index % CLIP_COLORS.length]}:s=1920x1080:d=5:r=24`,
+    "-f", "lavfi", "-i", `color=c=${CLIP_COLORS[index % CLIP_COLORS.length]}:s=1920x1080:d=${SHOT_SECONDS}:r=24`,
     "-vf", `drawtext=text='CLIP ${index}':fontcolor=white:fontsize=200:x=(w-text_w)/2:y=(h-text_h)/2`,
     "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast",
     out,
@@ -146,6 +166,24 @@ async function makeFakeInsert(dir: string, index: number): Promise<string> {
     "-f", "lavfi", "-i", `color=c=${INSERT_COLORS[index % INSERT_COLORS.length]}:s=1920x1080`,
     "-vf", `drawtext=text='INSERT ${index}':fontcolor=white:fontsize=140:x=(w-text_w)/2:y=(h-text_h)/2`,
     "-frames:v", "1",
+    out,
+  ]);
+  return out;
+}
+
+/**
+ * One fake "insert CLIP" (this task's change #2) — a short animated Kling
+ * i2v result never actually happens here (no fal), but a real Kling insert
+ * clip IS exactly INSERT_CLIP_SECONDS long, so that's what this fixture
+ * synthesizes: a solid color field (a different color family than the still
+ * fixtures, so the two are visually distinguishable) at INSERT_CLIP_SECONDS.
+ */
+async function makeFakeInsertClip(dir: string, index: number): Promise<string> {
+  const out = path.join(dir, `fake-insert-clip-${index}.mp4`);
+  await ffmpeg([
+    "-f", "lavfi", "-i", `color=c=${INSERT_CLIP_COLORS[index % INSERT_CLIP_COLORS.length]}:s=1920x1080:d=${INSERT_CLIP_SECONDS}:r=24`,
+    "-vf", `drawtext=text='INSERT CLIP ${index}':fontcolor=white:fontsize=140:x=(w-text_w)/2:y=(h-text_h)/2`,
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast",
     out,
   ]);
   return out;
@@ -224,8 +262,9 @@ async function main() {
     console.log("\n=== synthesizing fixtures ===");
     const clips = await Promise.all(Array.from({ length: 6 }, (_, i) => makeFakeClip(dir, i)));
     const inserts = await Promise.all(Array.from({ length: 3 }, (_, i) => makeFakeInsert(dir, i)));
+    const insertClips = await Promise.all(Array.from({ length: 3 }, (_, i) => makeFakeInsertClip(dir, i)));
     const music = await makeFakeMusic(dir);
-    console.log(`6 clips + 3 inserts + 1 music track ready`);
+    console.log(`6 clips (${SHOT_SECONDS}s each) + 3 insert stills + 3 insert clips (${INSERT_CLIP_SECONDS}s each) + 1 music track ready`);
 
     console.log("\n=== EDL beat counts (spec §1.2/§1.3, TRAILER-STORY-SPEC §1.3) ===");
     // Four combinations: {six-card, legacy-four-card} x {with-inserts, without}.
@@ -271,6 +310,54 @@ async function main() {
     );
     assertEqual("legacy EDL: brand is the LAST card", legacyCards[legacyCards.length - 1], "brand");
     assertTrue("legacy EDL never contains premise/stinger", !legacyCards.includes("premise") && !legacyCards.includes("stinger"));
+
+    console.log("\n=== punch-in 'different moment' arithmetic (this task, change #1) ===");
+    // The exact concern the owner flagged: a clip's wide beat and its
+    // punch-in beat used to trim the SAME [0, seconds] source window — same
+    // footage, tighter crop. punchInSourceWindow is the pure function
+    // renderClipBeat calls to decide that window; called directly here (with
+    // clip 0's own EDL beat lengths and the fixture's real SHOT_SECONDS
+    // source length) so the "different moment" claim is visible in this
+    // output, not just asserted against a hidden internal value.
+    const clip0WideBeat = edlStoryWithInserts.find((b) => b.kind === "clip" && b.clip === 0 && b.punchIn === 1) as
+      | { clip: number; punchIn: number; frames: number }
+      | undefined;
+    const clip0PunchInBeat = edlStoryWithInserts.find((b) => b.kind === "clip" && b.clip === 0 && b.punchIn > 1) as
+      | { clip: number; punchIn: number; frames: number }
+      | undefined;
+    if (!clip0WideBeat || !clip0PunchInBeat) throw new Error("expected clip 0 to have both a wide and a punch-in beat");
+    const clip0WideOnScreen = clip0WideBeat.frames / 30;
+    const clip0PunchInOnScreen = clip0PunchInBeat.frames / 30;
+    const wideWindow = punchInSourceWindow(SHOT_SECONDS, clip0WideOnScreen, clip0WideBeat.punchIn);
+    const punchInWindow = punchInSourceWindow(SHOT_SECONDS, clip0PunchInOnScreen, clip0PunchInBeat.punchIn);
+    console.log(
+      `clip 0 source is ${SHOT_SECONDS}s long:\n` +
+        `  wide beat:      on-screen=${clip0WideOnScreen.toFixed(2)}s @1x -> source [${wideWindow.startSeconds.toFixed(2)}s .. ${(wideWindow.startSeconds + wideWindow.sourceSeconds).toFixed(2)}s]\n` +
+        `  punch-in beat:  on-screen=${clip0PunchInOnScreen.toFixed(2)}s @${PUNCH_IN_SPEED}x -> source [${punchInWindow.startSeconds.toFixed(2)}s .. ${(punchInWindow.startSeconds + punchInWindow.sourceSeconds).toFixed(2)}s]`
+    );
+    assertTrue("wide beat trims from the OPENING seconds of the source (offset 0)", wideWindow.startSeconds === 0);
+    assertTrue(
+      "punch-in beat trims from a LATER source offset than the wide beat (a different moment, not a re-crop)",
+      punchInWindow.startSeconds > wideWindow.startSeconds
+    );
+    // Source consumed is on-screen × PUNCH_IN_SPEED rounded UP to a whole
+    // frame: an odd on-screen frame count asks for half a source frame at
+    // 0.5x, which no trim can return, so the window takes the extra frame and
+    // renderClipBeat's -frames:v trims back. Tolerance is exactly one frame —
+    // wide enough for that rounding, still tight enough that a wrong speed
+    // factor (2x instead of 0.5x, say) fails loudly.
+    assertClose(
+      "punch-in beat's slow-motion arithmetic: source consumed = on-screen × PUNCH_IN_SPEED (+≤1 frame)",
+      punchInWindow.sourceSeconds,
+      clip0PunchInOnScreen * PUNCH_IN_SPEED + 0.5 / FILM_FPS,
+      0.5 / FILM_FPS + 1e-9
+    );
+    assertClose(
+      "wide beat consumes its full on-screen length of source (no slow motion, speed 1)",
+      wideWindow.sourceSeconds,
+      clip0WideOnScreen,
+      1e-9
+    );
 
     console.log("\n=== {name} substitution in premise/stinger (TRAILER-STORY-SPEC §6 item 6) ===");
     // Preset path: getLoglines fills ALL 12 static sets, including the two new
@@ -318,11 +405,15 @@ async function main() {
 
     console.log("\n=== full assemble, SIX-CARD EDL (clips + inserts + SFX present, TRAILER-STORY-SPEC §6 item 1) ===");
     const runDir1 = path.join(dir, "run1");
+    // No insert CLIPS on this run (insertClipPaths=[]) — the existing
+    // still-only (Ken Burns) insert path, unchanged by this task's change #2.
+    // Real insert-clip fixtures are exercised separately below.
     const { masterPath, socialPath } = await assembleForTest(
       await ensureDir(runDir1),
       "Test Pet",
       clips,
       inserts,
+      [],
       music,
       LOGLINES_WITH_STORY
     );
@@ -330,6 +421,29 @@ async function main() {
     const socialDur = await probeDurationSeconds(socialPath);
     assertClose("master (16:9) duration", masterDur, TRAILER_SECONDS, FRAME_TOLERANCE_SECONDS);
     assertClose("social (9:16) duration", socialDur, TRAILER_SECONDS, FRAME_TOLERANCE_SECONDS);
+
+    console.log("\n=== slow-motion punch-in: RENDERED segment still fills its exact on-screen duration (this task, change #1) ===");
+    // assembleToFiles writes one "wide-NN.mp4" intermediate per EDL beat into
+    // its working dir before concatenating them (runDir1, still on disk —
+    // assembleForTest doesn't clean up, only the whole-script scratch dir does,
+    // at the very end). Locating clip 0's punch-in beat's OWN rendered segment
+    // and probing its actual duration verifies the setpts/-r arithmetic
+    // (renderClipBeat) really did stretch HALF the source back out to the
+    // beat's full on-screen length in a REAL ffmpeg run — not just in the
+    // pure punchInSourceWindow calculation asserted above.
+    const clip0PunchInIndex = edlStoryWithInserts.findIndex((b) => b.kind === "clip" && b.clip === 0 && b.punchIn > 1);
+    const clip0WideIndex = edlStoryWithInserts.findIndex((b) => b.kind === "clip" && b.clip === 0 && b.punchIn === 1);
+    if (clip0PunchInIndex < 0 || clip0WideIndex < 0) throw new Error("expected to locate clip 0's wide + punch-in beats in the EDL");
+    const punchInSegmentPath = path.join(runDir1, `wide-${String(clip0PunchInIndex).padStart(2, "0")}.mp4`);
+    const wideSegmentPath = path.join(runDir1, `wide-${String(clip0WideIndex).padStart(2, "0")}.mp4`);
+    const punchInSegmentDur = await probeDurationSeconds(punchInSegmentPath);
+    const wideSegmentDur = await probeDurationSeconds(wideSegmentPath);
+    console.log(
+      `clip 0 rendered segments: wide=${wideSegmentDur.toFixed(3)}s (expected ${clip0WideOnScreen.toFixed(3)}s), ` +
+        `punch-in=${punchInSegmentDur.toFixed(3)}s (expected ${clip0PunchInOnScreen.toFixed(3)}s, slowed ${PUNCH_IN_SPEED}x from ${(clip0PunchInOnScreen * PUNCH_IN_SPEED).toFixed(3)}s of source)`
+    );
+    assertClose("slow-motion punch-in beat's RENDERED duration matches its EDL on-screen length", punchInSegmentDur, clip0PunchInOnScreen, FRAME_TOLERANCE_SECONDS);
+    assertClose("wide beat's RENDERED duration matches its EDL on-screen length", wideSegmentDur, clip0WideOnScreen, FRAME_TOLERANCE_SECONDS);
 
     console.log("\n=== encode-quality assertions (FILM-QUALITY-V3-SPEC.md §7 item 4/5) ===");
     // Item 4: punch-in filter carries the upward y-bias + lanczos, and no
@@ -374,14 +488,14 @@ async function main() {
 
     console.log("\n=== assemble WITHOUT inserts (graceful degradation, spec §4.3/§4.4) ===");
     const runDir2 = path.join(dir, "run2");
-    const noInserts = await assembleForTest(await ensureDir(runDir2), "Test Pet", clips, [], music, LOGLINES_WITH_STORY);
+    const noInserts = await assembleForTest(await ensureDir(runDir2), "Test Pet", clips, [], [], music, LOGLINES_WITH_STORY);
     const masterDurNoInserts = await probeDurationSeconds(noInserts.masterPath);
     assertClose("master duration with NO inserts", masterDurNoInserts, TRAILER_SECONDS, FRAME_TOLERANCE_SECONDS);
 
     console.log("\n=== assemble WITH SFX files temporarily absent (spec §2.1) ===");
     const runDir3 = path.join(dir, "run3");
     await withSfxHidden(async () => {
-      const noSfx = await assembleForTest(await ensureDir(runDir3), "Test Pet", clips, inserts, music, LOGLINES_WITH_STORY);
+      const noSfx = await assembleForTest(await ensureDir(runDir3), "Test Pet", clips, inserts, [], music, LOGLINES_WITH_STORY);
       const masterDurNoSfx = await probeDurationSeconds(noSfx.masterPath);
       assertClose("master duration with SFX absent", masterDurNoSfx, TRAILER_SECONDS, FRAME_TOLERANCE_SECONDS);
       assertTrue("assembly with SFX absent completed without throwing", true);
@@ -401,6 +515,7 @@ async function main() {
       "Test Pet",
       clips,
       inserts,
+      [],
       music,
       LOGLINES_LEGACY
     );
@@ -408,6 +523,45 @@ async function main() {
     const socialDurLegacy = await probeDurationSeconds(legacyRun.socialPath);
     assertClose("LEGACY master (16:9) duration", masterDurLegacy, TRAILER_SECONDS, FRAME_TOLERANCE_SECONDS);
     assertClose("LEGACY social (9:16) duration", socialDurLegacy, TRAILER_SECONDS, FRAME_TOLERANCE_SECONDS);
+
+    console.log(
+      "\n=== full assemble WITH REAL INSERT CLIPS (this task, change #2 — all 3 inserts animated, not Ken Burns) ==="
+    );
+    const runDir5 = path.join(dir, "run5");
+    const withInsertClips = await assembleForTest(
+      await ensureDir(runDir5),
+      "Test Pet",
+      clips,
+      inserts,
+      insertClips,
+      music,
+      LOGLINES_WITH_STORY
+    );
+    const masterDurInsertClips = await probeDurationSeconds(withInsertClips.masterPath);
+    const socialDurInsertClips = await probeDurationSeconds(withInsertClips.socialPath);
+    assertClose("master duration with insert CLIPS present", masterDurInsertClips, TRAILER_SECONDS, FRAME_TOLERANCE_SECONDS);
+    assertClose("social duration with insert CLIPS present", socialDurInsertClips, TRAILER_SECONDS, FRAME_TOLERANCE_SECONDS);
+
+    console.log(
+      "\n=== full assemble with MIXED insert clips (this task, change #2 — per-insert Ken Burns fallback) ==="
+    );
+    // Only insert 0 has a real generated clip; inserts 1 and 2 simulate a
+    // failed generateInsertClip call (cached as `null`) and must fall back to
+    // Ken Burns individually — proving one insert's failure doesn't take the
+    // other two (or the film) down with it.
+    const runDir6 = path.join(dir, "run6");
+    const mixedInsertClips: (string | null)[] = [insertClips[0], null, null];
+    const mixedRun = await assembleForTest(
+      await ensureDir(runDir6),
+      "Test Pet",
+      clips,
+      inserts,
+      mixedInsertClips,
+      music,
+      LOGLINES_WITH_STORY
+    );
+    const masterDurMixed = await probeDurationSeconds(mixedRun.masterPath);
+    assertClose("master duration with MIXED insert clips/Ken-Burns fallback", masterDurMixed, TRAILER_SECONDS, FRAME_TOLERANCE_SECONDS);
 
     console.log(`\n=== ${failures === 0 ? "ALL ASSERTIONS PASSED" : `${failures} ASSERTION(S) FAILED`} ===`);
     process.exit(failures === 0 ? 0 : 1);

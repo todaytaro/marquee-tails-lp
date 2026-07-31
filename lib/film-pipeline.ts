@@ -24,16 +24,21 @@ import { reshootCutStill, EDIT_MODEL, IDENTITY_RULES, STYLE_RULES } from "./stil
  * generates any customer-facing stills — it just animates the six the
  * customer chose, then CUTS them into a real trailer instead of playing them
  * back to back:
- *   1. 3 no-pet "insert" B-roll stills (nano-banana, no Kling spend) — §4
+ *   1. 3 no-pet "insert" B-roll stills (nano-banana), each ALSO animated into
+ *      a short Kling clip (real motion instead of Ken Burns on a photo — this
+ *      task's change #2; Ken Burns remains the fallback if that animation
+ *      fails) — §4
  *   2. each chosen still (order.chosenStills) -> SHOT_SECONDS Kling clip (i2v, silent)
  *   3. original score via Stable Audio 2.5
  *   4. assemble a BEAT EDL (Edit Decision List, not a 6-shot concat): each
- *      clip is trimmed to a 2-3.5s beat (twice — once wide, once as a
- *      "punch-in" reframe of the SAME footage), interleaved with black title
- *      cards and Ken-Burns inserts, normalized so the whole thing is EXACTLY
- *      60.0s, graded (2.35:1 matte + grain + grade) and scored with an SFX
- *      bed on top of the music (buildEdl / assembleToFiles below)
- *   5. centre-crop the same EDL again (no matte, vertical cards) -> 9:16 cut
+ *      clip is trimmed to a 2-3.5s beat TWICE — once wide (the opening
+ *      seconds of the source, full speed), once as a "punch-in" reframe of a
+ *      LATER window of the SAME source clip, played back at PUNCH_IN_SPEED
+ *      (slow motion) — interleaved with black title cards and animated/
+ *      Ken-Burns inserts, normalized so the whole thing is EXACTLY 60.0s,
+ *      graded (grain + grade, no cinescope matte) and scored with an SFX bed
+ *      on top of the music (buildEdl / assembleToFiles below)
+ *   5. centre-crop the same EDL again (vertical cards) -> 9:16 cut
  *   6. upload both to fal storage, -> AWAITING_ADMIN_APPROVAL
  *
  * Why the rewrite (owner's live-review postmortem, see TRAILER-EDIT-SPEC.md
@@ -42,11 +47,18 @@ import { reshootCutStill, EDIT_MODEL, IDENTITY_RULES, STYLE_RULES } from "./stil
  * one shot. Kling's motion budget is also capped by the identity gate (push it
  * further and the pet drifts), so the fix lives entirely on the edit side:
  * shorter clips, harder cuts, real B-roll, cards instead of burned-in
- * captions, and an SFX bed. This also LOWERS Kling spend (5s cuts, §5) even
- * though the finished trailer now has more, punchier cuts.
+ * captions, and an SFX bed. A LATER owner review of the finished trailer
+ * found a second-order version of the same problem: a clip's wide beat and
+ * its punch-in beat showed the same moment twice (same [0, seconds] window,
+ * just cropped tighter) — reuse itself wasn't the issue, showing the SAME
+ * moment twice was. The punch-in/slow-motion + SHOT_SECONDS=8 changes above
+ * fix that without any extra Kling spend per pet shot.
  *
- * Cost ~ 6×SHOT_SECONDS×$0.084 video + ~3×$0.02 insert stills + $0.20 music
- * (≈ $2.8 at 5s) + gate re-rolls; stills were already spent at Gate 1.
+ * Cost ~ 6×SHOT_SECONDS×$0.084 video + ~3×$0.02 insert stills +
+ * ~3×$0.25 insert CLIPS (Kling i2v at its 3s minimum — real motion instead of
+ * Ken Burns on a static photo, falls back to Ken Burns per-insert if
+ * generation fails) + $0.20 music (≈ $6.1 at 8s) + gate re-rolls; stills were
+ * already spent at Gate 1.
  * Dev/localhost only (heavy, long-running); on Vercel this moves behind a
  * queue/worker (n8n phase). VIDEO_PIPELINE_MOCK=1 short-circuits e2e.
  */
@@ -69,15 +81,31 @@ const MUSIC_MODEL = "fal-ai/stable-audio-25/text-to-audio";
 // is nothing to anchor an edit model to (spec §4.2).
 const INSERT_STILL_MODEL = "fal-ai/nano-banana-pro";
 
-// House setting (spec §5): every beat the EDL below can build is <=3.5s, and
-// a punch-in beat REUSES its wide beat's footage (§1.1) rather than consuming
-// fresh seconds, so a 5s Kling source clip covers every beat that references
-// it. Down from 8s — cheaper AND the old 8s number no longer means anything
-// structural (it used to be one whole shot; now it's just raw material a beat
-// trims from). Kling duration enum is 3-15s, so 5 is legal either way.
-// Re-assembly / single-shot re-render both trim from source, so mixed 5s/8s
-// clips across old + new orders are handled identically (spec §5).
-const SHOT_SECONDS = 5;
+// House setting — REVISED back up from 5s (this task's change #3). The 8->5s
+// cut assumed a punch-in beat could just REUSE its wide beat's exact [0,
+// seconds] window (old §1.1) — same footage, tighter crop. The owner's
+// live-review of the finished trailer called that out precisely: a clip's
+// wide beat and its punch-in beat showed the same moment twice, so a repeat
+// still read as a repeat even after the crop changed. The fix (this task's
+// change #1, see PUNCH_IN_SPEED / punchInSourceWindow below) makes a
+// punch-in beat trim a LATER window of the source instead of the same one —
+// but that only works if the source actually HAS a meaningfully later
+// window to trim from. At 5s, "the closing seconds" and "the opening
+// seconds" of a ~2-3.5s beat sat close enough together that there wasn't
+// much of a genuinely different moment to find. 8s gives real separation.
+// It also compounds with start+end interpolation (FILM-QUALITY-V3-SPEC.md
+// §5): the pose change (start_image_url -> end_image_url) plays out across
+// the WHOLE clip, so an early trim and a late trim now differ by the pose
+// itself, not just the framing. Kling duration enum is 3-15s, so 8 is legal.
+// Re-assembly / single-shot re-render both trim from source (using each
+// clip's own PROBED duration, never this constant directly — see
+// clampToSourceDurations), so mixed 5s/8s clips across old + new orders are
+// handled identically; a legacy order's shorter source just has less "later
+// window" for punchInSourceWindow to draw from, which the clamp accounts for.
+// Exported (like PUNCH_IN_ZOOM/FILM_FPS) so scripts/test-assemble.ts can
+// synthesize fixtures at this exact source length instead of a hardcoded
+// duplicate of the number.
+export const SHOT_SECONDS = 8;
 
 // Trailer total (spec §1.3) — the EDL below is normalized to land EXACTLY
 // here, in every case (with or without inserts, see buildEdl).
@@ -228,7 +256,8 @@ async function submitClip(input: Record<string, unknown>, capMs: number): Promis
  * Animate a chosen still into a SHOT_SECONDS silent clip with a per-shot
  * camera move. This is now raw MATERIAL for the EDL, not a finished shot —
  * the assembler trims 2-3.5s beats out of it (possibly twice — a wide framing
- * and a punch-in reframe of the same footage, spec §1.1).
+ * from the opening seconds, and a slow-motion punch-in reframe of a LATER
+ * window of the same source clip, this task's change #1).
  *
  * Identity through the clip is held by (a) the customer's hand-picked,
  * identity-gated start frame and (b) calm low-morph motion. We deliberately do
@@ -469,10 +498,12 @@ async function generateGatedEndFrame(
 
 /**
  * One no-pet atmospheric B-roll still (spec §4.2). Text-to-image, not i2v —
- * Ken Burns (renderInsertBeat, below) supplies all the motion an insert
- * needs, so this never touches Kling. Inserts NEVER enter clipUrls/
- * shotClipUrls/shotIdentityScores or any identity-scoring loop (spec §4.4) —
- * there is no pet in the frame to score.
+ * this is the still generateInsertClip (below) then animates via Kling, and
+ * also the fallback frame Ken Burns (renderInsertBeat) uses on its own if
+ * that animation fails (this task's change #2). Inserts NEVER enter
+ * clipUrls/shotClipUrls/shotIdentityScores or any identity-scoring loop
+ * (spec §4.4) — there is no pet in the frame to score, on the still OR the
+ * clip generated from it.
  */
 async function generateInsertStill(subject: string): Promise<string> {
   const r = await fal.subscribe(INSERT_STILL_MODEL, {
@@ -490,6 +521,50 @@ async function generateInsertStill(subject: string): Promise<string> {
   const url = (r.data as { images?: { url?: string }[] })?.images?.[0]?.url;
   if (!url) throw new Error("insert still result missing url");
   return url;
+}
+
+// Kling's shortest legal duration (fal's duration enum is 3-15s, same
+// endpoint the pet shots use — see KLING_MODEL). Insert beats are only
+// ~2-2.5s on screen even after 60s normalization (EDL_TEMPLATE's raw i1/i2/i3
+// are 2.0s, and buildEdl's scale factor is ~1.24 at time of writing, so a
+// scaled insert beat stays comfortably under 3s) — paying for anything longer
+// than Kling's minimum here would be spend with no beat left to show it.
+// Exported so scripts/test-assemble.ts can synthesize insert-clip fixtures at
+// this exact length.
+export const INSERT_CLIP_SECONDS = 3;
+
+// No pet in frame (spec §4.4) means no identity risk, hence no CLIP_NEGATIVE
+// (that constant's whole job is protecting a specific dog's face/tail/ears) —
+// this is a much shorter list, just keeping the OTHER house rules an insert
+// must never break: no animal/person wandering into frame, no on-screen text.
+const INSERT_CLIP_NEGATIVE =
+  "animals, pets, dogs, cats, people, humans, hands, text, watermark, cartoon, cel shading, low quality, blurry, morphing";
+
+/**
+ * Animate one insert still into a short Kling clip (this task's change #2 —
+ * "Ken Burns on a still is what makes inserts feel like slides"). Reuses the
+ * exact same image-to-video queue plumbing as the pet shots (submitClip /
+ * KLING_MODEL), but deliberately carries NONE of the identity machinery
+ * (generateGatedClip's re-roll/scoring loop, CLIP_IDENTITY_THRESHOLD): there
+ * is no pet to gate, so there is nothing to hold still for either — the model
+ * is free to invent whatever atmospheric drift it likes, which is exactly
+ * what makes a B-roll insert (a sign, a puddle, receding taillights) read as
+ * alive rather than an animated photograph.
+ *
+ * Never throws to the caller in a way that stalls the film: any failure here
+ * is caught by the caller (runFilmGeneration), which caches `null` for this
+ * insert index and falls back to Ken Burns for it (renderInsertBeat) — spec:
+ * "Ken Burns must remain the fallback".
+ */
+async function generateInsertClip(stillUrl: string, subject: string): Promise<string> {
+  const input: Record<string, unknown> = {
+    start_image_url: publicUrl(stillUrl),
+    duration: String(INSERT_CLIP_SECONDS),
+    generate_audio: false,
+    negative_prompt: INSERT_CLIP_NEGATIVE,
+    prompt: `${subject}, slow atmospheric drift, subtle cinematic camera motion, no animals, no people, no text.`,
+  };
+  return submitClip(input, 15 * 60 * 1000);
 }
 
 /** scorePrompt comes from resolveWorld(order).score — static WORLD_SCORES for presets, Claude's bundle for custom orders. */
@@ -693,10 +768,82 @@ if (PUNCH_IN_ZOOM > PUNCH_IN_ZOOM_MAX) {
 // the ears/head the still was framed to show.
 export const PUNCH_IN_Y_BIAS = 0.25;
 
+// --- Punch-in "different moment" fix (this task's change #1) ---------------
+//
+// A punch-in beat used to trim the exact SAME [0, seconds] window of the
+// source clip that its wide beat already showed — the crop got tighter, but
+// the FOOTAGE was identical, so the owner's live-review of the finished
+// trailer read it correctly: a clip's wide beat and its punch-in beat show
+// the same moment twice, just cropped differently. Two changes fix that
+// without spending anything extra:
+//
+//   1. Trim from the CLOSING seconds of the source instead of the opening
+//      ones (punchInSourceWindow below) — the wide beat is the pet at the
+//      start of its take, the punch-in is the pet a few seconds later in the
+//      SAME take. Genuinely different content, zero extra Kling spend.
+//   2. Play that later window back at PUNCH_IN_SPEED (half speed) — a slow
+//      push-in on a later moment is standard trailer grammar (deliberate
+//      emphasis), not an accident of reusing footage.
+//
+// PUNCH_IN_SPEED only applies to punch-in beats (punchIn > NO_PUNCH_IN); a
+// wide beat is untouched (speed 1, trims from source offset 0, same as ever).
+export const PUNCH_IN_SPEED = 0.5;
+
+/**
+ * Where a "clip" beat's ffmpeg `-ss`/`-t` window sits inside its NORMALISED
+ * source clip, and how much of that source it actually needs.
+ *
+ * The on-screen duration (`onScreenSeconds`) is fixed by the EDL (buildEdl's
+ * 60s normalization) — that can never change, or the assembled film drifts
+ * off 60.0s. What CAN change is how much source footage fills that on-screen
+ * time: at PUNCH_IN_SPEED (half speed), `setpts` stretches every source
+ * second into TWO on-screen seconds, so a punch-in beat only needs HALF as
+ * much source as its on-screen length — get this backwards (e.g. request a
+ * full `onScreenSeconds` of source and then also slow it down) and the beat
+ * plays for twice as long as the EDL asked for, or a short source clip runs
+ * out mid-beat. `sourceSeconds` below is exactly `onScreenSeconds *
+ * PUNCH_IN_SPEED` for a punch-in beat, `onScreenSeconds` unchanged for a wide
+ * one (speed 1).
+ *
+ * `startSeconds` is where that window begins: 0 for a wide beat ("the opening
+ * seconds"), or as close to the very end of the source as `sourceSeconds`
+ * allows for a punch-in beat ("the closing seconds") — `Math.max(0, ...)`
+ * only matters for a pathologically short source (shorter than the beat's
+ * own reduced footage need), and clampToSourceDurations is what keeps that
+ * from happening in the first place.
+ *
+ * Exported (like punchInFilter) so scripts/test-assemble.ts can assert
+ * directly against this exact function — wide and punch-in offsets for the
+ * same clip must differ — rather than re-deriving the arithmetic itself.
+ */
+export function punchInSourceWindow(
+  sourceDurationSeconds: number,
+  onScreenSeconds: number,
+  punchIn: number
+): { startSeconds: number; sourceSeconds: number } {
+  const isPunchIn = punchIn > NO_PUNCH_IN;
+  const speed = isPunchIn ? PUNCH_IN_SPEED : 1;
+  // Round the source window UP to a whole frame. At 0.5x an ODD on-screen
+  // frame count asks for half a source frame — 89 frames on screen needs 44.5
+  // — and a trim can only hand back 44, which stretches to 88 and leaves the
+  // beat one frame short. Six such beats put the master at 59.80s, and only
+  // on the no-inserts EDL, where the scale factor happens to produce odd
+  // counts; the with-inserts EDL rounded even and looked fine. Taking the
+  // extra frame costs nothing — `-frames:v` in renderClipBeat trims back to
+  // the exact EDL length either way — and starting a frame earlier is
+  // imperceptible.
+  const frames = Math.ceil(onScreenSeconds * speed * FILM_FPS);
+  const sourceSeconds = frames / FILM_FPS;
+  const startSeconds = isPunchIn ? Math.max(0, sourceDurationSeconds - sourceSeconds) : 0;
+  return { startSeconds, sourceSeconds };
+}
+
 /**
  * The current beat template (TRAILER-STORY-SPEC.md §1.3) — 6 clips (each used
- * twice: once wide, once as a punch-in reframe of the SAME footage, §1.1), 3
- * no-pet inserts, 8 title cards. Authored `seconds` here are the UNSCALED
+ * twice: once wide, once as a slow-motion punch-in reframe of a LATER window
+ * of the same source clip, this task's change #1), 3 no-pet inserts (each
+ * with its own animated Kling clip, falling back to Ken Burns — this task's
+ * change #2), 8 title cards. Authored `seconds` here are the UNSCALED
  * lengths from the spec table; buildEdl() below scales every clip/insert beat
  * so the assembled total lands on EXACTLY 60.0s (§1.3).
  *
@@ -838,7 +985,15 @@ export type ScaledBeat = EdlBeat & { frames: number };
 export function buildEdl(
   hasInserts: boolean,
   hasStoryCards: boolean,
-  clipDurationsSeconds?: number[]
+  clipDurationsSeconds?: number[],
+  // Probed duration of each insert's REAL generated Kling clip (this task's
+  // change #2), parallel to the 3 insert slots; `undefined` at an index means
+  // "no clip for this insert, it renders via Ken Burns" — a still has no real
+  // duration cap, so that insert stays unclamped exactly like before this
+  // feature existed. Only meaningful when `clipDurationsSeconds` is also
+  // given (the real-render path); the structural EDL-shape tests in
+  // test-assemble.ts that omit both skip all clamping, unchanged.
+  insertClipDurationsSeconds?: (number | undefined)[]
 ): ScaledBeat[] {
   // hasStoryCards (TRAILER-STORY-SPEC.md §1.2) picks EDL_TEMPLATE (six-card,
   // premise+stinger) when true, EDL_TEMPLATE_LEGACY (today's four-card cut)
@@ -871,7 +1026,7 @@ export function buildEdl(
   }
 
   if (clipDurationsSeconds) {
-    scaled = clampToSourceDurations(scaled, clipDurationsSeconds);
+    scaled = clampToSourceDurations(scaled, clipDurationsSeconds, insertClipDurationsSeconds ?? []);
   }
 
   return scaled;
@@ -882,6 +1037,21 @@ export function buildEdl(
  * duration, redistributing whatever a clamp removes to beats that still have
  * headroom so the assembled total is UNCHANGED at exactly TRAILER_FRAMES —
  * see buildEdl's doc comment above for why this exists.
+ *
+ * Two independent caps feed this, both expressed as "how many ON-SCREEN
+ * frames can this beat's source actually sustain":
+ *   - "clip" beats (a pet shot): a WIDE beat needs one on-screen frame of
+ *     source per on-screen frame shown (speed 1). A PUNCH-IN beat, per this
+ *     task's change #1, plays at PUNCH_IN_SPEED — it only consumes
+ *     `PUNCH_IN_SPEED` seconds of source per on-screen second, so it can
+ *     sustain `sourceCap / PUNCH_IN_SPEED` on-screen frames from the same
+ *     source, i.e. TWICE as many at PUNCH_IN_SPEED=0.5. Get this backwards
+ *     (treat a punch-in beat like a wide one) and a perfectly fine slow-motion
+ *     beat gets clamped as if it needed twice the source it actually does.
+ *   - "insert" beats: only capped when this insert has a REAL generated Kling
+ *     clip (this task's change #2, insertClipDurationsSeconds[i] defined) —
+ *     a still-only (Ken Burns) insert has no real upper bound, same as
+ *     before this feature existed, so it stays Infinity/uncapped.
  *
  * Redistribution order: "insert" beats first (a Ken-Burns push-in on a still
  * image has no real upper bound — it can always absorb more), THEN other
@@ -905,12 +1075,29 @@ export function buildEdl(
  * re-render (which re-probes the same cached clip URLs) reproduces the
  * exact same EDL.
  */
-function clampToSourceDurations(beats: ScaledBeat[], clipDurationsSeconds: number[]): ScaledBeat[] {
+function clampToSourceDurations(
+  beats: ScaledBeat[],
+  clipDurationsSeconds: number[],
+  insertClipDurationsSeconds: (number | undefined)[]
+): ScaledBeat[] {
   // Math.floor, not round: never ask ffmpeg to trim MORE than a source
-  // actually contains. Missing/undefined duration data for a clip index
-  // means "don't clamp it" (Infinity), not "clamp to zero" — safer default.
-  const capFramesFor = (clipIndex: number): number =>
-    Math.max(0, Math.floor(secondsToFrames(clipDurationsSeconds[clipIndex] ?? Infinity)));
+  // actually contains. Missing/undefined duration data means "don't clamp
+  // it" (Infinity), not "clamp to zero" — safer default.
+  const capFramesFor = (beat: ScaledBeat): number => {
+    if (beat.kind === "clip") {
+      const sourceCapFrames = Math.max(0, Math.floor(secondsToFrames(clipDurationsSeconds[beat.clip] ?? Infinity)));
+      const speed = beat.punchIn > NO_PUNCH_IN ? PUNCH_IN_SPEED : 1;
+      // Dividing by speed converts "frames of SOURCE available" into "frames
+      // of ON-SCREEN beat length this source can sustain at this beat's
+      // playback speed" (see the function doc comment above).
+      return Math.floor(sourceCapFrames / speed);
+    }
+    if (beat.kind === "insert") {
+      const dur = insertClipDurationsSeconds[beat.insert];
+      return dur === undefined ? Infinity : Math.max(0, Math.floor(secondsToFrames(dur)));
+    }
+    return Infinity; // cards are never clamped
+  };
 
   const result: ScaledBeat[] = beats.map((b) => ({ ...b }));
   // A beat is "capped" once its frames are pinned to its source's max; capped
@@ -920,8 +1107,8 @@ function clampToSourceDurations(beats: ScaledBeat[], clipDurationsSeconds: numbe
   for (let iter = 0; iter < result.length + 1; iter++) {
     let excess = 0;
     result.forEach((b, i) => {
-      if (b.kind !== "clip" || capped.has(i)) return;
-      const cap = capFramesFor(b.clip);
+      if ((b.kind !== "clip" && b.kind !== "insert") || capped.has(i)) return;
+      const cap = capFramesFor(b);
       if (b.frames > cap) {
         excess += b.frames - cap;
         result[i] = { ...b, frames: cap };
@@ -932,7 +1119,7 @@ function clampToSourceDurations(beats: ScaledBeat[], clipDurationsSeconds: numbe
 
     const receivers = result
       .map((b, i) => ({ b, i }))
-      .filter(({ b, i }) => b.kind === "insert" || (b.kind === "clip" && !capped.has(i)));
+      .filter(({ b, i }) => !capped.has(i) && (b.kind === "insert" || b.kind === "clip"));
 
     if (receivers.length === 0) {
       // Nothing left with headroom — extend the closing card rather than
@@ -984,17 +1171,80 @@ export function punchInFilter(punchIn: number): string {
 }
 
 /**
- * Render one "clip" beat: trim the SAME [0, seconds] window of the source
- * clip that every other beat referencing this clip also trims (spec §1.1 —
- * a wide beat and its punch-in reframe are the identical footage, cut
- * differently), optionally punch-in cropped, always re-encoded to a fresh
- * 1920x1080 segment (re-encoding, not stream-copy, guarantees a clean
- * keyframe at the segment boundary for the concat step below).
+ * Render one "clip" beat: trim ONE window of the source clip — [0,
+ * sourceSeconds] for a wide beat ("the opening seconds"), or the LAST
+ * `sourceSeconds` of the source for a punch-in beat ("the closing seconds",
+ * this task's change #1) — optionally punch-in cropped, optionally
+ * slow-motion `setpts`'d back out to its full on-screen length, always
+ * re-encoded to a fresh 1920x1080 segment (re-encoding, not stream-copy,
+ * guarantees a clean keyframe at the segment boundary for the concat step
+ * below).
+ *
+ * `sourceDurationSeconds` is the PROBED duration of the normalised source
+ * clip this beat trims from (the same value buildEdl's clampToSourceDurations
+ * used to decide this beat's on-screen `seconds` was even safe to ask for) —
+ * required so punchInSourceWindow knows where "the closing seconds" actually
+ * are for THIS specific source, not just a nominal SHOT_SECONDS guess.
  */
-async function renderClipBeat(sourceNorm: string, output: string, seconds: number, punchIn: number): Promise<void> {
+async function renderClipBeat(
+  sourceNorm: string,
+  output: string,
+  seconds: number,
+  punchIn: number,
+  sourceDurationSeconds: number
+): Promise<void> {
+  const isPunchIn = punchIn > NO_PUNCH_IN;
+  const { startSeconds, sourceSeconds } = punchInSourceWindow(sourceDurationSeconds, seconds, punchIn);
+  const filters = [punchInFilter(punchIn)];
+  if (isPunchIn) {
+    // Slow motion (this task's change #1): `sourceSeconds` is HALF of `seconds`
+    // at PUNCH_IN_SPEED=0.5, so stretching it back out via setpts to fill the
+    // beat's full on-screen `seconds` is a 2x multiplier — i.e. 1/PUNCH_IN_SPEED,
+    // not PUNCH_IN_SPEED itself (setpts multiplies duration, PUNCH_IN_SPEED is a
+    // playback-speed fraction — inverse relationship, easy to get backwards).
+    filters.push(`setpts=${(1 / PUNCH_IN_SPEED).toFixed(4)}*PTS`);
+    // …then re-sample IN THE FILTER CHAIN, not via the `-r` output option.
+    // setpts only rewrites timestamps: the stream still holds the same ~37
+    // frames, now spread over twice the wall-clock, so its last frame lands a
+    // frame short of the beat's length and the segment ends early. `-r`
+    // re-times what it is handed; it does not invent the frames in between.
+    // The `fps` filter does, duplicating up to a true FILM_FPS across the
+    // stretched timeline. Measured: without this every punch-in beat came out
+    // ~0.037s short, and six per film dragged the master to 59.80s.
+    filters.push(`fps=${FILM_FPS}`);
+  }
+  // Printed for every clip beat so the "wide and punch-in trim from different
+  // moments" claim is visible in real pipeline logs, not just asserted in
+  // scripts/test-assemble.ts.
+  console.log(
+    `[film] clip beat: ${isPunchIn ? `punch-in @${PUNCH_IN_SPEED}x` : "wide"} on-screen=${seconds.toFixed(2)}s ` +
+      `source=[${startSeconds.toFixed(2)}s..${(startSeconds + sourceSeconds).toFixed(2)}s] of ${sourceDurationSeconds.toFixed(2)}s source`
+  );
   await ffmpeg([
-    "-ss", "0", "-t", seconds.toFixed(3), "-i", sourceNorm,
-    "-vf", punchInFilter(punchIn),
+    // 6 decimal places, NOT the 3 every other `-ss`/`-t` in this file uses:
+    // punchInSourceWindow's startSeconds/sourceSeconds come from a
+    // SUBTRACTION (sourceDurationSeconds - sourceSeconds), so they're
+    // arbitrary floats, not clean authored numbers. Rounding to 3 decimals
+    // (~0.0005s of slop) is invisible on its own, but a punch-in beat pairs
+    // a LATE, rounded-UP `-ss` with a SHORT, rounded-DOWN `-t` — measured on
+    // a real render, that combination skipped the seek target's exact frame
+    // AND truncated the trim early, silently dropping 2 of 74 expected
+    // frames (a punch-in beat that ran ~0.1s short of its EDL on-screen
+    // length, invisible in the 60s-total tolerance but caught by
+    // scripts/test-assemble.ts's per-segment duration assertion). 6 decimals
+    // (~0.000001s of slop, 30,000x smaller than one frame at FILM_FPS) keeps
+    // every trim on the correct side of its frame boundary.
+    "-ss", startSeconds.toFixed(6), "-t", sourceSeconds.toFixed(6), "-i", sourceNorm,
+    "-vf", filters.join(","),
+    // Pin the beat's length in FRAMES, not seconds. The EDL is authored in
+    // whole frames, so a beat is a clean integer here but a repeating decimal
+    // in seconds — 130 frames is 4.333333…s, and `-t 4.333333` is fractionally
+    // under 130 frames, so ffmpeg emits 129 and the beat ends one frame early.
+    // Invisible per beat; six punch-ins per film put the master at 59.80s.
+    // `-frames:v` states the integer the EDL already knows and leaves nothing
+    // to round. (The input `-t` above is a different number whenever slow
+    // motion is on — it bounds SOURCE read, not on-screen length.)
+    "-frames:v", String(Math.round(seconds * FILM_FPS)),
     "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", PRESET_INTERMEDIATE, "-crf", String(CRF_INTERMEDIATE), "-r", String(FILM_FPS),
     output,
   ]);
@@ -1007,7 +1257,15 @@ async function renderClipBeat(sourceNorm: string, output: string, seconds: numbe
 // concat, so there is no separate Ken-Burns-only fps constant any more.
 const KEN_BURNS_ZOOM_END = 1.15;
 
-/** Render one "insert" beat: a still + Ken Burns push-in, no Kling involved. */
+/**
+ * Render one "insert" beat as a Ken Burns push-in on a STILL (no Kling
+ * involved) — the mandatory fallback path (this task's change #2: "Ken Burns
+ * must remain the fallback") for whichever inserts either have no generated
+ * clip attempted (legacy order / custom order with no insert stills at all)
+ * or had their clip generation fail (see generateInsertClip's caller in
+ * runFilmGeneration). Used directly whenever renderInsertClipBeat isn't
+ * (assembleToFiles picks between the two per insert index).
+ */
 async function renderInsertBeat(stillPath: string, output: string, seconds: number): Promise<void> {
   const frames = Math.max(1, Math.round(seconds * FILM_FPS));
   const zoomStep = (KEN_BURNS_ZOOM_END - 1) / frames;
@@ -1017,6 +1275,26 @@ async function renderInsertBeat(stillPath: string, output: string, seconds: numb
     "-vf",
     `scale=3840:2160,zoompan=z='min(zoom+${zoomStep.toFixed(6)},${KEN_BURNS_ZOOM_END})':d=${frames}:s=1920x1080:fps=${FILM_FPS}`,
     "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", PRESET_INTERMEDIATE, "-crf", String(CRF_INTERMEDIATE),
+    output,
+  ]);
+}
+
+/**
+ * Render one "insert" beat from a REAL generated Kling clip (this task's
+ * change #2 — "Ken Burns is what makes them feel like slides"). Trims the
+ * clip's opening `seconds` and rescales, same idea as a wide clip beat, but
+ * never punch-in cropped or slowed: an insert has no identity gate fighting
+ * the video model (spec §4.4 — no pet in frame), so there is nothing forcing
+ * a second, tighter cut from the same footage the way a pet shot gets one.
+ * Only ever called when a clip was actually generated + cached for this
+ * insert index — see assembleToFiles, which falls back to renderInsertBeat
+ * (Ken Burns) otherwise.
+ */
+async function renderInsertClipBeat(sourceNorm: string, output: string, seconds: number): Promise<void> {
+  await ffmpeg([
+    "-ss", "0", "-t", seconds.toFixed(3), "-i", sourceNorm,
+    "-vf", "scale=1920:1080:flags=lanczos",
+    "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", PRESET_INTERMEDIATE, "-crf", String(CRF_INTERMEDIATE), "-r", String(FILM_FPS),
     output,
   ]);
 }
@@ -1230,6 +1508,22 @@ type FilmArtifacts = {
   // unavailable (custom order with no `inserts`, or generation failed —
   // both fall back to an insert-less EDL, never a failed film).
   insertStillUrls?: string[];
+  // Animated Kling clip generated FROM each insert still (this task's change
+  // #2), parallel to insertStillUrls (same indices 0-2). Cached SEPARATELY —
+  // like insertStillUrls, never enters the identity-scoring loop (spec §4.4:
+  // no pet in an insert, nothing to score). undefined = not yet attempted
+  // for this order (runFilmGeneration will try once insertStillUrls exists);
+  // once attempted this is always a full 3-entry array whose entries are:
+  //   string = a generated insert clip — reused as-is on resume/re-render,
+  //            never regenerated (same posture as endFrameUrls below).
+  //   null   = generation failed for JUST this insert — renders via Ken Burns
+  //            (renderInsertBeat) on the cached still instead, permanently
+  //            for this cached run. Never fails the whole film (mandatory
+  //            fallback).
+  // [] = insertStillUrls itself had fewer than 3 entries (legacy order /
+  // custom order with no derivable inserts) — nothing to animate, every
+  // insert beat is Ken Burns.
+  insertClipUrls?: (string | null)[];
   // Start+end interpolation end frames (spec §5.2), one slot per shot,
   // parallel to clipUrls/clipScores. undefined = not yet attempted for this
   // order; once attempted this is always a full-length array (one entry per
@@ -1302,6 +1596,37 @@ export async function runFilmGeneration(order: Order): Promise<void> {
     }
   }
 
+  // Stage I-b. Insert CLIPS (this task's change #2) — animate each insert
+  // still into a real Kling clip instead of leaving it a Ken-Burns-only
+  // still. Only attempted once insertStillUrls is settled (immediately
+  // above); cached separately and PER-INSERT, because a single insert's
+  // generation failing must fall back to Ken Burns for JUST that insert, not
+  // drop the whole batch or fail the film ("Ken Burns must remain the
+  // fallback"). Skips entirely (caches []) when there aren't 3 stills to
+  // animate — nothing for renderInsertClipBeat to use, every insert beat
+  // stays Ken Burns, same as it always has been for those orders.
+  if (art.insertClipUrls === undefined) {
+    const stillsToAnimate = art.insertStillUrls ?? [];
+    if (stillsToAnimate.length >= 3) {
+      console.log(
+        `[film] animating ${stillsToAnimate.length} insert stills (Kling i2v, ${INSERT_CLIP_SECONDS}s min duration) order=${order.id}`
+      );
+      const urls = await Promise.all(
+        stillsToAnimate.slice(0, 3).map(async (stillUrl, i): Promise<string | null> => {
+          try {
+            return await generateInsertClip(stillUrl, resolved.inserts[i] ?? "");
+          } catch (e) {
+            console.warn(`[film] insert ${i} clip generation failed — falling back to Ken Burns for this insert order=${order.id}:`, e);
+            return null;
+          }
+        })
+      );
+      art = await saveArtifacts(order.id, { insertClipUrls: urls });
+    } else {
+      art = await saveArtifacts(order.id, { insertClipUrls: [] });
+    }
+  }
+
   // Stage II. Start+end frame interpolation (spec §5.2/§5.4) — cached
   // SEPARATELY from clipUrls/clipScores, same reasoning as insertStillUrls
   // above: an `undefined` cache means "not yet attempted" (run it), while a
@@ -1360,12 +1685,21 @@ export async function runFilmGeneration(order: Order): Promise<void> {
   const clipScores = art.clipScores!;
   const scoreUrl = art.scoreUrl!;
   const insertStillUrls = art.insertStillUrls ?? [];
+  const insertClipUrls = art.insertClipUrls ?? [];
 
   const lowest = clipScores.length ? Math.min(...clipScores) : 100;
   console.log(`[film] clip identity scores order=${order.id}: [${clipScores.join(", ")}] (lowest ${lowest})`);
 
   console.log(`[film] assembling order=${order.id}`);
-  const [masterUrl, socialUrl] = await assemble(order.id, petName, clipUrls, insertStillUrls, scoreUrl, loglines);
+  const [masterUrl, socialUrl] = await assemble(
+    order.id,
+    petName,
+    clipUrls,
+    insertStillUrls,
+    insertClipUrls,
+    scoreUrl,
+    loglines
+  );
 
   // Persist the per-shot audit into dedicated fields (filmArtifacts is cleared
   // on completion) so the admin drift view has it at Gate 2.
@@ -1380,25 +1714,32 @@ export async function runFilmGeneration(order: Order): Promise<void> {
 /**
  * Renders every beat of the EDL, mixes audio, grades, and returns LOCAL file
  * paths for the 16:9 master and 9:16 social cut. `clipSources`/
- * `insertSources`/`scoreSource` may be remote (fal) URLs — downloaded into
- * `dir` — or already-local file paths, used as-is; that dual mode is what
- * lets scripts/test-assemble.ts drive this exact function against synthetic
- * local fixtures instead of real generated media, with no fork between test
- * and production code paths. `insertSources` may be [] (no inserts available)
- * — buildEdl() drops the insert beats and normalization still lands on
- * exactly 60.0s (spec §1.3/§4.3), EXCEPT when a source clip is too short to
- * give a scaled-up beat what it asks for — see clampToSourceDurations, fed
- * from the probed clip durations below.
+ * `insertStillSources`/`insertClipSources`/`scoreSource` may be remote (fal)
+ * URLs — downloaded into `dir` — or already-local file paths, used as-is;
+ * that dual mode is what lets scripts/test-assemble.ts drive this exact
+ * function against synthetic local fixtures instead of real generated media,
+ * with no fork between test and production code paths. `insertStillSources`
+ * may be [] (no inserts available) — buildEdl() drops the insert beats and
+ * normalization still lands on exactly 60.0s (spec §1.3/§4.3), EXCEPT when a
+ * source clip is too short to give a scaled-up beat what it asks for — see
+ * clampToSourceDurations, fed from the probed clip durations below.
+ *
+ * `insertClipSources[i]` (this task's change #2) is `null`/missing/undefined
+ * whenever insert `i` has no generated Kling clip (not attempted, or
+ * generation failed) — that insert beat renders via Ken Burns on
+ * `insertStillSources[i]` instead (the mandatory fallback). A shorter-than-3
+ * array is fine; missing entries are treated the same as `null`.
  */
 async function assembleToFiles(
   dir: string,
   petName: string,
   clipSources: string[],
-  insertSources: string[],
+  insertStillSources: string[],
+  insertClipSources: (string | null)[],
   scoreSource: string,
   loglines: Loglines
 ): Promise<{ masterPath: string; socialPath: string }> {
-  const hasInserts = insertSources.length >= 3;
+  const hasInserts = insertStillSources.length >= 3;
   // Backward compat (TRAILER-STORY-SPEC.md §1.2): the six-card EDL only
   // applies when BOTH new fields are present. An order whose generatedScript
   // predates this feature (or a custom order Claude scripted without them)
@@ -1426,14 +1767,38 @@ async function assembleToFiles(
   // trims from the normalised file, so that's the length that actually
   // matters for the clamp.
   const clipDurationsSeconds = await Promise.all(normClips.map((p) => probeDurationSeconds(p)));
-  const edl = buildEdl(hasInserts, hasStoryCards, clipDurationsSeconds);
 
   const insertStills: string[] = [];
   if (hasInserts) {
     for (let i = 0; i < 3; i++) {
-      insertStills.push(await fetchOrLocal(insertSources[i], path.join(dir, `insert-raw-${i}.png`)));
+      insertStills.push(await fetchOrLocal(insertStillSources[i], path.join(dir, `insert-raw-${i}.png`)));
     }
   }
+
+  // Insert CLIPS (this task's change #2) — normalise whichever inserts have a
+  // real generated Kling clip; the rest stay `null` and render via Ken Burns
+  // (renderInsertBeat) instead. Done BEFORE buildEdl for the same reason
+  // clips are probed first: buildEdl's clampToSourceDurations needs each
+  // insert clip's ACTUAL duration to know it can't hand a beat more seconds
+  // than a fixed-length Kling clip actually has.
+  const normInsertClips: (string | null)[] = [];
+  for (let i = 0; i < 3; i++) {
+    const src = insertClipSources[i];
+    if (src) {
+      const raw = await fetchOrLocal(src, path.join(dir, `insert-clip-raw-${i}.mp4`));
+      const norm = path.join(dir, `insert-clip-norm-${i}.mp4`);
+      await normaliseClip(raw, norm);
+      normInsertClips.push(norm);
+    } else {
+      normInsertClips.push(null);
+    }
+  }
+  const insertClipDurationsSeconds = await Promise.all(
+    normInsertClips.map((p) => (p ? probeDurationSeconds(p) : Promise.resolve(undefined)))
+  );
+
+  const edl = buildEdl(hasInserts, hasStoryCards, clipDurationsSeconds, insertClipDurationsSeconds);
+
   const scoreLocal = await fetchOrLocal(scoreSource, path.join(dir, "score.wav"));
 
   // --- Render every beat at 1920x1080 — no grade/matte yet (applied ONCE to
@@ -1444,9 +1809,14 @@ async function assembleToFiles(
     const seconds = framesToSeconds(beat.frames);
     const out = path.join(dir, `wide-${String(i).padStart(2, "0")}.mp4`);
     if (beat.kind === "clip") {
-      await renderClipBeat(normClips[beat.clip], out, seconds, beat.punchIn);
+      await renderClipBeat(normClips[beat.clip], out, seconds, beat.punchIn, clipDurationsSeconds[beat.clip]);
     } else if (beat.kind === "insert") {
-      await renderInsertBeat(insertStills[beat.insert], out, seconds);
+      const clipSrc = normInsertClips[beat.insert];
+      if (clipSrc) {
+        await renderInsertClipBeat(clipSrc, out, seconds);
+      } else {
+        await renderInsertBeat(insertStills[beat.insert], out, seconds);
+      }
     } else {
       await titleCard(out, seconds, cardLinesFor(beat.card, petName, loglines), 1920, 1080);
     }
@@ -1519,24 +1889,34 @@ export function assembleForTest(
   dir: string,
   petName: string,
   clipPaths: string[],
-  insertPaths: string[],
+  insertStillPaths: string[],
+  insertClipPaths: (string | null)[],
   scorePath: string,
   loglines: Loglines
 ): Promise<{ masterPath: string; socialPath: string }> {
-  return assembleToFiles(dir, petName, clipPaths, insertPaths, scorePath, loglines);
+  return assembleToFiles(dir, petName, clipPaths, insertStillPaths, insertClipPaths, scorePath, loglines);
 }
 
 async function assemble(
   orderId: string,
   petName: string,
   clipUrls: string[],
-  insertUrls: string[],
+  insertStillUrls: string[],
+  insertClipUrls: (string | null)[],
   scoreUrl: string,
   loglines: Loglines
 ): Promise<[string, string]> {
   const dir = await mkdtemp(path.join(tmpdir(), `mt-film-${orderId}-`));
   try {
-    const { masterPath, socialPath } = await assembleToFiles(dir, petName, clipUrls, insertUrls, scoreUrl, loglines);
+    const { masterPath, socialPath } = await assembleToFiles(
+      dir,
+      petName,
+      clipUrls,
+      insertStillUrls,
+      insertClipUrls,
+      scoreUrl,
+      loglines
+    );
     // Upload both. Filename is ASCII-slugged (fal storage mangles non-ASCII).
     const slug = petName.replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase() || "film";
     const masterUrl = await uploadFile(masterPath, `${slug}-marquee-tails.mp4`);
@@ -1576,9 +1956,10 @@ export async function completeFilmGeneration(
  * Single-shot re-render — the admin's Gate-2 fix for "this one cut is off".
  * Re-animates ONE clip from its customer-approved still (identity-gated, with
  * the strengthened anti-CG negative prompt), reuses the other five clips, the
- * insert stills, and the music from filmArtifacts, reassembles, and returns
- * the order to AWAITING_ADMIN_APPROVAL. Cost ≈ one clip (~$0.42 at 5s) +
- * scoring; never re-spends on the rest of the film.
+ * insert stills AND their animated clips, and the music from filmArtifacts,
+ * reassembles, and returns the order to AWAITING_ADMIN_APPROVAL. Cost ≈ one
+ * clip (~$0.67 at 8s) + scoring; never re-spends on the rest of the film
+ * (spec §4.4 isolation).
  */
 export type ShotFixOptions = {
   /** true = regenerate the STILL first (look/style problems), then animate. */
@@ -1609,9 +1990,11 @@ export async function runShotRerender(
   const clipUrls = [...(art.clipUrls ?? order.shotClipUrls)];
   const clipScores = [...(art.clipScores ?? order.shotIdentityScores)];
   if (!clipUrls[shotIndex]) throw new Error(`order ${order.id} has no clip to replace at shot ${shotIndex}`);
-  // Inserts are untouched by a shot fix (spec §4.4 isolation) — reuse
-  // whatever was cached (possibly []) rather than regenerating.
+  // Inserts (both the stills AND their animated clips) are untouched by a
+  // shot fix (spec §4.4 isolation) — reuse whatever was cached (possibly [])
+  // rather than regenerating.
   const insertStillUrls = art.insertStillUrls ?? [];
+  const insertClipUrls = art.insertClipUrls ?? [];
   // End frames (spec §5.2/§5.4): reuse the cached one for every OTHER shot
   // untouched, same isolation as inserts above. For THIS shot, a reshoot
   // invalidates the cached end frame — it was posed FROM the old still, so it
@@ -1660,7 +2043,15 @@ export async function runShotRerender(
   await saveArtifacts(order.id, { clipUrls, clipScores, scoreUrl, endFrameUrls });
 
   console.log(`[film] assembling (shot ${shotIndex} fixed) order=${order.id}`);
-  const [masterUrl, socialUrl] = await assemble(order.id, petName, clipUrls, insertStillUrls, scoreUrl, loglines);
+  const [masterUrl, socialUrl] = await assemble(
+    order.id,
+    petName,
+    clipUrls,
+    insertStillUrls,
+    insertClipUrls,
+    scoreUrl,
+    loglines
+  );
 
   await prisma.order.update({
     where: { id: order.id },
