@@ -3,13 +3,41 @@ import { fal } from "@fal-ai/client";
 /**
  * Identity scoring — the shared "is this the SAME individual pet?" check.
  *
- * Likeness is the moat, so identity is gated at two points in the pipeline and
- * both use this one scorer:
- *   - stills-pipeline: every generated storyboard take vs the identity portrait
- *   - film-pipeline:   frames of every animated clip vs the identity portrait
- *     (catches "the video drifted into a different dog" before Gate 2)
+ * Likeness is the moat, so identity is gated at several points in the
+ * pipeline and all of them use these two scorers:
+ *   - stills-pipeline: the identity portrait itself vs the customer's real
+ *     photo (the portrait is the anchor for everything downstream, so it has
+ *     to be checked against reality FIRST — see generateGatedPortrait)
+ *   - stills-pipeline: every generated storyboard take vs the customer's
+ *     real photo (see generateGatedTake)
+ *   - film-pipeline:   frames of every animated clip, and every generated
+ *     end frame, vs the customer's real photo (catches "the video drifted
+ *     into a different dog" before Gate 2)
  *
- * Keeping it here (not in either pipeline) avoids a stills↔film import cycle.
+ * IDENTITY-FIDELITY-SPEC.md §1 documents, with the pre-fix code quoted, why
+ * the FIRST argument below must always be an actual uploaded customer photo
+ * and NOT a generated image (portrait, hero sheet, or anything downstream of
+ * them): both prompts below assert "Image 1 is the/a REAL pet/photo", and
+ * before this fix every caller actually passed the AI-generated identity
+ * portrait as that first image. That made the gate measure "does this
+ * candidate agree with the portrait" instead of "does this candidate look
+ * like the actual dog" — and because the portrait is itself one generation
+ * removed from the real animal, a candidate could drift FURTHER from the
+ * real dog while scoring HIGHER, as long as it drifted in the same direction
+ * the portrait already had. Three compounding generations (photos -> portrait
+ * -> hero sheet -> takes/clips) made that drift invisible: the gate scored
+ * 80-85 against a target that no longer looked like the pet.
+ *
+ * The parameters are still named generically rather than e.g. `realPhotoUrl`
+ * because a couple of callers legitimately do NOT have a real photo in hand:
+ * generateGatedPortrait (stills-pipeline.ts) falls back to a no-op gate, and
+ * some film-pipeline call sites fall back to the pre-fix portrait-anchor
+ * behavior, when an order somehow has no usable uploaded photo (uploads are
+ * mandatory, so this is a defensive branch, not the intended path — see each
+ * call site's comment for why it does or doesn't have one).
+ *
+ * Keeping this here (not in either pipeline) avoids a stills↔film import
+ * cycle.
  */
 
 export const VISION_MODEL = "openrouter/router/vision";
@@ -23,21 +51,22 @@ export function publicUrl(url: string): string {
 }
 
 /**
- * VLM checks a video frame against the identity portrait on TWO axes:
+ * VLM checks a video frame against `referenceUrl` (a real customer photo
+ * whenever the caller has one — see this file's header comment) on TWO axes:
  * identity (same individual pet) and realism (still photoreal live-action, or
  * has the render drifted into CGI/cartoon — Kling clips can "Disneyfy" a few
  * seconds in even from a photoreal start frame). Returns both 0-100 scores.
  * A failed check must never block the pipeline: errors score {100,100}.
  */
 export async function scoreFrame(
-  portraitUrl: string,
+  referenceUrl: string,
   candidateUrl: string
 ): Promise<{ identity: number; realism: number }> {
   try {
     const r = await fal.subscribe(VISION_MODEL, {
       input: {
         model: VISION_LLM,
-        image_urls: [publicUrl(portraitUrl), publicUrl(candidateUrl)],
+        image_urls: [publicUrl(referenceUrl), publicUrl(candidateUrl)],
         prompt:
           "Image 1 is a real photo of a pet. Image 2 is a frame from an AI-generated film starring the same pet in costume. Score two things:\n" +
           "A) IDENTITY 0-100: how confidently is image 2 the SAME INDIVIDUAL animal — same breed, same coat colors in the same places, same facial markings, same proportions? Ignore costume, background and pose. 100 = unmistakably the same individual.\n" +
@@ -63,16 +92,22 @@ export async function scoreFrame(
 }
 
 /**
- * VLM checks a candidate image against the identity portrait ("same individual
- * pet? same markings?") and returns 0-100. A failed check must never block the
+ * VLM checks a candidate image against `referenceUrl` ("same individual pet?
+ * same markings?") and returns 0-100. A failed check must never block the
  * pipeline, so on any error we log and return 100 (treat as pass).
+ *
+ * `referenceUrl` MUST be a real customer photo whenever one is available —
+ * see this file's header comment for why (IDENTITY-FIDELITY-SPEC.md §1). The
+ * old name for this parameter was `portraitUrl`, which was itself the bug:
+ * it documented, in the code, that the generated portrait was the intended
+ * anchor, when the whole point of this fix is that it must not be.
  */
-export async function scoreIdentity(portraitUrl: string, candidateUrl: string): Promise<number> {
+export async function scoreIdentity(referenceUrl: string, candidateUrl: string): Promise<number> {
   try {
     const r = await fal.subscribe(VISION_MODEL, {
       input: {
         model: VISION_LLM,
-        image_urls: [publicUrl(portraitUrl), publicUrl(candidateUrl)],
+        image_urls: [publicUrl(referenceUrl), publicUrl(candidateUrl)],
         prompt:
           "Image 1 is the REAL pet. Image 2 is an AI render of the same pet in costume. How confidently is the render the SAME INDIVIDUAL animal — same breed, same coat colors in the same places, same facial markings (beard, eyebrows), same proportions? Ignore costume, background and pose. Reply with ONLY an integer 0-100 (100 = unmistakably the same individual).",
       },

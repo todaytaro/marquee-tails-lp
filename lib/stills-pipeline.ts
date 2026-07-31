@@ -18,16 +18,32 @@ import { watermarkTakeForPreview } from "./watermark";
  * customer pick one take per cut in the Gate-1 wizard:
  *
  *   Stage 0  describePet      VLM extracts distinguishing features as text
- *                             (coat, mouth/tongue, tail, ears) — injected into
- *                             every downstream prompt so the model can't drift
- *                             to a generic breed prototype.
+ *                             (coat, mouth/tongue, tail, ears, and — per
+ *                             IDENTITY-FIDELITY-SPEC.md §2.3 — how this
+ *                             individual deviates from a breed-standard
+ *                             example) — injected into every downstream
+ *                             prompt so the model can't drift to a generic
+ *                             breed prototype.
  *   Stage 1  identityPortrait Neutral studio close-up — locks the face BEFORE
- *                             any costume/scene transformation.
- *   Stage 2  heroSheet        The pet in the film's LOCKED costume — the shared
- *                             anchor for all 18 takes (keeps costume identical).
+ *                             any costume/scene transformation. Per
+ *                             IDENTITY-FIDELITY-SPEC.md §2.4, this is now
+ *                             ITSELF gated at 80 against the customer's real
+ *                             photo (generateGatedPortrait) before anything
+ *                             downstream is built from it — this is the
+ *                             single highest-leverage gate in the pipeline,
+ *                             since a drifted portrait poisons the hero sheet
+ *                             AND all 18 takes.
+ *   Stage 2  heroSheet        The pet in the film's LOCKED costume — the
+ *                             shared costume anchor for all 18 takes (keeps
+ *                             costume identical). NOT the identity anchor —
+ *                             see Stage 3.
  *   Stage 3  storyboard       6 cuts × 3 takes = 18 stills. Every take is
- *                             referenced to hero sheet + portrait, gated at 80
- *                             against the portrait, and rendered with a DISTINCT
+ *                             referenced to the customer's REAL photo first
+ *                             (identity anchor) + hero sheet (costume anchor)
+ *                             + portrait, gated at 80 against the REAL PHOTO
+ *                             (IDENTITY-FIDELITY-SPEC.md §2.1 — previously
+ *                             gated against the portrait, which is the bug
+ *                             that spec fixes), and rendered with a DISTINCT
  *                             seed so the three takes are genuinely different
  *                             ("similar-to-my-pet" is a real axis to choose on).
  *
@@ -61,7 +77,8 @@ export const STYLE_RULES =
 // Per-cut framing lives in film-script (SHOT_FRAMINGS) so each cut has its own
 // composition (wide/close/low-angle/…) instead of one identical medium shot.
 
-// Identity gate: takes below this score against the portrait are re-rolled
+// Identity gate: takes below this score against the customer's REAL PHOTO
+// (IDENTITY-FIDELITY-SPEC.md §2.1 — see generateGatedTake) are re-rolled
 // before they ever reach the customer.
 const IDENTITY_THRESHOLD = 80;
 // Exported: scripts/test-safety-net.ts uses this (plus STILL_SEED/NUM_CUTS/
@@ -181,11 +198,21 @@ async function analyzePhotos(
       prompt:
         `These ${n} photos (indexed 0-${n - 1}) show ONE pet. Reply with ONLY minified JSON, no prose:\n` +
         `{"description":"<one dense sentence, max 70 words: exact coat colors and where they appear, fur texture/length/haircut, face shape, eye color/shape, nose, muzzle/beard/eyebrow markings, body build — features only, no name>",` +
-        // These three drift the most and owners notice them, so pin each one
+        // These four drift the most and owners notice them, so pin each one
         // explicitly and inject verbatim into every generation prompt.
         `"mouth":"<color of the inside of the mouth/tongue and lips, e.g. pink tongue, black lips>",` +
         `"tail":"<tail length and shape, e.g. short docked stub, long feathered, curled over back>",` +
         `"ears":"<ear carriage exactly, e.g. floppy triangular drop ears, upright pointed, semi-erect>",` +
+        // IDENTITY-FIDELITY-SPEC.md §1.3/§2.3: "coat colors / fur texture /
+        // face shape" alone tends to describe the BREED, not the individual —
+        // a generic sentence about a schnauzer's markings is true of
+        // thousands of schnauzers. This field explicitly asks for the ways
+        // THIS pet deviates from a breed-standard example, which is exactly
+        // the information a model needs to avoid drifting back toward the
+        // generic breed prototype (the owner's actual complaint: a soft,
+        // overgrown, round-faced individual rendered as a neatly-groomed,
+        // standard-proportioned example of the breed).
+        `"distinguishingFromBreed":"<the 2-3 most important ways this INDIVIDUAL differs from a generic/breed-standard example of the same breed (not a breed description) — MUST cover: (1) current grooming/coat-length state, e.g. freshly trimmed and neat vs overgrown/shaggy and where (2) face shape vs breed-standard, e.g. rounder/softer or more angular/sharp (3) eye size impression vs breed-standard, e.g. proportionally larger/softer-looking or smaller>",` +
         `"best_frontal_index":<index of the photo with the clearest, sharpest FRONT-FACING view of the face, or -1 if none is front-facing>}`,
     },
   });
@@ -195,15 +222,22 @@ async function analyzePhotos(
     const base = String(json.description ?? "").trim().slice(0, 480);
     const idx = Number.isInteger(json.best_frontal_index) ? json.best_frontal_index : -1;
     if (!base) throw new Error("empty description");
-    // Pin the three details owners notice most, verbatim, into the description
-    // that flows to every downstream prompt (hero sheet, stills).
+    // Pin the details owners notice most, verbatim, into the description that
+    // flows to every downstream prompt (portrait, hero sheet, stills).
     const locked: string[] = [];
     if (json.mouth) locked.push(`mouth/tongue: ${String(json.mouth).trim()}`);
     if (json.tail) locked.push(`tail: ${String(json.tail).trim()}`);
     if (json.ears) locked.push(`ears: ${String(json.ears).trim()}`);
-    const desc = locked.length
+    let desc = locked.length
       ? `${base} MUST MATCH EXACTLY — ${locked.join("; ")}.`
       : base;
+    // §2.3/§1.3: pinned separately from the "MUST MATCH EXACTLY" list above —
+    // this isn't a literal detail like tongue color, it's an instruction NOT
+    // to normalize this individual back toward the breed prototype, which is
+    // the exact drift the owner's real-photo comparison caught.
+    if (json.distinguishingFromBreed) {
+      desc += ` Do NOT idealize toward a generic breed-standard look — this individual's actual grooming/face/eyes: ${String(json.distinguishingFromBreed).trim()}.`;
+    }
     return { description: desc, bestFrontalIndex: idx >= 0 && idx < n ? idx : 0, hasFrontal: idx >= 0 };
   } catch {
     // Fallback: use whatever text came back as the description, keep order.
@@ -213,24 +247,103 @@ async function analyzePhotos(
   }
 }
 
-/** Stage 1 — neutral close-up that locks the face before any transformation. */
+/**
+ * Stage 1 — neutral close-up that locks the face before any transformation.
+ *
+ * `seed` lets generateGatedPortrait (below) re-roll a drifted attempt on a
+ * fresh seed, the same pattern generateTakeOnce/generateGatedTake already use
+ * for stage 3.
+ *
+ * §2.4: this is the single highest-leverage place in the whole pipeline to
+ * fix grooming drift — the portrait is the anchor for the hero sheet AND all
+ * 18 takes, so if the portrait "tidies up" the pet's actual coat, every
+ * downstream generation inherits that tidied-up look no matter how good the
+ * take-level gate (§2.1) is. IDENTITY_RULES already said "do NOT groom them
+ * differently", but the owner's actual complaint (soft, overgrown topknot
+ * rendered as neatly trimmed) shows that instruction wasn't concrete enough
+ * for the model to act on, so it's restated here in specific, literal terms.
+ */
 async function generateIdentityPortrait(
   photoUrls: string[],
-  description: string
+  description: string,
+  seed: number
 ): Promise<string> {
   const r = await fal.subscribe(EDIT_MODEL, {
     input: {
-      prompt: `Photorealistic studio portrait photograph of this exact pet from the reference photos: ${description}. Head-and-chest close-up looking toward the camera, plain dark studio background, soft flattering key light, tack-sharp focus on the face. No clothing, no accessories. ${IDENTITY_RULES}`,
+      prompt: `Photorealistic studio portrait photograph of this exact pet from the reference photos: ${description}. Head-and-chest close-up looking toward the camera, plain dark studio background, soft flattering key light, tack-sharp focus on the face. No clothing, no accessories. Reproduce this individual's CURRENT fur exactly as it appears in the reference photos — if it looks overgrown, shaggy, uneven, or due for a trim, render it exactly that overgrown/shaggy/uneven; do NOT trim, shorten, neaten, straighten, or otherwise groom it into a tidier or more "finished" look than the references actually show. ${IDENTITY_RULES}`,
       image_urls: photoUrls,
       num_images: 1,
       resolution: "2K",
       aspect_ratio: "3:4",
       output_format: "png",
+      seed,
     },
   });
   const url = (r.data as { images?: { url?: string }[] })?.images?.[0]?.url;
   if (!url) throw new Error("identity portrait result missing image url");
   return url;
+}
+
+// Distinct seed family from STILL_SEED (stage 3 takes, below) and
+// film-pipeline.ts's END_FRAME_SEED, so a shared order can never have a
+// portrait re-roll land on the same numeric seed as a storyboard take or end
+// frame (same "keep the bands disjoint" reasoning as rerollSeedBase's
+// comment, even though a seed collision here couldn't actually reproduce a
+// duplicate image — the portrait prompt is entirely different from a take's
+// prompt — this just keeps every generation's seed provenance unambiguous
+// when read out of logs).
+const PORTRAIT_SEED = 50_000;
+// Same reroll budget as a storyboard take (MAX_TAKE_REROLLS) — no reason for
+// a stingier retry budget at the one gate everything downstream depends on.
+const MAX_PORTRAIT_REROLLS = 2;
+// §2.4: same bar as a take (IDENTITY_THRESHOLD) — the portrait is the anchor
+// for every take, so it has no business clearing a LOWER bar than the takes
+// it anchors.
+const PORTRAIT_IDENTITY_THRESHOLD = IDENTITY_THRESHOLD;
+
+/**
+ * §2.4 — gate the identity portrait itself against the customer's real
+ * photo before anything downstream (hero sheet, all 18 takes) is generated
+ * from it. Previously there was NO gate here at all: the portrait was
+ * generated once and trusted, so a single bad portrait-generation silently
+ * poisoned the entire order. Re-rolls on a fresh seed like generateGatedTake;
+ * returns the best attempt regardless so an order is never blocked here.
+ *
+ * `realPhotoUrl` can be undefined only if the order has no usable uploaded
+ * photo at all — uploads are mandatory, so this is a defensive branch, not
+ * the intended path. Per HARD CONSTRAINT #3 (never fail an order over this
+ * fix), that case skips the gate entirely and generates one ungated
+ * portrait — today's pre-fix behavior — rather than throwing.
+ */
+async function generateGatedPortrait(
+  photoUrls: string[],
+  description: string,
+  realPhotoUrl: string | undefined,
+  orderId: string
+): Promise<string> {
+  if (!realPhotoUrl) {
+    console.warn(
+      `[stills] order=${orderId}: no real photo available for portrait identity gate — generating ungated portrait (pre-fix behavior)`
+    );
+    return generateIdentityPortrait(photoUrls, description, PORTRAIT_SEED);
+  }
+  let best = "";
+  let bestScore = -1;
+  for (let attempt = 0; attempt <= MAX_PORTRAIT_REROLLS; attempt++) {
+    const seed = PORTRAIT_SEED + attempt * 7919; // 7919 (prime): same re-roll-offset convention as generateGatedTake
+    const url = await generateIdentityPortrait(photoUrls, description, seed);
+    const score = await scoreIdentity(realPhotoUrl, url);
+    console.log(`[stills] portrait attempt ${attempt} order=${orderId}: identity ${score} (vs real photo)`);
+    if (score > bestScore) {
+      bestScore = score;
+      best = url;
+    }
+    if (score >= PORTRAIT_IDENTITY_THRESHOLD) return url;
+  }
+  console.warn(
+    `[stills] order=${orderId}: best portrait identity ${bestScore} (< ${PORTRAIT_IDENTITY_THRESHOLD}), using best attempt — every downstream hero sheet/take will inherit this drift`
+  );
+  return best;
 }
 
 /**
@@ -256,9 +369,27 @@ async function generateHeroSheet(refs: string[], description: string, costume: s
   return url;
 }
 
-/** One raw 16:9 cinematic take — same character, same costume, one scene, one seed. */
+/**
+ * One raw 16:9 cinematic take — same character, same costume, one scene, one
+ * seed.
+ *
+ * §2.2/§1.2: `hasRealPhotoFirst` tells the prompt what `refs[0]` actually is.
+ * Today's prompt used to say "the FIRST reference image is the definitive
+ * look of this character — match its costume, fur colors and markings, tail
+ * and face EXACTLY", which is why the hero sheet (refs[0] in the old
+ * ordering) won every tug-of-war with the real photo: the prompt told the
+ * model the hero sheet was definitive for identity too, not just costume.
+ * Callers now put the customer's real photo first whenever one is available
+ * (see generateGatedTake's callers), so the roles are split explicitly:
+ * first reference = this individual's real, definitive look (face, fur,
+ * proportions, current grooming); second reference = the costume to copy.
+ * The `false` branch is the defensive fallback (no real photo available) and
+ * keeps the exact pre-fix wording/ordering, since in that case refs[0] really
+ * is the hero sheet again.
+ */
 async function generateTakeOnce(
   refs: string[],
+  hasRealPhotoFirst: boolean,
   description: string,
   costume: string,
   scene: string,
@@ -266,9 +397,12 @@ async function generateTakeOnce(
   expression: string,
   seed: number
 ): Promise<string> {
+  const roleDirective = hasRealPhotoFirst
+    ? "The FIRST reference image is a real photo of this individual pet — its definitive REAL-WORLD look: match its exact face, fur colors and markings, proportions, and current grooming/coat length. The SECOND reference image is the film's costume reference sheet — match ONLY the costume/outfit shown in it exactly; it is not the identity anchor, ignore any difference in its fur styling."
+    : "The FIRST reference image is the definitive look of this character — match its costume, fur colors and markings, tail and face EXACTLY."; // fallback: no real photo available for this order, see generateGatedTake
   const r = await fal.subscribe(EDIT_MODEL, {
     input: {
-      prompt: `The FIRST reference image is the definitive look of this character — match its costume, fur colors and markings, tail and face EXACTLY. This exact pet (${description}), ${costume}, ${scene}. ${framing}.${expression ? ` ${expression}.` : ""} One cinematic live-action film still, unmistakably the same individual pet, same outfit as the reference, blockbuster cinematography, dramatic lighting, shallow depth of field, film grain. ${STYLE_RULES} ${IDENTITY_RULES}`,
+      prompt: `${roleDirective} This exact pet (${description}), ${costume}, ${scene}. ${framing}.${expression ? ` ${expression}.` : ""} One cinematic live-action film still, unmistakably the same individual pet, same outfit as the reference, blockbuster cinematography, dramatic lighting, shallow depth of field, film grain. ${STYLE_RULES} ${IDENTITY_RULES}`,
       image_urls: refs,
       num_images: 1,
       resolution: "2K",
@@ -284,36 +418,71 @@ async function generateTakeOnce(
 }
 
 /**
- * One gated take: render, score against the portrait, re-roll (with a fresh
- * seed) until it clears the threshold or we run out of attempts. Returns the
- * best attempt regardless, so a cut always has three takes to choose from.
+ * One gated take: render, score against the customer's REAL photo, re-roll
+ * (with a fresh seed) until it clears the threshold or we run out of
+ * attempts. Returns the best attempt regardless, so a cut always has three
+ * takes to choose from.
+ *
+ * §2.1/IDENTITY-FIDELITY-SPEC.md §1.1: the gate used to score against the
+ * generated portrait (`scoreIdentity(portraitUrl, url)`), even though its own
+ * prompt says "Image 1 is the REAL pet" — a lie, since the portrait is
+ * AI-generated. That let a take drift further from the actual dog while
+ * scoring HIGHER, as long as it drifted the same direction the portrait
+ * already had (scores of 80-85 with no real resemblance were that arithmetic
+ * working as written). Gating on `realPhotoUrl` instead makes that prompt
+ * line true and makes the gate measure the thing the product actually needs:
+ * does this take look like the customer's dog.
+ *
+ * `portraitUrl` is kept as a required param (not folded away) purely as the
+ * `realPhotoUrl` fallback target — see below — not because it's scored
+ * against.
+ *
+ * `realPhotoUrl` can be undefined only if the order somehow has no usable
+ * uploaded photo — uploads are mandatory, so this shouldn't happen. Per HARD
+ * CONSTRAINT #3 this must never become a new failure mode: fall back to
+ * gating against the portrait (the exact pre-fix behavior) and log loudly so
+ * it surfaces as an anomaly rather than silently regressing.
+ *
+ * Deliberately does NOT also score against the portrait for a "consistency"
+ * log (the spec's §2.1 allows this as optional): that would double the VLM
+ * calls this function makes, which contradicts the spec's own cost
+ * accounting ("additional cost is near zero — one more image per judgment
+ * call", i.e. swap which image is passed, not add a second call). If a
+ * portrait-consistency signal is wanted later, add it as its own opt-in
+ * logging path rather than doubling every gate call by default.
  */
 async function generateGatedTake(
   refs: string[],
+  hasRealPhotoFirst: boolean,
   description: string,
   costume: string,
   scene: string,
   framing: string,
   expression: string,
+  realPhotoUrl: string | undefined,
   portraitUrl: string,
   baseSeed: number,
   label: string
 ): Promise<string> {
+  const gateRef = realPhotoUrl ?? portraitUrl;
+  if (!realPhotoUrl) {
+    console.warn(`[stills] ${label}: no real photo available — falling back to portrait-anchor identity gate (pre-fix behavior)`);
+  }
   let best = "";
   let bestScore = -1;
   for (let attempt = 0; attempt <= MAX_TAKE_REROLLS; attempt++) {
     // 7919 (prime) keeps re-roll seeds far from other takes' base seeds.
     const seed = baseSeed + attempt * 7919;
-    const url = await generateTakeOnce(refs, description, costume, scene, framing, expression, seed);
-    const score = await scoreIdentity(portraitUrl, url);
-    console.log(`[stills] ${label} attempt ${attempt}: consistency ${score}`);
+    const url = await generateTakeOnce(refs, hasRealPhotoFirst, description, costume, scene, framing, expression, seed);
+    const score = await scoreIdentity(gateRef, url);
+    console.log(`[stills] ${label} attempt ${attempt}: identity ${score}${realPhotoUrl ? " (vs real photo)" : " (vs portrait, fallback)"}`);
     if (score > bestScore) {
       bestScore = score;
       best = url;
     }
     if (score >= IDENTITY_THRESHOLD) return url;
   }
-  console.warn(`[stills] ${label}: best consistency ${bestScore} (< ${IDENTITY_THRESHOLD}), using best attempt`);
+  console.warn(`[stills] ${label}: best identity ${bestScore} (< ${IDENTITY_THRESHOLD}), using best attempt`);
   return best;
 }
 
@@ -417,7 +586,9 @@ export async function runStillsGeneration(order: Order): Promise<void> {
     ].filter(Boolean) as string[];
 
     console.log(`[stills] stage 1: identity portrait order=${order.id}`);
-    identityPortraitUrl = await generateIdentityPortrait(orderedPhotos, description);
+    // §2.4: gate the portrait itself against the real, best-frontal photo
+    // BEFORE it becomes the anchor for the hero sheet and all 18 takes.
+    identityPortraitUrl = await generateGatedPortrait(orderedPhotos, description, publicUrl(orderedPhotos[0]), order.id);
 
     await prisma.order.update({
       where: { id: order.id },
@@ -435,10 +606,18 @@ export async function runStillsGeneration(order: Order): Promise<void> {
   // (no shot-0 chaining — the hero sheet is the single shared anchor). Cuts run
   // sequentially so at most TAKES_PER_CUT (3) renders are in flight at once.
   console.log(`[stills] stage 3: ${NUM_CUTS}×${TAKES_PER_CUT} storyboard order=${order.id} arc=${order.personality}`);
-  const photo0 = orderedPhotos[0] ? publicUrl(orderedPhotos[0]) : undefined;
+  const realPhotoRef = orderedPhotos[0] ? publicUrl(orderedPhotos[0]) : undefined;
   const heroRef = publicUrl(heroSheet);
   const portraitRef = publicUrl(identityPortraitUrl);
-  const refs = [heroRef, portraitRef, photo0].filter((u): u is string => !!u);
+  // §2.2: real photo FIRST — see generateTakeOnce's comment for why order
+  // matters (the prompt tells the model the FIRST reference is definitive,
+  // so whichever image is first is the one the model actually locks onto).
+  // Falls back to the pre-fix ordering (hero sheet first) only if this order
+  // somehow has no real photo — see generateGatedTake's comment.
+  const hasRealPhotoFirst = !!realPhotoRef;
+  const refs = hasRealPhotoFirst
+    ? [realPhotoRef, heroRef, portraitRef].filter((u): u is string => !!u)
+    : [heroRef, portraitRef].filter((u): u is string => !!u);
   // §4.2: computed once from order.personality — null (custom orders have no
   // personality field) falls into the "add the directive" branch, same as
   // brave/easygoing/timid; only playful is exempt.
@@ -450,11 +629,13 @@ export async function runStillsGeneration(order: Order): Promise<void> {
       Array.from({ length: TAKES_PER_CUT }, (_, take) =>
         generateGatedTake(
           refs,
+          hasRealPhotoFirst,
           description,
           costume,
           arc[cut],
           SHOT_FRAMINGS[cut] ?? SHOT_FRAMINGS[0],
           expression,
+          realPhotoRef,
           portraitRef,
           STILL_SEED + cut * 100 + take * 1000,
           `cut ${cut} take ${take}`
@@ -546,11 +727,17 @@ export async function reshootCutStill(
   const description = order.petDescription ?? "the pet shown in the reference images";
   const costume = resolved.costume;
 
-  const costumeAnchor =
+  const costumeAnchorRaw =
     order.heroSheetUrl ?? order.chosenStills.find((_, i) => i !== cutIndex);
-  const refs = [costumeAnchor, portrait, order.uploadedPhotoUrls[0]]
-    .filter((u): u is string => !!u)
-    .map(publicUrl);
+  const costumeAnchor = costumeAnchorRaw ? publicUrl(costumeAnchorRaw) : undefined;
+  const portraitRef = publicUrl(portrait);
+  // §2.1/§2.2: real photo is the gate reference AND goes first in refs, same
+  // as every other generateGatedTake caller — see that function's comment.
+  const realPhotoRef = order.uploadedPhotoUrls[0] ? publicUrl(order.uploadedPhotoUrls[0]) : undefined;
+  const hasRealPhotoFirst = !!realPhotoRef;
+  const refs = hasRealPhotoFirst
+    ? [realPhotoRef, costumeAnchor, portraitRef].filter((u): u is string => !!u)
+    : [costumeAnchor, portraitRef].filter((u): u is string => !!u);
 
   const directed = reason?.trim()
     ? `${scene}. Director's retake note, follow it strictly: ${reason.trim()}`
@@ -559,12 +746,14 @@ export async function reshootCutStill(
   console.log(`[stills] re-shoot cut ${cutIndex} order=${order.id}${reason ? ` reason="${reason}"` : ""}`);
   const url = await generateGatedTake(
     refs,
+    hasRealPhotoFirst,
     description,
     costume,
     directed,
     SHOT_FRAMINGS[cutIndex] ?? SHOT_FRAMINGS[0],
     expressionDirective(order.personality),
-    publicUrl(portrait),
+    realPhotoRef,
+    portraitRef,
     // Fresh seed family per re-shoot so the retake never repeats the original.
     STILL_SEED + cutIndex * 100 + (Date.now() % 100000),
     `re-shoot cut ${cutIndex}`
@@ -628,8 +817,12 @@ export async function rerollCutTakes(
   // callers — a re-roll must lock the same costume/identity as the original
   // 18 takes, or "re-roll" would silently become "redesign".
   const heroRef = order.heroSheetUrl ? publicUrl(order.heroSheetUrl) : undefined;
-  const photo0 = order.uploadedPhotoUrls[0] ? publicUrl(order.uploadedPhotoUrls[0]) : undefined;
-  const refs = [heroRef, portraitRef, photo0].filter((u): u is string => !!u);
+  // §2.1/§2.2: real photo is the gate reference AND goes first in refs.
+  const realPhotoRef = order.uploadedPhotoUrls[0] ? publicUrl(order.uploadedPhotoUrls[0]) : undefined;
+  const hasRealPhotoFirst = !!realPhotoRef;
+  const refs = hasRealPhotoFirst
+    ? [realPhotoRef, heroRef, portraitRef].filter((u): u is string => !!u)
+    : [heroRef, portraitRef].filter((u): u is string => !!u);
 
   console.log(`[stills] re-roll cut ${cutIndex} order=${order.id} (order-wide re-roll #${rerollCount})`);
   const seedBase = rerollSeedBase(cutIndex, rerollCount);
@@ -637,11 +830,13 @@ export async function rerollCutTakes(
     Array.from({ length: TAKES_PER_CUT }, (_, take) =>
       generateGatedTake(
         refs,
+        hasRealPhotoFirst,
         description,
         costume,
         scene,
         framing,
         expression,
+        realPhotoRef,
         portraitRef,
         seedBase + take * 1000,
         `re-roll cut ${cutIndex} reroll#${rerollCount} take ${take}`

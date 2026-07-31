@@ -319,9 +319,12 @@ async function generateShotClip(
 
 // The video identity gate. Clips can hold a strong start frame yet drift into
 // "a different dog" mid-motion, so after each clip we sample frames and score
-// them against the identity portrait; a clip below the threshold is re-rolled.
-// Clips are inherently a touch below stills, so this bar is a little lower than
-// the still gate (80). One re-roll caps the added spend (2 animations/shot max).
+// them against the customer's REAL PHOTO (IDENTITY-FIDELITY-SPEC.md §4 — see
+// scoreClip's comment; previously scored against the identity portrait, the
+// same bug §1 documents for the stills gate); a clip below the threshold is
+// re-rolled. Clips are inherently a touch below stills, so this bar is a
+// little lower than the still gate (80). One re-roll caps the added spend
+// (2 animations/shot max).
 const CLIP_IDENTITY_THRESHOLD = 75;
 const MAX_CLIP_REROLLS = 1;
 
@@ -339,16 +342,27 @@ async function uploadImage(filePath: string, name: string): Promise<string> {
 /**
  * Score an animated clip on BOTH identity and realism: sample an early frame,
  * a ~2.5s frame (style drift — the "Disneyfication" — typically sets in a
- * couple of seconds in) and a near-end frame, score each against the portrait,
- * and return the LOWEST of all axes — one bad frame is enough to make an owner
- * say "that's not my dog" or "that's a cartoon".
+ * couple of seconds in) and a near-end frame, score each against
+ * `identityRefUrl`, and return the LOWEST of all axes — one bad frame is
+ * enough to make an owner say "that's not my dog" or "that's a cartoon".
+ *
+ * IDENTITY-FIDELITY-SPEC.md §4: this had the exact same drifted-anchor bug as
+ * scoreIdentity's stills-pipeline callers (see lib/identity.ts's header
+ * comment) — every caller here used to pass `order.identityPortraitUrl`, an
+ * AI-generated image, as the anchor, even though scoreFrame's own prompt
+ * asserts "Image 1 is a real photo of a pet". `identityRefUrl` is now the
+ * customer's real uploaded photo whenever the caller has one (see
+ * runFilmGeneration/runShotRerender below); it falls back to the portrait
+ * only when an order has no usable real photo (shouldn't happen — uploads
+ * are mandatory — but must never become a new failure mode per HARD
+ * CONSTRAINT #3).
  *
  * Sampling is RELATIVE to the actual clip, not the configured shot length:
  * `-ss` offsets exist in any 3-15s Kling cut and `-sseof -1` grabs ~1s before
  * the end, so no duration probe is needed. Never blocks the pipeline: any
  * error scores 100 (pass).
  */
-async function scoreClip(clipUrl: string, portraitUrl: string): Promise<number> {
+async function scoreClip(clipUrl: string, identityRefUrl: string): Promise<number> {
   const dir = await mkdtemp(path.join(tmpdir(), "mt-clipscore-"));
   try {
     const raw = path.join(dir, "clip.mp4");
@@ -359,7 +373,7 @@ async function scoreClip(clipUrl: string, portraitUrl: string): Promise<number> 
       const frame = path.join(dir, `f${i}.png`);
       await extractFrame(raw, samples[i], frame);
       const url = await uploadImage(frame, `identity-frame-${i}.png`);
-      const s = await scoreFrame(portraitUrl, url);
+      const s = await scoreFrame(identityRefUrl, url);
       scores.push(s.identity, s.realism);
     }
     return Math.min(...scores);
@@ -381,14 +395,14 @@ async function generateGatedClip(
   world: string,
   shotIndex: number,
   orderId: string,
-  portraitUrl?: string,
+  identityRefUrl?: string,
   directorNote?: string,
   endFrameUrl?: string
 ): Promise<{ url: string; score: number }> {
   let best = { url: "", score: -1 };
   for (let attempt = 0; attempt <= MAX_CLIP_REROLLS; attempt++) {
     const url = await generateShotClip(stillUrl, world, shotIndex, orderId, SHOT_SECONDS, directorNote, endFrameUrl);
-    const score = portraitUrl ? await scoreClip(url, portraitUrl) : 100;
+    const score = identityRefUrl ? await scoreClip(url, identityRefUrl) : 100;
     console.log(`[film] shot ${shotIndex} clip attempt ${attempt}: identity ${score}`);
     if (score > best.score) best = { url, score };
     if (score >= CLIP_IDENTITY_THRESHOLD) return { url, score };
@@ -468,12 +482,16 @@ async function generateEndFrame(
  * rather than risk shipping a mismatched final frame. Returns null in either
  * case; callers treat null exactly like a `SHOT_END_POSES` entry of `null`
  * (today's single-frame i2v path, unchanged). Never throws.
+ *
+ * `identityRefUrl` should be the customer's real photo (IDENTITY-FIDELITY-
+ * SPEC.md §4 — see scoreClip's comment above for the full story); callers
+ * fall back to the portrait only when an order has no real photo.
  */
 async function generateGatedEndFrame(
   startFrameUrl: string,
   heroSheetUrl: string | undefined,
   endPose: string,
-  portraitUrl: string | undefined,
+  identityRefUrl: string | undefined,
   shotIndex: number
 ): Promise<string | null> {
   try {
@@ -481,7 +499,7 @@ async function generateGatedEndFrame(
     for (let attempt = 0; attempt <= MAX_END_FRAME_REROLLS; attempt++) {
       const seed = END_FRAME_SEED + shotIndex * 100 + attempt * 7919; // same reroll-offset convention as generateGatedTake
       const url = await generateEndFrame(startFrameUrl, heroSheetUrl, endPose, seed);
-      const score = portraitUrl ? await scoreIdentity(portraitUrl, url) : 100;
+      const score = identityRefUrl ? await scoreIdentity(identityRefUrl, url) : 100;
       console.log(`[film] shot ${shotIndex} end frame attempt ${attempt}: identity ${score}`);
       if (score >= END_FRAME_IDENTITY_THRESHOLD) return url;
       if (!best || score > best.score) best = { url, score };
@@ -1637,7 +1655,18 @@ export async function runFilmGeneration(order: Order): Promise<void> {
   const resolved = resolveWorld(order);
   const loglines = resolved.loglines;
 
+  // IDENTITY-FIDELITY-SPEC.md §4: prefer the customer's real photo as the
+  // identity-gate anchor for clips/end-frames, same fix as §2.1 for stills —
+  // see scoreClip's comment above for why the portrait alone was the bug.
+  // Falls back to the portrait only if this order somehow has no usable
+  // uploaded photo (uploads are mandatory, so this is defensive, not the
+  // intended path — HARD CONSTRAINT #3: never fail an order over this fix).
   const portraitUrl = order.identityPortraitUrl ?? undefined;
+  const realPhotoUrl = order.uploadedPhotoUrls[0] ?? undefined;
+  const identityGateRef = realPhotoUrl ? publicUrl(realPhotoUrl) : portraitUrl;
+  if (!realPhotoUrl && portraitUrl) {
+    console.warn(`[film] order=${order.id}: no real photo available for identity gate — falling back to portrait-anchor gating (pre-fix behavior)`);
+  }
   let art: FilmArtifacts = (order.filmArtifacts as FilmArtifacts) ?? {};
 
   // Stage I. Insert stills (spec §4.2) — pure garnish, generated first ("冒頭"
@@ -1692,7 +1721,7 @@ export async function runFilmGeneration(order: Order): Promise<void> {
       shotStillUrls.map((stillUrl, i) => {
         const endPose = resolved.endPoses[i] ?? null;
         if (!endPose) return Promise.resolve(null);
-        return generateGatedEndFrame(stillUrl, order.heroSheetUrl ?? undefined, endPose, portraitUrl, i);
+        return generateGatedEndFrame(stillUrl, order.heroSheetUrl ?? undefined, endPose, identityGateRef, i);
       })
     );
     art = await saveArtifacts(order.id, { endFrameUrls });
@@ -1708,7 +1737,7 @@ export async function runFilmGeneration(order: Order): Promise<void> {
     const endFrameUrls = art.endFrameUrls ?? [];
     const gated = await Promise.all(
       shotStillUrls.map((s, i) =>
-        generateGatedClip(s, world, i, order.id, portraitUrl, undefined, endFrameUrls[i] ?? undefined)
+        generateGatedClip(s, world, i, order.id, identityGateRef, undefined, endFrameUrls[i] ?? undefined)
       )
     );
     art = await saveArtifacts(order.id, {
@@ -1719,7 +1748,7 @@ export async function runFilmGeneration(order: Order): Promise<void> {
   if (!art.clipScores) {
     console.log(`[film] scoring ${art.clipUrls!.length} cached clips order=${order.id}`);
     const scores = await Promise.all(
-      art.clipUrls!.map((u) => (portraitUrl ? scoreClip(u, portraitUrl) : Promise.resolve(100)))
+      art.clipUrls!.map((u) => (identityGateRef ? scoreClip(u, identityGateRef) : Promise.resolve(100)))
     );
     art = await saveArtifacts(order.id, { clipScores: scores });
   }
@@ -2027,7 +2056,15 @@ export async function runShotRerender(
   const petName = order.petName ?? "Your Star";
   const resolved = resolveWorld(order);
   const loglines = resolved.loglines;
+  // IDENTITY-FIDELITY-SPEC.md §4 — same fix as runFilmGeneration above: prefer
+  // the customer's real photo as the identity-gate anchor, falling back to
+  // the portrait only if this order has no usable uploaded photo.
   const portraitUrl = order.identityPortraitUrl ?? undefined;
+  const realPhotoUrl = order.uploadedPhotoUrls[0] ?? undefined;
+  const identityGateRef = realPhotoUrl ? publicUrl(realPhotoUrl) : portraitUrl;
+  if (!realPhotoUrl && portraitUrl) {
+    console.warn(`[film] order=${order.id}: no real photo available for identity gate — falling back to portrait-anchor gating (pre-fix behavior)`);
+  }
 
   // Working set from artifacts, falling back to the persisted per-shot fields
   // (orders completed before artifacts were kept only have the latter).
@@ -2068,7 +2105,7 @@ export async function runShotRerender(
       still,
       order.heroSheetUrl ?? undefined,
       endPose,
-      portraitUrl,
+      identityGateRef,
       shotIndex
     );
   }
@@ -2081,7 +2118,7 @@ export async function runShotRerender(
     world,
     shotIndex,
     order.id,
-    portraitUrl,
+    identityGateRef,
     opts.reason,
     endFrameUrls[shotIndex] ?? undefined
   );
