@@ -188,6 +188,73 @@ export async function retryFilmAction(orderId: string): Promise<RetryFilmResult>
   return { ok: true };
 }
 
+export type MarkRefundIssuedResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * B2-SAFETY-NET-SPEC.md §4.3 — the admin has ALREADY issued the $200 refund
+ * by hand in the Stripe dashboard (this app never calls Stripe's refund API
+ * and never computes the amount — a human reads $200 off the disclosed
+ * policy and types it into Stripe directly). This button only RECORDS that
+ * it happened: it stamps refundIssuedAt and moves the order to the existing
+ * CANCELLED terminal state (no new OrderStatus value — a refund is an
+ * attribute of an order, not a new stage, per spec §2/§4.3).
+ *
+ * Guarded by transitionOrder's atomic status check (AWAITING_CUSTOMER_APPROVAL
+ * -> CANCELLED, added to lib/orders.ts's ALLOWED_TRANSITIONS for this
+ * feature), so a double-click cannot send two confirmation emails or fire
+ * the transition twice — the second click hits a stale status and errors,
+ * same pattern as every other admin action in this file.
+ */
+export async function markRefundIssuedAction(orderId: string): Promise<MarkRefundIssuedResult> {
+  if (!orderId) {
+    return { ok: false, error: "orderId が必要です。" };
+  }
+
+  const order = await prisma.order.findUnique({ where: { id: orderId } });
+  if (!order) {
+    return { ok: false, error: "注文が見つかりません。" };
+  }
+  // Belt-and-braces: the button only renders when refundRequestedAt is set
+  // (see app/admin/[orderId]/page.tsx), but a direct action call should
+  // still refuse to record a refund nobody asked for.
+  if (!order.refundRequestedAt) {
+    return { ok: false, error: "この注文には返金要求がありません。" };
+  }
+
+  try {
+    const updated = await transitionOrder(
+      orderId,
+      OrderStatus.AWAITING_CUSTOMER_APPROVAL,
+      OrderStatus.CANCELLED,
+      "admin",
+      { refundIssuedAt: new Date() },
+      "B2: $200 refund recorded as issued (Stripe dashboard, manual)"
+    );
+    try {
+      const { sendRefundIssuedEmail } = await import("@/lib/mocks");
+      await sendRefundIssuedEmail(updated);
+    } catch (emailErr) {
+      // Never let a confirmation-email failure hide that the refund WAS
+      // recorded — same non-fatal posture as every other email side effect
+      // in this file.
+      console.error(`[markRefundIssuedAction] confirmation email failed (non-fatal) order=${orderId}`, emailErr);
+    }
+  } catch (err) {
+    if (err instanceof TransitionError) {
+      return {
+        ok: false,
+        error: "この注文は返金を記録できる状態ではありません — すでに処理済みか、Gate 1 を通過済みの可能性があります。ページを更新してください。",
+      };
+    }
+    console.error("[markRefundIssuedAction]", err);
+    return { ok: false, error: "サーバー側でエラーが発生しました。もう一度お試しください。" };
+  }
+
+  revalidatePath("/admin");
+  revalidatePath(`/admin/${orderId}`);
+  return { ok: true };
+}
+
 export type ResendCustomerEmailResult = { ok: true } | { ok: false; error: string };
 
 /**

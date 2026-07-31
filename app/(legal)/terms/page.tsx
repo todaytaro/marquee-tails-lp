@@ -62,6 +62,19 @@ export default function TermsPage() {
         after your storyboard approval, the finished materials are made
         specifically for you.
       </p>
+      <p>
+        Director&rsquo;s Cut orders may re-roll (regenerate) any single
+        storyboard scene up to three (3) times at no additional cost before
+        approving it. If, after using all three re-rolls, you still cannot
+        approve the storyboard, you may end production before filming begins
+        in exchange for a $200 refund; the $49 concept &amp; storyboard fee is
+        non-refundable in that case, because it covers the treatment and
+        storyboard work already completed for you. This is separate from,
+        and does not replace, the defect-based remake/refund process in our{" "}
+        <a href="/refund">Refund &amp; Cancellation Policy</a>, which applies
+        to your finished, delivered film and poster rather than to
+        pre-production direction.
+      </p>
 
       <h2>7. Pricing &amp; Payment</h2>
       <p>
@@ -116,7 +129,7 @@ export default function TermsPage() {
         <a href="mailto:support@marqueetails.com">support@marqueetails.com</a>.
       </p>
 
-      <p className="mt-10 text-xs">Last updated: July 22, 2026</p>
+      <p className="mt-10 text-xs">Last updated: July 31, 2026</p>
     </>
   );
 }

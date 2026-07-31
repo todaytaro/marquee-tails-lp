@@ -9,9 +9,11 @@ import { RekickGenerationButton } from "../RekickGenerationButton";
 import { CopyLinkButton } from "./CopyLinkButton";
 import { ResubmitPodButton } from "./ResubmitPodButton";
 import { ResendEmailButton } from "./ResendEmailButton";
+import { MarkRefundIssuedButton } from "./MarkRefundIssuedButton";
 import MoviePosterOverlay from "@/components/MoviePosterOverlay";
 import { resolveWorld, fillPetName, type WorldBundle, type Personality } from "@/lib/film-script";
 import { LOGLINES_JA } from "@/lib/film-script-ja";
+import { STORYBOARD_REROLL_CAP } from "@/lib/safety-net";
 
 export const dynamic = "force-dynamic";
 
@@ -221,6 +223,46 @@ export default async function AdminOrderReviewPage({
                   </p>
                 </div>
               </div>
+            </section>
+          )}
+
+          {/*
+            B2-SAFETY-NET-SPEC.md §3.3/§4.3 — Gate 1 safety net (custom
+            only, §7): how many of the 3 free re-rolls this order has spent,
+            and whether the customer has asked for the $200 refund. The
+            refund itself is issued BY A HUMAN in the Stripe dashboard —
+            this app never calls Stripe's refund API and never computes the
+            $200 figure; MarkRefundIssuedButton only records that it
+            already happened.
+          */}
+          {isCustom && (
+            <section className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4">
+              <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+                <h2 className="font-display text-xl tracking-wide text-ivory">
+                  Gate 1 セーフティネット
+                </h2>
+                <span className="text-[10px] uppercase tracking-widest text-muted">
+                  リロール {order.storyboardRerollCount}/{STORYBOARD_REROLL_CAP} 回使用
+                </span>
+              </div>
+              {!order.refundRequestedAt ? (
+                <p className="text-xs text-muted">返金要求はありません。</p>
+              ) : order.refundIssuedAt ? (
+                <p className="rounded-[var(--radius-chip)] border border-hairline bg-night/40 px-3 py-2 text-xs text-muted">
+                  $200返金済みとして記録済み — {timeFormat.format(order.refundIssuedAt)}
+                </p>
+              ) : (
+                <div className="space-y-3 rounded-[var(--radius-chip)] border border-amber-500/40 bg-amber-500/10 p-3">
+                  <p className="text-xs text-amber-400">
+                    ⚠ 返金要求あり（{timeFormat.format(order.refundRequestedAt)}）—
+                    Stripeダッシュボードで$200を手動返金してください（$49の企画・絵コンテ費は対象外）。
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <CopyLinkButton value={order.stripeSessionId} label="Stripeセッションをコピー" />
+                    <MarkRefundIssuedButton orderId={order.id} />
+                  </div>
+                </div>
+              )}
             </section>
           )}
 

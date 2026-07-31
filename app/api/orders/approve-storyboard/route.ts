@@ -59,6 +59,19 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Order not found." }, { status: 404 });
   }
 
+  // B2-SAFETY-NET-SPEC.md §4.2: once the customer has asked for the $200
+  // refund, Gate 1 is frozen for this order — approving the storyboard
+  // afterward would kick off production the customer already opted out of.
+  // Custom-only in practice (refundRequestedAt is never set on a preset
+  // order — see lib/safety-net.ts#canRequestRefund's tier check), so this
+  // is a no-op read for every preset order (§7).
+  if (order.refundRequestedAt) {
+    return NextResponse.json(
+      { ok: false, error: "A refund has already been requested for this order — the storyboard can no longer be approved." },
+      { status: 409 }
+    );
+  }
+
   const storyboard = normalizeStoryboard(order.storyboardOptions);
   if (storyboard.length === 0) {
     return NextResponse.json(

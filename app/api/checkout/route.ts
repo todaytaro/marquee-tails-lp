@@ -72,7 +72,16 @@ export async function POST(req: Request) {
           // consent pointed at nothing on the one page where it has to
           // resolve — and Checkout is served from Stripe's domain, so a
           // relative path would not work either.
-          message: `I agree to the [Marquee Tails Terms of Service](${base}/terms) and [Refund Policy](${base}/refund).`,
+          //
+          // B2-SAFETY-NET-SPEC.md §5 disclosure point 2 — custom (Director's
+          // Cut) ONLY: the $49-of-$249 non-refundable concept & storyboard
+          // fee is a Director's Cut-specific structure (Preset has no Gate 0
+          // and no $49/$200 split, §7), so this line does not belong on a
+          // preset checkout.
+          message:
+            tier === "custom"
+              ? `I agree to the [Marquee Tails Terms of Service](${base}/terms) and [Refund Policy](${base}/refund). I understand $49 of this order is a non-refundable concept & storyboard fee.`
+              : `I agree to the [Marquee Tails Terms of Service](${base}/terms) and [Refund Policy](${base}/refund).`,
         },
       },
       success_url: `${base}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,

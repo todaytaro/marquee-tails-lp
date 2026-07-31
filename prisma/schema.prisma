@@ -25,7 +25,12 @@ enum OrderStatus {
   AWAITING_ADMIN_APPROVAL // Gate 2: admin quality check
   COMPLETED // delivered + POD ordered
   FAILED // film generation failed after retries — awaiting admin retry
-  CANCELLED // reserved — currently unused (no flow transitions in/out)
+  // B2 (Director's Cut safety net): the terminal state after a manual $200
+  // refund is recorded (AWAITING_CUSTOMER_APPROVAL -> CANCELLED, see
+  // lib/orders.ts). A refund is an attribute of an order, not a new stage —
+  // this reuses CANCELLED rather than adding an enum value (B2-SAFETY-NET-
+  // SPEC.md §2/§4.3). No other flow transitions in/out.
+  CANCELLED
   // --- Director's Cut (custom) — B1 "Gate 0" ---
   TREATMENT_GENERATING // custom only: Claude is drafting/redrafting the treatment
   AWAITING_TREATMENT_APPROVAL // custom only: customer reads the treatment, approves or asks for changes
@@ -124,6 +129,17 @@ model Order {
   treatmentText          String? // human-readable treatment shown at the approval gate
   treatmentRevisionCount Int     @default(0) // internal abuse cap only (NOT a customer-facing limit)
   // world/personality stay nullable and are simply unused for custom orders.
+
+  // --- Director's Cut safety net — B2 ---
+  // PRICING-PRODUCT-V2-SPEC.md §3.5(C)'s "hybrid" promise: three free Gate-1
+  // storyboard re-rolls, then a $200 refund (of the $249 custom price; the
+  // $49 concept & storyboard fee stays non-refundable) if the customer still
+  // can't approve before filming. Custom ($249) only — Preset ($99) has no
+  // Gate 0 and no $49/$200 split, so these three columns are simply unused
+  // (always 0/null) on a preset row (B2-SAFETY-NET-SPEC.md §7).
+  storyboardRerollCount Int       @default(0) // Gate 1 free re-rolls spent (order-wide, cap in lib/safety-net.ts STORYBOARD_REROLL_CAP)
+  refundRequestedAt     DateTime? // customer asked for the $200 refund (§4.2) — set once, never cleared
+  refundIssuedAt        DateTime? // admin recorded the $200 as actually refunded IN STRIPE'S DASHBOARD (§4.3) — this app never calls Stripe's refund API and never computes the amount
 
   // customer-facing approval links authenticate with this token, not a login
   approveToken String @unique @default(cuid())

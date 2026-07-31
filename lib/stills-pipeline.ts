@@ -44,8 +44,11 @@ import { watermarkTakeForPreview } from "./watermark";
 // hardcoding a second copy of the endpoint id.
 export const EDIT_MODEL = "fal-ai/nano-banana-pro/edit";
 
-const NUM_CUTS = 6;
-const TAKES_PER_CUT = 3;
+// Exported: app/api/orders/reroll-cut/route.ts validates cutIndex against
+// this same bound (0..NUM_CUTS-1) rather than hardcoding "6" a second time.
+export const NUM_CUTS = 6;
+// Exported for the same reason as NUM_CUTS above (test enumeration).
+export const TAKES_PER_CUT = 3;
 
 export const IDENTITY_RULES =
   "Preserve this exact pet's identity from the reference photos: the same coat colors in the same places, the same fur texture and haircut, the same face structure, eyes, ears and proportions. Do NOT idealize, do NOT groom them differently, do NOT drift toward a generic breed look. No text, no watermark, no humans.";
@@ -61,7 +64,11 @@ export const STYLE_RULES =
 // Identity gate: takes below this score against the portrait are re-rolled
 // before they ever reach the customer.
 const IDENTITY_THRESHOLD = 80;
-const MAX_TAKE_REROLLS = 2;
+// Exported: scripts/test-safety-net.ts uses this (plus STILL_SEED/NUM_CUTS/
+// TAKES_PER_CUT below) to enumerate every seed the ORIGINAL stage-3
+// generation can possibly use, so it can prove rerollSeedBase's seeds never
+// land in that set — see rerollSeedBase's comment.
+export const MAX_TAKE_REROLLS = 2;
 /*
  * OFF until the $200 pre-production refund exists.
  *
@@ -91,7 +98,49 @@ const WATERMARK_PREVIEWS_ENABLED = false;
 const WATERMARK_CONCURRENCY = 4;
 // Base seed; each (cut, take, reroll) gets a distinct offset so the three
 // takes of a cut are genuinely different renders, not near-duplicates.
-const STILL_SEED = 77021;
+// Exported: rerollSeedBase (below) and scripts/test-safety-net.ts both need
+// it to reason about the ORIGINAL stage-3 seed range a B2 re-roll must avoid.
+export const STILL_SEED = 77021;
+
+/*
+ * B2-SAFETY-NET-SPEC.md §3.1 / "THE PARTS THAT WILL BITE": a re-roll that
+ * returns the same three images is a re-roll the customer paid for and
+ * didn't get, so its seeds must never collide with a seed already used for
+ * THAT SAME CUT (a collision against a DIFFERENT cut doesn't matter — that
+ * cut's scene text differs, so an identical numeric seed still renders a
+ * different image; see generateTakeOnce's prompt, which always includes the
+ * scene).
+ *
+ * Stage 3 (runStillsGeneration) already uses this exact shape for a cut's 3
+ * takes: STILL_SEED + cut*100 + take*1000, then generateGatedTake adds its
+ * own attempt*7919 on top for up to MAX_TAKE_REROLLS retries. For one cut,
+ * across all TAKES_PER_CUT takes and MAX_TAKE_REROLLS+1 attempts, that's
+ * `take*1000 + attempt*7919` for take/attempt in 0..2 — 9 values, all
+ * distinct (7919 is prime and not a multiple of 1000, so the map is
+ * injective), spanning at most 2000 + 2*7919 = 17838 above the cut's base.
+ *
+ * REROLL_SEED_BAND is chosen far larger than that whole spread (17838), so a
+ * re-roll's seed = STILL_SEED + cut*100 + REROLL_SEED_BAND*rerollCount +
+ * take*1000 + attempt*7919 lands in its own band, disjoint from band 0 (the
+ * original stage-3 generation) BY CONSTRUCTION — not "very unlikely to
+ * collide" the way a Date.now()-derived seed (as reshootCutStill below uses
+ * for its own, unrelated, admin-only Gate-2 re-render) would be.
+ *
+ * `rerollCount` is the ORDER-WIDE, atomically-incremented storyboardRerollCount
+ * AFTER increment (1, 2, or 3 — see app/api/orders/reroll-cut/route.ts). The
+ * guarded `updateMany` there makes each value 1..STORYBOARD_REROLL_CAP occur
+ * for AT MOST ONE reroll request across the order's entire lifetime, so even
+ * if the SAME cut is re-rolled twice, those two events land in two different
+ * bands (e.g. 1 and 2) and can never repeat each other's seeds either —
+ * whether or not they touch the same cut.
+ */
+const REROLL_SEED_BAND = 1_000_000;
+
+/** See the block comment above — exported so scripts/test-safety-net.ts can
+ *  prove the no-collision property directly, without a database. */
+export function rerollSeedBase(cutIndex: number, rerollCount: number): number {
+  return STILL_SEED + cutIndex * 100 + REROLL_SEED_BAND * rerollCount;
+}
 
 // FILM-QUALITY-V3-SPEC.md §4.2: generateTakeOnce's prompt had no mouth/tongue
 // direction at all, so the model defaulted to "a happy dog" = tongue out —
@@ -528,6 +577,110 @@ export async function reshootCutStill(
     data: { chosenStills, conceptImageUrls: [...order.conceptImageUrls, url] },
   });
   return url;
+}
+
+/**
+ * Gate-1 CUSTOMER re-roll — B2-SAFETY-NET-SPEC.md §3.1. Regenerates ALL
+ * THREE takes of one cut (unlike reshootCutStill above, which is the admin's
+ * post-approval single-shot Gate-2 tool and only ever produces one take).
+ * No customer instruction: same scene/costume/identity as the original,
+ * fresh seeds only (see rerollSeedBase above for why they can never repeat
+ * that cut's prior artwork).
+ *
+ * `rerollCount` MUST be the value app/api/orders/reroll-cut/route.ts's
+ * guarded `updateMany` just committed (order-wide, 1..STORYBOARD_REROLL_CAP)
+ * — it is the sole source of this call's seed-band uniqueness, so the
+ * caller reserving the slot atomically BEFORE calling this function (not
+ * after) is what makes two concurrent re-rolls of the same cut land in
+ * different, non-colliding bands rather than racing each other's seeds.
+ *
+ * Persists by re-reading the order immediately before writing (rather than
+ * trusting the `order` snapshot the caller passed in, which may be tens of
+ * seconds stale by the time generation finishes): a concurrent re-roll of a
+ * DIFFERENT cut landing in that window must not be clobbered. This is the
+ * same non-atomic read-modify-write shape reshootCutStill above already
+ * uses for chosenStills — this function is just slightly more careful about
+ * WHEN it reads, because a 3-take re-roll takes long enough for that window
+ * to matter more.
+ */
+export async function rerollCutTakes(
+  order: Order,
+  cutIndex: number,
+  rerollCount: number
+): Promise<StoryboardCut> {
+  assertEnv("FAL_KEY");
+  fal.config({ credentials: process.env.FAL_KEY });
+
+  const portrait = order.identityPortraitUrl;
+  if (!portrait) throw new Error(`order ${order.id} has no identityPortraitUrl`);
+
+  const storyboard = normalizeStoryboard(order.storyboardOptions);
+  const resolved = resolveWorld(order);
+  const scene = storyboard[cutIndex]?.scene ?? resolved.arc[cutIndex];
+  if (!scene) throw new Error(`order ${order.id} has no scene for cut ${cutIndex}`);
+
+  const description = order.petDescription ?? "the pet shown in the reference images";
+  const costume = resolved.costume;
+  const framing = SHOT_FRAMINGS[cutIndex] ?? SHOT_FRAMINGS[0];
+  const expression = expressionDirective(order.personality);
+  const portraitRef = publicUrl(portrait);
+  // Same anchor selection as reshootCutStill/generateGatedTake's other
+  // callers — a re-roll must lock the same costume/identity as the original
+  // 18 takes, or "re-roll" would silently become "redesign".
+  const heroRef = order.heroSheetUrl ? publicUrl(order.heroSheetUrl) : undefined;
+  const photo0 = order.uploadedPhotoUrls[0] ? publicUrl(order.uploadedPhotoUrls[0]) : undefined;
+  const refs = [heroRef, portraitRef, photo0].filter((u): u is string => !!u);
+
+  console.log(`[stills] re-roll cut ${cutIndex} order=${order.id} (order-wide re-roll #${rerollCount})`);
+  const seedBase = rerollSeedBase(cutIndex, rerollCount);
+  const cleanTakes = await Promise.all(
+    Array.from({ length: TAKES_PER_CUT }, (_, take) =>
+      generateGatedTake(
+        refs,
+        description,
+        costume,
+        scene,
+        framing,
+        expression,
+        portraitRef,
+        seedBase + take * 1000,
+        `re-roll cut ${cutIndex} reroll#${rerollCount} take ${take}`
+      )
+    )
+  );
+
+  // Same {preview, clean} shape stage 4 produces — watermarking is currently
+  // OFF (WATERMARK_PREVIEWS_ENABLED above), so preview === clean, exactly the
+  // shape a legacy/failed-watermark row already reads as.
+  const options: StillOption[] = WATERMARK_PREVIEWS_ENABLED
+    ? await Promise.all(
+        cleanTakes.map(async (clean, i) => ({
+          clean,
+          preview: await watermarkTakeForPreview(
+            clean,
+            `order=${order.id}-cut=${cutIndex}-reroll=${rerollCount}-take=${i}`
+          ),
+        }))
+      )
+    : cleanTakes.map((clean) => ({ clean, preview: clean }));
+
+  const newCut: StoryboardCut = { scene, options };
+
+  const latest = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+  const latestStoryboard = normalizeStoryboard(latest.storyboardOptions);
+  latestStoryboard[cutIndex] = newCut;
+
+  await prisma.order.update({
+    where: { id: order.id },
+    data: {
+      storyboardOptions: latestStoryboard,
+      // conceptImageUrls is the flat, never-customer-facing audit trail
+      // (see completeStillsGeneration's comment) — append, don't replace.
+      conceptImageUrls: [...latest.conceptImageUrls, ...cleanTakes],
+    },
+  });
+
+  return newCut;
 }
 
 export async function kickStillsGeneration(order: Order): Promise<void> {

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Image from "next/image";
+import ProductionProgress from "./ProductionProgress";
 
 /**
  * Gate 1 interactive picker — the storyboard wizard. The customer walks one
@@ -15,6 +16,17 @@ import Image from "next/image";
  *   200 -> celebratory success state
  *   409 -> "already in production" (double-submit / stale tab), shown gracefully
  *   else -> friendly retry
+ *
+ * B2-SAFETY-NET-SPEC.md §3/§4 adds two Director's Cut-only ("isCustom") Gate-1
+ * levers, both enforced server-side (this component only presents outcomes,
+ * same posture as the storyboard approval above):
+ *   - up to `rerollCap` free RE-ROLLS of one cut's three takes
+ *     (/api/orders/reroll-cut) — no customer instruction, see the route's own
+ *     doc comment for why this is a distinct lever from Gate 0's revision
+ *     loop or the admin's Gate-2 shot re-render.
+ *   - once all are spent, a $200 refund offer (/api/orders/request-refund)
+ *     that freezes Gate 1 for this order once accepted.
+ * Preset ($99) orders pass isCustom=false and see none of this (spec §7).
  */
 
 type Cut = { scene: string; options: string[] };
@@ -24,9 +36,20 @@ type Props = {
   approveToken: string;
   petName: string;
   storyboard: Cut[];
+  // B2-SAFETY-NET-SPEC.md §7 — Preset has no Gate 0, no $49/$200 split, and
+  // NO re-roll/refund UI at all. Only a Director's Cut order ever sets this.
+  isCustom: boolean;
+  // STORYBOARD_REROLL_CAP (lib/safety-net.ts), passed as a prop rather than
+  // imported directly so this client component never pulls in anything from
+  // that module's neighborhood of server-only code.
+  rerollCap: number;
+  initialRerollsRemaining: number;
+  refundAlreadyRequested: boolean;
 };
 
 type Phase = "picking" | "review" | "submitting" | "success" | "already" | "error";
+type RerollStatus = "idle" | "rolling" | "error";
+type RefundPanel = "hidden" | "confirming" | "submitting" | "error";
 
 /** Local LP assets go through next/image; external CDN URLs use plain img. */
 function Still({ src, alt }: { src: string; alt: string }) {
@@ -66,14 +89,30 @@ export default function StoryboardWizard({
   orderId,
   approveToken,
   petName,
-  storyboard,
+  storyboard: initialStoryboard,
+  isCustom,
+  rerollCap,
+  initialRerollsRemaining,
+  refundAlreadyRequested,
 }: Props) {
+  const [storyboard, setStoryboard] = useState<Cut[]>(initialStoryboard);
   const total = storyboard.length;
   const [current, setCurrent] = useState(0);
   const [picks, setPicks] = useState<(string | null)[]>(() => Array(total).fill(null));
   // Which scene becomes the movie poster (the hero product) — picked at review.
   const [posterCut, setPosterCut] = useState(0);
   const [phase, setPhase] = useState<Phase>("picking");
+
+  // B2 — re-roll state (§3.2). rerollsRemaining is shared across every cut
+  // (the cap is order-wide, not per-cut — spec §1.1).
+  const [rerollsRemaining, setRerollsRemaining] = useState(initialRerollsRemaining);
+  const [rerollStatus, setRerollStatus] = useState<RerollStatus>("idle");
+  const [rerollError, setRerollError] = useState<string | null>(null);
+
+  // B2 — $200 refund state (§4.2).
+  const [refundRequested, setRefundRequested] = useState(refundAlreadyRequested);
+  const [refundPanel, setRefundPanel] = useState<RefundPanel>("hidden");
+  const [refundError, setRefundError] = useState<string | null>(null);
 
   const cut = storyboard[current];
   const currentPick = picks[current];
@@ -115,6 +154,99 @@ export default function StoryboardWizard({
     } catch {
       setPhase("error");
     }
+  }
+
+  /**
+   * B2 §3.1 — re-roll the CURRENT cut's three takes. One click, no confirm
+   * step (unlike the refund below): the spec only requires making clear it
+   * can't be undone, which the caption under the button does; it doesn't
+   * require a second click the way the irreversible refund does.
+   */
+  async function reroll() {
+    if (rerollStatus === "rolling") return;
+    setRerollStatus("rolling");
+    setRerollError(null);
+    try {
+      const res = await fetch("/api/orders/reroll-cut", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId, approveToken, cutIndex: current }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.ok) {
+        setStoryboard((prev) => {
+          const next = [...prev];
+          next[current] = data.cut;
+          return next;
+        });
+        // The old pick may not exist among the new takes — force a fresh
+        // choice instead of silently keeping a stale selection.
+        setPicks((prev) => {
+          const next = [...prev];
+          next[current] = null;
+          return next;
+        });
+        setRerollsRemaining(data.rerollsRemaining);
+        setRerollStatus("idle");
+      } else {
+        setRerollError(data?.error ?? "That didn't go through. Please try again.");
+        setRerollStatus("error");
+      }
+    } catch {
+      setRerollError("That didn't go through. Please try again.");
+      setRerollStatus("error");
+    }
+  }
+
+  /** B2 §4.2 — the $200 refund request, after the confirm step below. */
+  async function confirmRefund() {
+    setRefundPanel("submitting");
+    setRefundError(null);
+    try {
+      const res = await fetch("/api/orders/request-refund", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId, approveToken }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.ok) {
+        setRefundRequested(true);
+      } else {
+        setRefundError(data?.error ?? "That didn't go through. Please try again.");
+        setRefundPanel("error");
+      }
+    } catch {
+      setRefundError("That didn't go through. Please try again.");
+      setRefundPanel("error");
+    }
+  }
+
+  /* ---------------------------------------------------------- */
+  /* B2 terminal state — refund requested, Gate 1 frozen          */
+  /* ---------------------------------------------------------- */
+
+  if (refundRequested) {
+    return (
+      <div className="mx-auto max-w-xl text-center">
+        <p className="text-sm uppercase tracking-[0.3em] text-muted">
+          Request received
+        </p>
+        <p className="mt-3 font-display text-3xl tracking-wide text-gold gold-glow-text sm:text-4xl">
+          REFUND REQUESTED
+        </p>
+        <p className="mt-4 text-muted">
+          We&apos;ve recorded your request for a $200 refund, and production
+          on {petName}&apos;s film stops here. The $49 concept &amp;
+          storyboard fee stays non-refundable — the treatment and storyboard
+          we made for {petName} are yours to keep either way.
+        </p>
+        <p className="mt-4 text-muted">
+          You&apos;ll get a confirmation email once the refund is issued
+          (typically 5&ndash;10 business days after that). No further action
+          is needed here — you can close this page.
+        </p>
+      </div>
+    );
   }
 
   /* ---------------------------------------------------------- */
@@ -168,6 +300,72 @@ export default function StoryboardWizard({
           film is on its way. No further action needed; we&apos;ll email you when
           it&apos;s ready to premiere.
         </p>
+      </div>
+    );
+  }
+
+  /* ---------------------------------------------------------- */
+  /* B2 — re-roll counter + refund offer, shared by both views    */
+  /* ---------------------------------------------------------- */
+
+  function rerollCounter() {
+    if (!isCustom) return null;
+    return (
+      <p className="text-xs uppercase tracking-[0.2em] text-muted">
+        {rerollsRemaining} of {rerollCap} free re-rolls left
+      </p>
+    );
+  }
+
+  function refundOffer() {
+    if (!isCustom || rerollsRemaining > 0) return null;
+    if (refundPanel === "hidden" || refundPanel === "error") {
+      return (
+        <div className="mt-3">
+          <p className="text-sm text-ivory">
+            Still not right? You can stop here — before we film a frame.
+          </p>
+          <button
+            type="button"
+            onClick={() => setRefundPanel("confirming")}
+            className="mt-1 text-xs text-muted underline decoration-hairline underline-offset-4 transition-colors hover:text-gold"
+          >
+            Get $200 back (the $49 concept &amp; storyboard fee stays non-refundable)
+          </button>
+          {refundPanel === "error" && refundError && (
+            <p role="alert" className="mt-2 text-sm text-gold-bright">
+              {refundError}
+            </p>
+          )}
+        </div>
+      );
+    }
+    return (
+      <div className="mx-auto mt-3 max-w-md rounded-[var(--radius-card)] border border-hairline bg-surface p-4 text-left">
+        <p className="text-sm text-ivory">
+          This ends production for good. We&apos;ll refund $200 of your $249
+          order — the $49 concept &amp; storyboard fee stays non-refundable
+          (the treatment and storyboard we made for {petName} are yours to
+          keep either way).
+        </p>
+        <div className="mt-3 flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={confirmRefund}
+            disabled={refundPanel === "submitting"}
+            className="rounded-[var(--radius-chip)] border border-gold/50 px-4 py-2 text-sm text-gold transition-colors hover:bg-gold/10 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {refundPanel === "submitting" ? "Submitting…" : "Yes — refund $200 and stop here"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setRefundPanel("hidden")}
+            disabled={refundPanel === "submitting"}
+            className="text-sm text-muted underline decoration-hairline underline-offset-4 transition-colors hover:text-ivory disabled:opacity-50"
+          >
+            Never mind, keep going
+          </button>
+        </div>
       </div>
     );
   }
@@ -285,6 +483,13 @@ export default function StoryboardWizard({
           })}
         </ol>
 
+        {isCustom && (
+          <div className="mx-auto mt-8 max-w-2xl text-center">
+            {rerollCounter()}
+            {refundOffer()}
+          </div>
+        )}
+
         <div className="mt-10 rounded-[var(--radius-card)] border border-hairline bg-surface p-5 text-center sm:flex sm:items-center sm:justify-between sm:gap-6 sm:text-left">
           <div>
             <p className="text-sm text-muted">
@@ -374,7 +579,8 @@ export default function StoryboardWizard({
               role="radio"
               aria-checked={isSelected}
               onClick={() => choose(src)}
-              className={`group relative aspect-video overflow-hidden rounded-[var(--radius-card)] border text-left transition-shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-bright ${
+              disabled={rerollStatus === "rolling"}
+              className={`group relative aspect-video overflow-hidden rounded-[var(--radius-card)] border text-left transition-shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-bright disabled:cursor-not-allowed disabled:opacity-50 ${
                 isSelected
                   ? "border-gold ring-2 ring-gold gold-glow-box"
                   : "border-hairline hover:border-gold/50"
@@ -403,12 +609,57 @@ export default function StoryboardWizard({
         })}
       </div>
 
+      {/* B2 §3.2 — re-roll control + free-re-roll counter (Director's Cut
+          only). Always visible once earned/available so the "3 free
+          re-rolls" promise reads as real, not hidden. */}
+      {isCustom && (
+        <div className="mx-auto mt-6 max-w-2xl text-center">
+          {rerollCounter()}
+          {rerollsRemaining > 0 ? (
+            <div className="mt-2">
+              <button
+                type="button"
+                onClick={reroll}
+                disabled={rerollStatus === "rolling"}
+                className="text-sm text-gold underline decoration-hairline underline-offset-4 transition-colors hover:text-gold-bright disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {rerollStatus === "rolling"
+                  ? "Re-rolling this scene…"
+                  : `Not loving these three? Re-roll this scene (${rerollsRemaining} left)`}
+              </button>
+              <p className="mt-1 text-xs text-muted">
+                This spends one of your free re-rolls and can&apos;t be
+                undone — we&apos;ll paint three brand-new takes of this exact
+                scene.
+              </p>
+              {rerollStatus === "rolling" && (
+                <ProductionProgress
+                  messages={[
+                    `Re-rolling scene ${current + 1}…`,
+                    "Re-casting the shot…",
+                    "Painting three new takes…",
+                  ]}
+                  estimateSeconds={45}
+                />
+              )}
+              {rerollStatus === "error" && rerollError && (
+                <p role="alert" className="mt-2 text-sm text-gold-bright">
+                  {rerollError}
+                </p>
+              )}
+            </div>
+          ) : (
+            refundOffer()
+          )}
+        </div>
+      )}
+
       {/* nav bar */}
       <div className="mt-8 flex items-center justify-between gap-4">
         <button
           type="button"
           onClick={() => setCurrent(Math.max(0, current - 1))}
-          disabled={current === 0}
+          disabled={current === 0 || rerollStatus === "rolling"}
           className="text-sm text-muted transition-colors hover:text-gold disabled:opacity-30"
         >
           ← Previous scene
@@ -416,7 +667,7 @@ export default function StoryboardWizard({
         <button
           type="button"
           onClick={lockAndAdvance}
-          disabled={!currentPick}
+          disabled={!currentPick || rerollStatus === "rolling"}
           className="btn-marquee px-6 py-3 text-base disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
         >
           {current < total - 1 ? "Lock this frame →" : "Review storyboard →"}

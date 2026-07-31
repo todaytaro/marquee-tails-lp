@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import StoryboardWizard from "@/components/StoryboardWizard";
 import PosterPicker from "@/components/PosterPicker";
 import { normalizeStoryboard } from "@/lib/stills-pipeline";
+import { STORYBOARD_REROLL_CAP } from "@/lib/safety-net";
 import { resolveWorld, fillPetName, type WorldBundle } from "@/lib/film-script";
 import PhotoUploadForm from "@/components/PhotoUploadForm";
 import StatusPoller from "@/components/StatusPoller";
@@ -246,6 +247,13 @@ function Gate1View({ order, petName }: { order: Order; petName: string }) {
             scene: cut.scene,
             options: cut.options.map((o) => o.preview),
           }))}
+          // B2-SAFETY-NET-SPEC.md §3/§4/§7 — Preset ($99) sees none of this;
+          // only a Director's Cut ("custom") order carries a real re-roll
+          // count / refund state.
+          isCustom={order.tier === "custom"}
+          rerollCap={STORYBOARD_REROLL_CAP}
+          initialRerollsRemaining={Math.max(0, STORYBOARD_REROLL_CAP - order.storyboardRerollCount)}
+          refundAlreadyRequested={Boolean(order.refundRequestedAt)}
         />
       </div>
     </div>
@@ -361,6 +369,36 @@ function QualityCheckView({ order, petName }: { order: Order; petName: string })
           {...posterCopy(order)}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * B2-SAFETY-NET-SPEC.md §4.3 — reached only after an admin records the $200
+ * refund as issued (AWAITING_CUSTOMER_APPROVAL -> CANCELLED, lib/orders.ts).
+ * Read-only: there is nothing left for the customer to do on this page, and
+ * this app never displays a computed refund amount as if it paid it — this
+ * is the same fixed $200/$49 split disclosed before purchase, not a number
+ * this page calculated.
+ */
+function RefundIssuedView({ petName }: { petName: string }) {
+  return (
+    <div className="mx-auto max-w-xl text-center">
+      <p className="text-sm uppercase tracking-[0.3em] text-muted">
+        Production ended
+      </p>
+      <h1 className="mt-4 font-display text-4xl tracking-wide text-gold gold-glow-text sm:text-5xl">
+        {petName.toUpperCase()}&apos;S REFUND IS ON ITS WAY
+      </h1>
+      <p className="mt-6 text-muted">
+        We&apos;ve issued your $200 refund — it should land on your card
+        within 5&ndash;10 business days. The $49 concept &amp; storyboard fee
+        covered the treatment and storyboard work already done for {petName},
+        so it isn&apos;t included.
+      </p>
+      <p className="mt-4 text-xs text-muted">
+        Questions? Just reply to any of our emails.
+      </p>
     </div>
   );
 }
@@ -580,6 +618,13 @@ export default async function ApprovePage({
       break;
     case OrderStatus.COMPLETED:
       view = <PremiereView order={order} petName={petName} />;
+      break;
+    // B2-SAFETY-NET-SPEC.md §4.3 — set only via the admin's manual-refund
+    // action (AWAITING_CUSTOMER_APPROVAL -> CANCELLED, lib/orders.ts). No
+    // other flow produces this status, so no other tier/gate needs a
+    // branch here.
+    case OrderStatus.CANCELLED:
+      view = <RefundIssuedView petName={petName} />;
       break;
   }
 

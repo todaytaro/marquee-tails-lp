@@ -32,8 +32,15 @@ const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
     OrderStatus.UPLOADING,
     OrderStatus.AWAITING_TREATMENT_APPROVAL,
   ],
-  // Gate 1: customer approval is the ONLY way into video generation.
-  [OrderStatus.AWAITING_CUSTOMER_APPROVAL]: [OrderStatus.VIDEO_GENERATING],
+  // Gate 1: customer approval is the ONLY way into video generation — or
+  // (B2-SAFETY-NET-SPEC.md §4.3) the admin recording that the $200 refund
+  // was issued by hand in Stripe, which ends the order at the existing
+  // CANCELLED value (no new OrderStatus — see app/admin/actions.ts
+  // markRefundIssuedAction).
+  [OrderStatus.AWAITING_CUSTOMER_APPROVAL]: [
+    OrderStatus.VIDEO_GENERATING,
+    OrderStatus.CANCELLED,
+  ],
   // Forward to Gate 2 — or compensating revert when the pipeline kick fails
   // (system actor only; keeps orders from being stranded with no video coming)
   // — or FAILED when film generation fails after Trigger.dev exhausts retries.
@@ -53,8 +60,9 @@ const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   // The only way out of FAILED is an admin-triggered retry, back into video
   // generation (see app/admin/actions.ts#retryFilmAction).
   [OrderStatus.FAILED]: [OrderStatus.VIDEO_GENERATING],
-  // Reserved enum value — currently unused (no transitions in or out). Kept
-  // because the DB enum + migration already have it; not part of any flow.
+  // B2's refund terminal state (see AWAITING_CUSTOMER_APPROVAL above) — a
+  // dead end, same as COMPLETED. Nothing transitions OUT of a cancelled/
+  // refunded order.
   [OrderStatus.CANCELLED]: [],
 };
 
@@ -97,6 +105,7 @@ export async function transitionOrder(
       | "treatmentText"
       | "customBrief"
       | "treatmentRevisionCount"
+      | "refundIssuedAt"
     >
   > & {
     // Order["generatedScript"]'s read type (JsonValue | null) includes plain
