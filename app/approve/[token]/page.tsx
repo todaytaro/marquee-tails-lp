@@ -298,6 +298,20 @@ function FilmingView({ order, petName, elapsedSeconds }: { order: Order; petName
         {petName}&apos;s film is in production. Expect your premiere within 48
         hours of approval — we&apos;ll email you the moment it&apos;s ready.
       </p>
+      {order.posterOptions.length === 0 && (
+        /*
+          Announce the poster before it exists, so the customer knows there is
+          still something here for them. Without it the page reads as "we're
+          done with you, close the tab" — and then the picker appears with no
+          announcement at all, which is exactly how the choice gets missed.
+          StatusPoller watches posterReady and swaps this for the picker.
+        */
+        <p className="mt-8 text-sm text-muted">
+          {petName}&apos;s movie poster is being painted too — three versions
+          to choose from. They&apos;ll appear right here shortly; no need to
+          refresh the page.
+        </p>
+      )}
       {order.posterOptions.length > 0 && (
         <PosterPicker
           orderId={order.id}
@@ -544,7 +558,14 @@ export default async function ApprovePage({
     case OrderStatus.VIDEO_GENERATING:
       view = (
         <>
-          <StatusPoller token={order.approveToken} currentStatus={order.status} />
+          {/* The one view where the page changes without the status changing:
+              the poster options land mid-filming. Pass the current answer so
+              the poller can notice it flip and swap in the picker. */}
+          <StatusPoller
+            token={order.approveToken}
+            currentStatus={order.status}
+            currentPosterReady={order.posterOptions.length > 0 && !order.posterUrl}
+          />
           <FilmingView order={order} petName={petName} elapsedSeconds={await elapsedInStatus()} />
         </>
       );
