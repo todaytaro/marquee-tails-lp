@@ -65,7 +65,32 @@ export const WORLD_SCORES: Record<string, string> = {
 
 type WorldMap<T> = Record<string, Record<Personality, T>>;
 
-/** Six action/setting beats per arc (NO costume words — costume is locked). */
+/**
+ * Six action/setting beats per arc (NO costume words — costume is locked).
+ *
+ * TWO RULES, both learned from a real storyboard the owner rejected.
+ *
+ * 1. DON'T WRITE MOTION INTO A STILL. These beats generate a single frame;
+ *    Kling adds the movement afterwards from that frame. A beat that says
+ *    "mid-pounce", "sliding across", "spinning", "in a blur of paws" asks an
+ *    image model for the middle of a movement, which is where diffusion
+ *    models produce contorted, unreadable bodies — and it asks for it at the
+ *    one stage that cannot animate anything. Write the readable instant just
+ *    before or after instead: not "sliding after a rolling donut" but "one paw
+ *    on the donut it has finally cornered". The energy survives; the anatomy
+ *    does too, and the video stage still has somewhere to go.
+ *
+ * 2. NOTHING BETWEEN THE CAMERA AND THE FACE. Same principle as
+ *    WORLD_COSTUMES' no-helmet rule, applied to the scene: venetian blinds,
+ *    fabric wrapped over the pet, frosted glass. Anything crossing the face
+ *    costs the fur texture and eye shape, which is the whole product. A beat
+ *    that wants blinds opens them; a beat that wants an oversized coat lets it
+ *    pool on the floor rather than swallow the animal.
+ *
+ * The noir/playful arc broke both rules at once and produced takes where the
+ * dog could not be located in the frame at all. The anatomy gate does not
+ * catch this — it counts legs, and a heap of fabric has none to miscount.
+ */
 export const FILM_SCRIPTS: WorldMap<string[]> = {
   deepspace: {
     brave: [
@@ -85,10 +110,10 @@ export const FILM_SCRIPTS: WorldMap<string[]> = {
       "small and calm against the vast glowing nebula through the viewport, quiet wonder",
     ],
     playful: [
-      "mid-pounce chasing a floating glove across the zero-gravity cabin",
-      "spinning in the captain's chair, ears flying, console buttons lighting up around it",
+      "front paws closed around a floating glove in the zero-gravity cabin, hind legs drifting, delighted with itself",
+      "sitting square in the captain's chair mid-swivel, ears still settling, console buttons lighting up around it",
       "peeking upside-down into frame from the top of the airlock hatch, tongue out",
-      "bouncing across the alien desert in low gravity, all four paws off the ground",
+      "landing on the alien desert after a low-gravity bounce, dust still rising around its paws",
       "nose smudged flat against the cold porthole glass, stars reflected around a grin",
       "riding a cargo sled down the loading ramp under the nebula sky, ears streaming back",
     ],
@@ -104,10 +129,10 @@ export const FILM_SCRIPTS: WorldMap<string[]> = {
   storybook: {
     brave: [
       "drawing a tiny sword from a stone in the castle courtyard, banners flying at dawn",
-      "galloping across a stone bridge over a river gorge, running full tilt",
+      "planted at the crest of a stone bridge over a river gorge, one front paw forward, wind in its coat",
       "standing guard on the castle wall at dusk, silhouetted against the watch-fires",
       "facing the dark mouth of an ancient forest cave, standing its ground as fireflies scatter",
-      "charging through a storm of autumn leaves in the deep woods, god-rays breaking through",
+      "standing firm in the deep woods as autumn leaves whirl past, god-rays breaking through",
       "on the castle balcony as fireworks bloom over the kingdom, head held high, triumphant",
     ],
     easygoing: [
@@ -119,11 +144,11 @@ export const FILM_SCRIPTS: WorldMap<string[]> = {
       "watching the sunset gild the whole kingdom from the castle balcony, serene",
     ],
     playful: [
-      "mid-leap chasing butterflies over a mossy log in the enchanted forest",
-      "tangled happily in a banner in the courtyard, one ear poking out",
-      "splashing through the shallow royal fountain, water frozen mid-air",
+      "up on a mossy log in the enchanted forest, head lifted after a butterfly just out of reach",
+      "standing on a fallen courtyard banner with one corner draped over its back, pleased with the mess",
+      "standing in the shallow royal fountain, water beading on its coat, droplets catching the light around it",
       "caught mid-tiptoe stealing a tart from the kitchen window, crumbs on its beard",
-      "rolling down a grassy hill below the castle in a blur of paws and leaves",
+      "sitting up at the foot of a grassy hill below the castle, coat full of leaves from the way down",
       "leading a parade of ducklings across the drawbridge, delighted",
     ],
     timid: [
@@ -137,7 +162,7 @@ export const FILM_SCRIPTS: WorldMap<string[]> = {
   },
   noir: {
     brave: [
-      "pushing open the frosted-glass office door, venetian-blind shadows raking across",
+      "standing in the open doorway of the frosted-glass office, warm light behind it, the room waiting",
       "leaning over a case file under a desk lamp, smoke curling through the light",
       "striding down a rain-slicked alley toward a distant silhouette, unflinching",
       "facing a shadowy figure across a foggy midnight pier, streetlamp halo overhead",
@@ -153,11 +178,11 @@ export const FILM_SCRIPTS: WorldMap<string[]> = {
       "watching rain wash the neon city from the office window, calm",
     ],
     playful: [
-      "tangled in its own trench coat, one sleeve flopping far past the paw, face bright and unbothered",
-      "chasing its own trailing coat belt in a circle, papers swirling off the desk",
-      "pouncing on the typewriter keys, ribbon unspooling dramatically",
-      "peeking through venetian blinds with exaggerated suspicion at a passing pigeon",
-      "sliding across the rain-wet street after a rolling donut, neon streaking",
+      "sitting upright in a trench coat cut far too big, one empty sleeve pooled on the floor beside it, face bright and unbothered",
+      "caught in the act with its own coat belt in its mouth, case papers scattered across the office floor",
+      "both front paws planted on the typewriter keys, ribbon unspooled in loops across the desk",
+      "at the window with the venetian blinds pulled fully open, eyeing a pigeon on the sill with exaggerated suspicion",
+      "one paw on a donut it has finally cornered on the rain-wet street, neon reflected all around it",
       "grinning under the streetlamp with the recovered prize, case closed",
     ],
     timid: [
