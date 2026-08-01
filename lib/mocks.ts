@@ -392,9 +392,17 @@ export async function sendRefundRequestedAlert(order: Order): Promise<void> {
  * B2-SAFETY-NET-SPEC.md §4.4 — sent once the admin records the $200 as
  * actually refunded in Stripe (app/admin/actions.ts#markRefundIssuedAction).
  * Standard customer-lifecycle fallback chain, like every other send above.
+ *
+ * Links back to the approve page (now rendering, on this CANCELLED order,
+ * the treatment + full storyboard as the keepsake the $49 fee paid for —
+ * app/approve/[token]/page.tsx#RefundIssuedView). A refunded customer has no
+ * other reason to revisit that link, so this email is the one moment that
+ * makes them aware the keepsake is even there; without the link, "yours to
+ * keep" would still be true on the page but undiscoverable in practice.
  */
 export async function sendRefundIssuedEmail(order: Order): Promise<void> {
   const petName = order.petName ?? "Your Star";
+  const link = approveUrl(order);
   const apiKey = process.env.KLAVIYO_API_KEY;
 
   if (apiKey) {
@@ -403,6 +411,7 @@ export async function sendRefundIssuedEmail(order: Order): Promise<void> {
       pet_name: petName,
       refund_amount_usd: REFUND_AMOUNT_USD,
       nonrefundable_fee_usd: NONREFUNDABLE_FEE_USD,
+      approve_url: link,
     });
     return;
   }
@@ -420,6 +429,8 @@ export async function sendRefundIssuedEmail(order: Order): Promise<void> {
         <p>The $${NONREFUNDABLE_FEE_USD} concept &amp; storyboard fee covers the
         treatment and storyboard work we already did for ${petName}, so it
         isn't part of this refund.</p>
+        <p><a href="${link}">See ${petName}'s treatment and full storyboard →</a>
+        they're yours to keep, and that link is where to find them.</p>
         <p style="color:#888;font-size:12px">Questions? Just reply to this email.</p>
       `,
     });
@@ -428,6 +439,6 @@ export async function sendRefundIssuedEmail(order: Order): Promise<void> {
   }
 
   console.log(
-    `[mock:email] refund issued mail to=${order.customerEmail} order=${order.id} amount=$${REFUND_AMOUNT_USD} — set KLAVIYO_API_KEY or RESEND_API_KEY to send for real`
+    `[mock:email] refund issued mail to=${order.customerEmail} order=${order.id} amount=$${REFUND_AMOUNT_USD} link=${link} — set KLAVIYO_API_KEY or RESEND_API_KEY to send for real`
   );
 }

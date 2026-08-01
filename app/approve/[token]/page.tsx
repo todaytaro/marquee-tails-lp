@@ -405,10 +405,38 @@ function QualityCheckView({ order, petName }: { order: Order; petName: string })
  * this app never displays a computed refund amount as if it paid it — this
  * is the same fixed $200/$49 split disclosed before purchase, not a number
  * this page calculated.
+ *
+ * Below the refund facts, this view now backs up the line StoryboardWizard
+ * says at the moment of refund request ("the treatment and storyboard we
+ * made for {petName} are yours to keep either way"): the $49 concept &
+ * storyboard fee bought real work, and a CANCELLED order is the only place
+ * that work is ever handed over — there is no login, no separate delivery
+ * email attachment, nothing else. Without this, the promise was a memory of
+ * a page the customer saw once, never a thing they could actually keep.
+ *
+ * Shows ALL THREE takes of every cut, not one "winning" pick — the customer
+ * never chose a winner (refund only fires before Gate 1 approval, so
+ * chosenStills is empty), and "the storyboard" in the promise is the whole
+ * six-scene, three-take set the $49 paid for, not a curated one-per-cut
+ * highlight reel that would quietly hand over less than advertised.
+ *
+ * Uses `.preview`, never `.clean` (same posture as Gate1View above): with
+ * WATERMARK_PREVIEWS_ENABLED currently false the two are identical, but if
+ * that flag is ever flipped back on (lib/stills-pipeline.ts's own comment
+ * flags this as a follow-up decision once a real refund path exists — this
+ * page is that path), this keepsake should automatically start showing the
+ * same watermarked proof sheets the customer actually saw at Gate 1, not a
+ * clean asset that was never exposed to the browser anywhere else.
  */
-function RefundIssuedView({ petName }: { petName: string }) {
+function RefundIssuedView({ order, petName }: { order: Order; petName: string }) {
+  const treatmentParagraphs = fillPetName(order.treatmentText ?? "", order.petName)
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const storyboard = normalizeStoryboard(order.storyboardOptions);
+
   return (
-    <div className="mx-auto max-w-xl text-center">
+    <div className="mx-auto max-w-3xl text-center">
       <p className="text-sm uppercase tracking-[0.3em] text-muted">
         Production ended
       </p>
@@ -424,6 +452,80 @@ function RefundIssuedView({ petName }: { petName: string }) {
       <p className="mt-4 text-xs text-muted">
         Questions? Just reply to any of our emails.
       </p>
+
+      {(treatmentParagraphs.length > 0 || storyboard.length > 0) && (
+        <div className="mt-14 border-t border-hairline pt-10 text-left">
+          <p className="text-center text-sm uppercase tracking-[0.3em] text-muted">
+            Yours to keep
+          </p>
+          <p className="mx-auto mt-3 max-w-xl text-center text-sm text-muted">
+            The $49 concept &amp; storyboard fee paid for real work on{" "}
+            {petName}&apos;s film. Here it is, in full.
+          </p>
+
+          {treatmentParagraphs.length > 0 && (
+            <div className="mt-8 rounded-[var(--radius-card)] border border-hairline bg-surface p-6 sm:p-8">
+              <p className="font-display text-xs tracking-[0.3em] text-gold uppercase">
+                The treatment
+              </p>
+              <div className="mt-4 space-y-4">
+                {treatmentParagraphs.map((p, i) => (
+                  <p key={i} className="leading-relaxed text-ivory">
+                    {p}
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {storyboard.length > 0 && (
+            <div className="mt-8">
+              <p className="font-display text-xs tracking-[0.3em] text-gold uppercase">
+                The storyboard — {storyboard.length} scenes, three takes each
+              </p>
+              <div className="mt-6 space-y-8">
+                {storyboard.map((cut, cutIdx) => (
+                  <div key={cutIdx}>
+                    <p className="text-sm text-ivory">
+                      Scene {cutIdx + 1}
+                      {cut.scene && (
+                        <>
+                          {" "}
+                          — {cut.scene.charAt(0).toUpperCase() + cut.scene.slice(1)}
+                        </>
+                      )}
+                    </p>
+                    <ol className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                      {cut.options.map((opt, takeIdx) => (
+                        <li key={takeIdx} className="space-y-2">
+                          <div className="relative aspect-video overflow-hidden rounded-[var(--radius-card)] border border-hairline">
+                            <Still
+                              src={opt.preview}
+                              alt={`${petName} — scene ${cutIdx + 1} take ${takeIdx + 1}`}
+                            />
+                          </div>
+                          {/* Through /api/download, not straight at fal:
+                              `download` is advisory and browsers drop it
+                              cross-origin, so a direct link would open the
+                              image in a tab instead of saving it — and the
+                              promise this whole view exists to keep is that
+                              these are the customer's to KEEP. */}
+                          <a
+                            href={`/api/download?token=${order.approveToken}&kind=take&cut=${cutIdx}&take=${takeIdx}`}
+                            className="block text-center text-xs text-gold underline decoration-hairline underline-offset-4 transition-colors hover:text-gold-bright"
+                          >
+                            Download take {takeIdx + 1}
+                          </a>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -463,17 +565,20 @@ function PremiereView({ order, petName }: { order: Order; petName: string }) {
       {videoUrl && (
         <div className="mt-8 flex flex-col items-center gap-4">
           <div className="flex flex-wrap items-center justify-center gap-3">
+            {/* /api/download names the file and forces a save. A direct
+                fal.media href silently did neither: `download` is ignored
+                cross-origin, so "Download your film" opened the video in a
+                tab. That was true of the main deliverable of both plans from
+                the day it shipped. */}
             <a
-              href={videoUrl}
-              download={`${petName.toLowerCase()}-marquee-tails.mp4`}
+              href={`/api/download?token=${order.approveToken}&kind=film`}
               className="btn-marquee px-6 py-3 text-base"
             >
               Download {petName}&apos;s film
             </a>
             {order.socialVideoUrl && (
               <a
-                href={order.socialVideoUrl}
-                download={`${petName.toLowerCase()}-marquee-tails-vertical.mp4`}
+                href={`/api/download?token=${order.approveToken}&kind=social`}
                 className="inline-flex items-center rounded-[var(--radius-chip)] border border-gold/50 px-6 py-3 text-base text-gold transition-colors hover:bg-gold/10"
               >
                 Vertical cut for TikTok / Reels
@@ -491,8 +596,7 @@ function PremiereView({ order, petName }: { order: Order; petName: string }) {
             */}
             {order.posterPrintUrl && (
               <a
-                href={order.posterPrintUrl}
-                download={`${petName.toLowerCase()}-marquee-tails-poster.png`}
+                href={`/api/download?token=${order.approveToken}&kind=poster`}
                 className="inline-flex items-center rounded-[var(--radius-chip)] border border-gold/50 px-6 py-3 text-base text-gold transition-colors hover:bg-gold/10"
               >
                 Download the poster
@@ -650,7 +754,7 @@ export default async function ApprovePage({
     // other flow produces this status, so no other tier/gate needs a
     // branch here.
     case OrderStatus.CANCELLED:
-      view = <RefundIssuedView petName={petName} />;
+      view = <RefundIssuedView order={order} petName={petName} />;
       break;
   }
 
