@@ -9,7 +9,7 @@ import { prismaExtension } from "@trigger.dev/build/extensions/prisma";
 export default defineConfig({
   project: "proj_hvrskkcikwxjqqvsoqvl",
   dirs: ["./trigger"],
-  maxDuration: 1800, // 30 min ceiling; tasks can override down, film needs the headroom
+  maxDuration: 1800, // default for any task that doesn't set its own; individual tasks override up (train-pet-lora, see LORA-STORYBOARD-SPEC.md §2.7) or down (poster) as needed
   build: {
     extensions: [
       ffmpeg(), // injects FFMPEG_PATH / FFPROBE_PATH

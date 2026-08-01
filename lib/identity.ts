@@ -14,6 +14,12 @@ import { fal } from "@fal-ai/client";
  *     end frame, vs the customer's real photo (catches "the video drifted
  *     into a different dog" before Gate 2)
  *
+ * A THIRD scorer, scoreAnatomy (LORA-STORYBOARD-SPEC.md §4.2), lives here too
+ * but checks a completely different, single-image question — "does this
+ * four-legged animal's anatomy look coherent" — independent of likeness. It
+ * runs alongside scoreIdentity at the same gate (generateGatedTake), not in
+ * its place.
+ *
  * IDENTITY-FIDELITY-SPEC.md §1 documents, with the pre-fix code quoted, why
  * the FIRST argument below must always be an actual uploaded customer photo
  * and NOT a generated image (portrait, hero sheet, or anything downstream of
@@ -122,5 +128,57 @@ export async function scoreIdentity(referenceUrl: string, candidateUrl: string):
   } catch (e) {
     console.warn("[identity] check errored, passing through:", e);
     return 100;
+  }
+}
+
+/**
+ * Anatomy gate (LORA-STORYBOARD-SPEC.md §4.2) — a four-legged-animal limb
+ * catastrophe check, added at the SAME place and in the SAME shape as
+ * scoreIdentity above (see stills-pipeline.ts's generateGatedTake, which
+ * calls both together on every attempt). Diffusion models occasionally break
+ * anatomy on hard poses (an extra or missing leg, a duplicated/floating paw,
+ * limbs fused or attached in the wrong place) — a failure mode that is
+ * completely independent of likeness: a take can score perfectly on identity
+ * and still show three legs.
+ *
+ * §4.2's own arithmetic is why this exists even though §1.8 could not prove a
+ * measured per-image breakage rate: a storyboard is 18 stills, and even a
+ * quiet 5% per-image break rate puts a broken limb somewhere in 60% of
+ * orders. "Rarely happens" and "the customer never sees it" are very
+ * different claims once the image count is 18, not 1.
+ *
+ * Never blocks the pipeline: any error (or an unparseable response) returns
+ * `ok: true` — a failed check must never turn into an extra, unearned re-roll
+ * budget spent on nothing, same posture as scoreIdentity/scoreFrame above.
+ */
+export async function scoreAnatomy(candidateUrl: string): Promise<{ ok: boolean; detail: string }> {
+  try {
+    const r = await fal.subscribe(VISION_MODEL, {
+      input: {
+        model: VISION_LLM,
+        image_urls: [publicUrl(candidateUrl)],
+        prompt:
+          "This is an AI-generated cinematic photo of a four-legged pet (dog or cat) in costume. Look closely at its legs and paws only — ignore costume, background, lighting and pose. Answer two things:\n" +
+          "A) legCount: how many legs are clearly visible or clearly implied by the pose (a normal, healthy animal has exactly 4: two front, two hind)? Use -1 if the pose/framing makes this uncountable (e.g. a tight face close-up where no legs are in frame at all).\n" +
+          "B) broken: true if there is ANY visible anatomical fault — an extra limb, a missing limb where one should clearly be visible, a duplicated or floating paw, tangled/fused/merged legs, or a limb attached in the wrong place on the body. false if the visible anatomy looks like a normal, coherent animal (including images where legs simply aren't in frame).\n" +
+          'Reply with ONLY minified JSON, no prose: {"legCount":<integer>,"broken":<true|false>}',
+      },
+    });
+    const raw = String(
+      (r.data as { output?: string; text?: string })?.output ??
+        (r.data as { text?: string })?.text ??
+        ""
+    );
+    const json = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1)) as {
+      legCount?: unknown;
+      broken?: unknown;
+    };
+    const legCount = Number.isInteger(json.legCount) ? (json.legCount as number) : -1;
+    const broken = json.broken === true;
+    const ok = !broken && (legCount === -1 || legCount === 4);
+    return { ok, detail: `legs=${legCount} broken=${broken}` };
+  } catch (e) {
+    console.warn("[identity] anatomy check errored, passing through:", e);
+    return { ok: true, detail: "check errored, passing through" };
   }
 }

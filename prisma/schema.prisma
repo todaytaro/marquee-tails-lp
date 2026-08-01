@@ -86,6 +86,16 @@ model Order {
   identityPortraitUrl String? // neutral close-up generated from photos; ref for all takes
   heroSheetUrl        String? // costumed reference sheet — anchor for takes & admin re-shoots
 
+  // --- LoRA storyboard (B1) — LORA-STORYBOARD-SPEC.md §2.1 ---
+  // One LoRA trained per order from the customer's own photos, used by every
+  // take (initial storyboard, customer re-rolls, admin re-shoots) via
+  // fal-ai/flux-2/lora/edit instead of the older reference-chain approach.
+  // Trained ONCE — set together, both null until training succeeds; a null
+  // loraUrl means every take for this order falls back to the pre-B1
+  // nano-banana costume chain (training failed, or predates this feature).
+  loraUrl         String? // trained LoRA weights file url (fal storage)
+  loraTriggerWord String? // rare order-unique trigger word the LoRA was trained on; reused verbatim in every B1 take prompt
+
   // film pipeline checkpoints — lets a run resume after an upload/balance
   // failure without re-spending compute on already-generated assets.
   // { heroSheet?, shotStillUrls?, clipUrls?, scoreUrl? }

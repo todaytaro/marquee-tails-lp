@@ -322,10 +322,17 @@ async function generateShotClip(
 // them against the customer's REAL PHOTO (IDENTITY-FIDELITY-SPEC.md §4 — see
 // scoreClip's comment; previously scored against the identity portrait, the
 // same bug §1 documents for the stills gate); a clip below the threshold is
-// re-rolled. Clips are inherently a touch below stills, so this bar is a
-// little lower than the still gate (80). One re-roll caps the added spend
-// (2 animations/shot max).
-const CLIP_IDENTITY_THRESHOLD = 75;
+// re-rolled. One re-roll caps the added spend (2 animations/shot max).
+//
+// LORA-STORYBOARD-SPEC.md §4.5: was 75 (deliberately a little below the old
+// still gate's 80). The owner's own eyeball-sorted bake-off showed that same
+// identity score has NO discriminating power between "looks like my dog" and
+// "doesn't look like my dog" in the 75-90 range — stills-pipeline.ts's
+// IDENTITY_THRESHOLD dropped to 50 for exactly that reason, and §4.5
+// explicitly calls this constant out for the "same treatment". Now a
+// catastrophe floor (wrong species / clearly different animal), not a
+// likeness bar.
+const CLIP_IDENTITY_THRESHOLD = 50;
 const MAX_CLIP_REROLLS = 1;
 
 /** Grab a single frame using ffmpeg seek args (placed before -i for fast seek). */
@@ -419,10 +426,13 @@ async function generateGatedClip(
 
 // The end frame IS a still (it becomes a real frame of the finished film,
 // same as any chosen storyboard take), so it clears the STILLS bar
-// (stills-pipeline.ts's IDENTITY_THRESHOLD = 80), not the looser clip bar
-// (CLIP_IDENTITY_THRESHOLD = 75) — a clip is allowed a little drift because
-// it's judged across a whole animated shot, but a still has no excuse.
-const END_FRAME_IDENTITY_THRESHOLD = 80;
+// (stills-pipeline.ts's IDENTITY_THRESHOLD), not the looser clip bar
+// (CLIP_IDENTITY_THRESHOLD) — kept numerically equal to IDENTITY_THRESHOLD by
+// convention, not by import (avoids a stills<->film cycle; see
+// IDENTITY_THRESHOLD's own comment for why 50, not 80: LORA-STORYBOARD-
+// SPEC.md §4.5 — the same "catastrophe floor, not a likeness bar" reasoning
+// applies here, per §4.5's explicit instruction to treat this gate the same).
+const END_FRAME_IDENTITY_THRESHOLD = 50;
 const MAX_END_FRAME_REROLLS = 1;
 // Base seed for end-frame generation — offset far from STILL_SEED
 // (stills-pipeline.ts) so a shared order id never collides an end-frame seed

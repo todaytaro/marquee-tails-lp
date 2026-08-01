@@ -6,7 +6,12 @@ import { transitionOrder } from "@/lib/orders";
 
 /**
  * Trigger.dev task for the stills/storyboard pipeline (see FILM-ASYNC-SPEC.md
- * §2). Kicked from lib/stills-pipeline.ts#kickStillsGeneration in production.
+ * §2). Kicked from lib/stills-pipeline.ts#kickStillsGeneration — in
+ * production that's called either directly (from this task's own perspective
+ * this doesn't matter) or, per LORA-STORYBOARD-SPEC.md §2.7, from
+ * trigger/train-lora.ts's "train-pet-lora" task once LoRA training for this
+ * order is done (or has given up and fallen back) — this task itself never
+ * trains and only ever READS loraUrl/loraTriggerWord off the order record.
  *
  * WHY THIS EXISTS: the storyboard chain (photo analysis -> identity portrait ->
  * hero sheet -> 6 cuts x 3 takes) takes several minutes. It used to run as a
@@ -16,6 +21,16 @@ import { transitionOrder } from "@/lib/orders";
  * in IMAGE_GENERATING forever — no storyboard, no error, no revert (the inline
  * .catch() died with the process). The film/poster/rerender pipelines were
  * already moved here; stills was the one that never made the trip.
+ *
+ * §2.7 history: LoRA training used to run as this task's own Stage 0, and
+ * this task's `maxDuration` was bumped to 3600s to cover it. That was based
+ * on the spec's original (wrong, unmeasured) "a few minutes to ~15" estimate;
+ * the real measurement was ~45 minutes, which would have made the COMBINED
+ * task's worst case ~75 minutes — over even the bumped ceiling, and a
+ * duration-kill mid-run would have thrown away the completed training and
+ * retried it. Training now lives in its own upstream task (train-lora.ts)
+ * specifically so this task's `maxDuration` only ever has to cover ITS OWN
+ * work again, back to 1800s.
  */
 export const generateStillsTask = task({
   id: "generate-stills",
@@ -26,6 +41,10 @@ export const generateStillsTask = task({
   // render is also throttled now (WATERMARK_CONCURRENCY in lib/stills-pipeline)
   // so the machine size is headroom rather than the fix.
   machine: "large-1x",
+  // Back to 1800 (30 min) — LoRA training no longer happens inside this task
+  // (see doc comment above), so this only has to cover its own chain again:
+  // photo analysis + portrait + hero sheet + 18 gated takes (each now also
+  // anatomy-scored), same scope this ceiling was originally sized for.
   maxDuration: 1800,
   retry: { maxAttempts: 2 },
   run: async ({ orderId }: { orderId: string }) => {

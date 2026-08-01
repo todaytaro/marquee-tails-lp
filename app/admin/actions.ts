@@ -110,7 +110,10 @@ export type RekickGenerationResult = { ok: true } | { ok: false; error: string }
  * のまま進めない。この操作はその取り残された注文を救う唯一の手段。
  *
  * どちらのパイプラインも再開可能なので再課金は最小限で済む:
- *   - 絵コンテ: 写真解析とアイデンティティ画像がキャッシュ済みならスキップ
+ *   - 絵コンテ: LoRA学習済み（loraUrl 保存済み）ならそこはスキップし、
+ *     写真解析とアイデンティティ画像も同様にキャッシュ済みならスキップ
+ *     （LORA-STORYBOARD-SPEC.md §2.7 — kickLoraTraining 経由なので、
+ *     学習タスク自体で止まっていた注文もこの一本の呼び出しで再開できる）
  *   - 動画: filmArtifacts のクリップ・音楽を再利用し、未完了の工程だけやり直す
  */
 export async function rekickGenerationAction(
@@ -128,8 +131,13 @@ export async function rekickGenerationAction(
     // ステータスガード: 生成中の注文にだけ効く操作。すでに次のゲートへ進んだ
     // 注文で押しても二重生成しないようにする。
     if (order.status === OrderStatus.IMAGE_GENERATING) {
-      const { kickStillsGeneration } = await import("@/lib/stills-pipeline");
-      await kickStillsGeneration(order);
+      // kickStillsGeneration ではなく kickLoraTraining から再開する:
+      // クラッシュした箇所が学習タスクか絵コンテタスクか、この時点では
+      // 分からない。kickLoraTraining の再利用チェック（order.loraUrl が
+      // あれば学習をスキップ）が、学習済みなら即座に絵コンテへ進むので、
+      // どちらで止まっていても正しく再開できる。
+      const { kickLoraTraining } = await import("@/lib/stills-pipeline");
+      await kickLoraTraining(order);
     } else if (order.status === OrderStatus.VIDEO_GENERATING) {
       await kickFilmGeneration(order);
     } else {

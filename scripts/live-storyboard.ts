@@ -1,13 +1,18 @@
 /**
  * Live storyboard run — seed a fresh order from an EXISTING order's real assets
- * (photos + description + portrait) and generate the 6×3 storyboard for real,
- * stopping at Gate 1 (AWAITING_CUSTOMER_APPROVAL) so the approval wizard can be
- * driven in the browser.
+ * (photos + description + portrait + LoRA) and generate the 6×3 storyboard for
+ * real, stopping at Gate 1 (AWAITING_CUSTOMER_APPROVAL) so the approval wizard
+ * can be driven in the browser.
  *
  * Reuses the source's petDescription + identityPortraitUrl, so stills-pipeline
  * skips stage 0/1 (no re-analyze, no new portrait) — the pet's identity anchor
- * stays exactly the source's. Generates: hero sheet + 18 takes ≈ $3 real fal.
- * Approving in the UI afterwards kicks the film pipeline (another ~$2.5).
+ * stays exactly the source's. Also reuses the source's loraUrl/loraTriggerWord
+ * (LORA-STORYBOARD-SPEC.md §2.7 — runStillsGeneration only ever READS these
+ * fields now, it never trains) so this script exercises the real B1 take path
+ * instead of silently falling back to the pre-B1 chain, and without spending
+ * ~45 minutes + ~$2 re-training a LoRA the source order already has. Generates:
+ * hero sheet + 18 takes ≈ $3 real fal. Approving in the UI afterwards kicks the
+ * film pipeline (another ~$2.5).
  *
  * Usage: npx tsx scripts/live-storyboard.ts [sourceShopifyOrderId]
  * NOTE: spends real fal — run only with the owner's OK.
@@ -35,6 +40,8 @@ async function main() {
       uploadedPhotoUrls: src.uploadedPhotoUrls,
       petDescription: src.petDescription, // reuse -> pipeline skips stage 0/1
       identityPortraitUrl: src.identityPortraitUrl,
+      loraUrl: src.loraUrl, // reuse -> B1 takes without a ~45min re-train (§2.7)
+      loraTriggerWord: src.loraTriggerWord,
     },
   });
   console.log(`live-storyboard ${order.id} | ${order.petName}/${order.world}/${order.personality} | src=${srcId}`);

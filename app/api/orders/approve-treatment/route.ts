@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { OrderStatus } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { transitionOrder, TransitionError } from "@/lib/orders";
-import { kickStillsGeneration } from "@/lib/stills-pipeline";
+import { kickLoraTraining } from "@/lib/stills-pipeline";
 
 /**
  * Director's Cut "Gate 0" — the customer approves the treatment.
@@ -16,8 +16,10 @@ import { kickStillsGeneration } from "@/lib/stills-pipeline";
  *
  * On approval, hands off to the EXISTING stills pipeline (unchanged from
  * here on): AWAITING_TREATMENT_APPROVAL -> IMAGE_GENERATING, then
- * kickStillsGeneration, with the same compensating-revert pattern as
- * submit-photos / approve-storyboard (kick failure reverts the transition).
+ * kickLoraTraining (LORA-STORYBOARD-SPEC.md §2.7 — trains first, then chains
+ * into stills once training is done or has given up), with the same
+ * compensating-revert pattern as submit-photos / approve-storyboard (kick
+ * failure reverts the transition).
  */
 export async function POST(req: Request) {
   let body: { orderId?: string; approveToken?: string };
@@ -52,9 +54,9 @@ export async function POST(req: Request) {
     );
 
     try {
-      await kickStillsGeneration(updated);
+      await kickLoraTraining(updated);
     } catch (kickErr) {
-      console.error(`[approve-treatment] stills kick failed, reverting order=${order.id}`, kickErr);
+      console.error(`[approve-treatment] lora/stills kick failed, reverting order=${order.id}`, kickErr);
       await transitionOrder(
         order.id,
         OrderStatus.IMAGE_GENERATING,

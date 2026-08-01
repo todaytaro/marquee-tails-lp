@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { OrderStatus } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { transitionOrder, TransitionError } from "@/lib/orders";
-import { kickStillsGeneration } from "@/lib/stills-pipeline";
+import { kickLoraTraining } from "@/lib/stills-pipeline";
 import { generateTreatment } from "@/lib/claude-script";
 
 /**
@@ -40,8 +40,11 @@ import { generateTreatment } from "@/lib/claude-script";
 // strand the order in TREATMENT_GENERATING with no recovery path.
 export const maxDuration = 60;
 
-const MAX_PHOTOS = 8;
-const MIN_PHOTOS = 4;
+// LORA-STORYBOARD-SPEC.md §5 (owner-approved) — must match
+// components/PhotoUploadForm.tsx's MIN_PHOTOS/MAX_PHOTOS, or the client can
+// let a customer submit a photo count this route then rejects.
+const MAX_PHOTOS = 12;
+const MIN_PHOTOS = 7;
 const WORLDS = new Set(["deepspace", "storybook", "noir"]);
 const PERSONALITIES = new Set(["brave", "easygoing", "playful", "timid"]);
 const BRIEF_MIN = 20;
@@ -242,9 +245,13 @@ export async function POST(req: Request) {
     );
 
     try {
-      await kickStillsGeneration(updated);
+      // LORA-STORYBOARD-SPEC.md §2.7: kicks LoRA training first now, not
+      // stills directly — training's own task chains into stills once it's
+      // done (or has given up and fallen back), so this is still the single
+      // call that starts the whole pipeline.
+      await kickLoraTraining(updated);
     } catch (kickErr) {
-      console.error(`[submit-photos] stills kick failed, reverting order=${order.id}`, kickErr);
+      console.error(`[submit-photos] lora/stills kick failed, reverting order=${order.id}`, kickErr);
       await transitionOrder(
         order.id,
         OrderStatus.IMAGE_GENERATING,
