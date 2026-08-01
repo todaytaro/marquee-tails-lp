@@ -167,10 +167,20 @@ export type AdminRerollCutResult = { ok: true } | { ok: false; error: string };
  */
 export async function adminRerollCutAction(
   orderId: string,
-  cutIndex: number
+  cutIndex: number,
+  // Omitted = redraw all three takes. Supplied = redraw just that one and
+  // leave the reviewer's other two alone, which is what a cut with a single
+  // bad option actually needs.
+  takeIndex?: number
 ): Promise<AdminRerollCutResult> {
   if (!orderId || !Number.isInteger(cutIndex) || cutIndex < 0 || cutIndex >= NUM_CUTS) {
     return { ok: false, error: "orderId と有効な cutIndex が必要です。" };
+  }
+  if (
+    takeIndex !== undefined &&
+    (!Number.isInteger(takeIndex) || takeIndex < 0 || takeIndex >= TAKES_PER_CUT)
+  ) {
+    return { ok: false, error: "有効な takeIndex が必要です。" };
   }
 
   const order = await prisma.order.findUnique({ where: { id: orderId } });
@@ -202,7 +212,7 @@ export async function adminRerollCutAction(
   const reserved = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
 
   try {
-    await adminRerollCutTakes(reserved, cutIndex, reserved.adminRerollCount);
+    await adminRerollCutTakes(reserved, cutIndex, reserved.adminRerollCount, takeIndex);
   } catch (err) {
     // Compensating revert, same reasoning as reroll-cut/route.ts: a re-roll
     // that fails outright delivered nothing, so the counter it reserved

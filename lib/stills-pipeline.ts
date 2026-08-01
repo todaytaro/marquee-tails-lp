@@ -1374,7 +1374,12 @@ export async function rerollCutTakes(
 export async function adminRerollCutTakes(
   order: Order,
   cutIndex: number,
-  adminRerollCount: number
+  adminRerollCount: number,
+  // Which take to redraw, or undefined for all three. Single-take is the
+  // common case in practice: a cut usually has ONE bad option, and replacing
+  // the whole trio to fix it throws away takes the reviewer already judged
+  // good — and costs three renders to repair one.
+  takeIndex?: number
 ): Promise<StoryboardCut> {
   assertEnv("FAL_KEY");
   fal.config({ credentials: process.env.FAL_KEY });
@@ -1404,10 +1409,24 @@ export async function adminRerollCutTakes(
   // §2.1/§2.7: reuse the order's own trained LoRA — never retrain here either.
   const lora = order.loraUrl && order.loraTriggerWord ? { url: order.loraUrl, triggerWord: order.loraTriggerWord } : undefined;
 
-  console.log(`[stills] ADMIN re-roll cut ${cutIndex} order=${order.id} (order-wide admin re-roll #${adminRerollCount})`);
+  // Which take slots this call is responsible for. The seed for a slot is
+  // derived from its OWN index either way (seedBase + take*1000), so a
+  // single-take re-roll lands in the same seed slot the full re-roll would
+  // have used for it — the disjointness argument above is unaffected.
+  const targets =
+    takeIndex === undefined ? Array.from({ length: TAKES_PER_CUT }, (_, i) => i) : [takeIndex];
+  if (targets.some((t) => t < 0 || t >= TAKES_PER_CUT)) {
+    throw new Error(`take index out of range for cut ${cutIndex}`);
+  }
+
+  console.log(
+    `[stills] ADMIN re-roll cut ${cutIndex} ${
+      takeIndex === undefined ? "(all takes)" : `take ${takeIndex}`
+    } order=${order.id} (order-wide admin re-roll #${adminRerollCount})`
+  );
   const seedBase = adminRerollSeedBase(cutIndex, adminRerollCount);
   const cleanTakes = await Promise.all(
-    Array.from({ length: TAKES_PER_CUT }, (_, take) =>
+    targets.map((take) =>
       generateGatedTake(
         refs,
         hasRealPhotoFirst,
@@ -1429,22 +1448,34 @@ export async function adminRerollCutTakes(
   // Same {preview, clean} shape as every other producer of a StoryboardCut —
   // watermarking is currently OFF (WATERMARK_PREVIEWS_ENABLED above), so
   // preview === clean.
-  const options: StillOption[] = WATERMARK_PREVIEWS_ENABLED
+  const fresh: StillOption[] = WATERMARK_PREVIEWS_ENABLED
     ? await Promise.all(
         cleanTakes.map(async (clean, i) => ({
           clean,
           preview: await watermarkTakeForPreview(
             clean,
-            `order=${order.id}-cut=${cutIndex}-adminReroll=${adminRerollCount}-take=${i}`
+            `order=${order.id}-cut=${cutIndex}-adminReroll=${adminRerollCount}-take=${targets[i]}`
           ),
         }))
       )
     : cleanTakes.map((clean) => ({ clean, preview: clean }));
 
-  const newCut: StoryboardCut = { scene, options };
-
+  // Re-read inside the same step that writes: an admin re-rolling two cuts in
+  // quick succession must not have the second write clobber the first with a
+  // storyboard snapshot taken before it landed.
   const latest = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
   const latestStoryboard = normalizeStoryboard(latest.storyboardOptions);
+
+  // Splice the fresh takes into their own slots, leaving every other option
+  // exactly as the reviewer left it. For a full re-roll `targets` is all three
+  // slots, so this is the same result as replacing the cut wholesale.
+  const existing = latestStoryboard[cutIndex]?.options ?? [];
+  const options: StillOption[] = [...existing];
+  targets.forEach((slot, i) => {
+    options[slot] = fresh[i];
+  });
+
+  const newCut: StoryboardCut = { scene, options };
   latestStoryboard[cutIndex] = newCut;
 
   await prisma.order.update({

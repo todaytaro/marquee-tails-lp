@@ -40,7 +40,9 @@ export function StoryboardReviewPanel({
   takesPerCut: number;
 }) {
   const [error, setError] = useState<string | null>(null);
-  const [rerollingCut, setRerollingCut] = useState<number | null>(null);
+  // Which slot is mid-render: a cut index, and a take index when only one
+  // take is being replaced (null take = the whole cut).
+  const [rerolling, setRerolling] = useState<{ cut: number; take: number | null } | null>(null);
   const [isApproving, startApprove] = useTransition();
   const [isRerolling, startReroll] = useTransition();
 
@@ -48,13 +50,13 @@ export function StoryboardReviewPanel({
     storyboard.length >= numCuts &&
     storyboard.slice(0, numCuts).every((cut) => cut.options.length >= takesPerCut);
 
-  function reroll(cutIndex: number) {
+  function reroll(cutIndex: number, takeIndex?: number) {
     setError(null);
-    setRerollingCut(cutIndex);
+    setRerolling({ cut: cutIndex, take: takeIndex ?? null });
     startReroll(async () => {
-      const result = await adminRerollCutAction(orderId, cutIndex);
+      const result = await adminRerollCutAction(orderId, cutIndex, takeIndex);
       if (!result.ok) setError(result.error);
-      setRerollingCut(null);
+      setRerolling(null);
     });
   }
 
@@ -80,7 +82,7 @@ export function StoryboardReviewPanel({
       </div>
       <p className="mb-4 text-xs text-muted">
         顧客にはまだ何も送られていません。各カットで犬がフレーム内に読めるか確認してから承認してください。
-        気になるカットは引き直せます（顧客の3回のリロール枠はここでは消費しません）。
+        気になるテイクは1枚単位で引き直せます（顧客の3回のリロール枠はここでは消費しません）。
       </p>
 
       <div className="space-y-5">
@@ -97,13 +99,27 @@ export function StoryboardReviewPanel({
             </div>
             <div className="grid grid-cols-3 gap-2">
               {cut.options.map((url, takeIndex) => (
-                // Plain <img>: these live on external storage (fal.ai).
-                <img
-                  key={takeIndex}
-                  src={url}
-                  alt={`カット${cutIndex + 1} テイク${takeIndex + 1}`}
-                  className="aspect-video w-full rounded-[var(--radius-chip)] border border-hairline object-cover"
-                />
+                <div key={takeIndex} className="flex flex-col gap-1">
+                  {/* Plain <img>: these live on external storage (fal.ai). */}
+                  <img
+                    src={url}
+                    alt={`カット${cutIndex + 1} テイク${takeIndex + 1}`}
+                    className="aspect-video w-full rounded-[var(--radius-chip)] border border-hairline object-cover"
+                  />
+                  {/* Per-take, because a cut usually has ONE bad option and
+                      redrawing all three to fix it discards takes already
+                      judged good. */}
+                  <button
+                    type="button"
+                    onClick={() => reroll(cutIndex, takeIndex)}
+                    disabled={busy}
+                    className="rounded-[var(--radius-chip)] border border-hairline px-1 py-0.5 text-[10px] tracking-wider text-muted transition-colors hover:border-gold/50 hover:text-gold disabled:pointer-events-none disabled:opacity-50"
+                  >
+                    {isRerolling && rerolling?.cut === cutIndex && rerolling?.take === takeIndex
+                      ? "引き直し中…"
+                      : `↻ テイク${takeIndex + 1}`}
+                  </button>
+                </div>
               ))}
             </div>
             <button
@@ -112,9 +128,9 @@ export function StoryboardReviewPanel({
               disabled={busy}
               className="mt-2 w-full rounded-[var(--radius-chip)] border border-hairline px-2 py-1 text-[10px] uppercase tracking-wider text-muted transition-colors hover:border-gold/50 hover:text-gold disabled:pointer-events-none disabled:opacity-50"
             >
-              {isRerolling && rerollingCut === cutIndex
+              {isRerolling && rerolling?.cut === cutIndex && rerolling?.take === null
                 ? "引き直し中…"
-                : "↻ このカットを引き直す"}
+                : "↻ 3枚まとめて引き直す"}
             </button>
           </div>
         ))}
