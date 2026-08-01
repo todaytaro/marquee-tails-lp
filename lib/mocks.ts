@@ -27,8 +27,32 @@ import { STORYBOARD_REROLL_CAP, REFUND_AMOUNT_USD, NONREFUNDABLE_FEE_USD } from 
 
 const KLAVIYO_REVISION = "2024-10-15";
 
+/**
+ * The customer's private link into their order — the ONLY way back in, since
+ * there is no login and the token in the URL is the auth.
+ *
+ * Refuses to fall back to localhost in production. That fallback used to be
+ * silent, which meant a missing APP_BASE_URL produced a perfectly successful
+ * send carrying a link to `http://localhost:3100` — a dead end for the
+ * customer and nothing at all in the logs to notice. Failing the send is
+ * strictly better: it surfaces as an error someone can act on, and the
+ * customer is no worse off than if the mail had arrived unusable.
+ *
+ * This got sharper with LORA-STORYBOARD-SPEC.md §2.7: the storyboard now
+ * takes hours (LoRA training runs first), so nobody is sitting on the page
+ * waiting when it lands. The Gate-1 mail IS the hand-off. If its link is
+ * wrong, the order simply stops there.
+ */
 function approveUrl(order: Order): string {
-  const base = process.env.APP_BASE_URL ?? "http://localhost:3100";
+  const base = process.env.APP_BASE_URL;
+  if (!base) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "APP_BASE_URL is not set — refusing to email a localhost link. Set it on Vercel and on the Trigger.dev environment."
+      );
+    }
+    return new URL(`/approve/${order.approveToken}`, "http://localhost:3100").toString();
+  }
   return new URL(`/approve/${order.approveToken}`, base).toString();
 }
 
@@ -172,6 +196,17 @@ export async function sendWelcomeUploadEmail(order: Order): Promise<void> {
         <p>Thanks for your order — time to send us the photos that'll become
         your pet's premiere.</p>
         <p><a href="${link}">Upload your pet's photos →</a></p>
+        <!-- LORA-STORYBOARD-SPEC.md §2.1/§2.7: the storyboard now takes hours,
+             because a model of this specific pet is trained before any scene is
+             drawn. Say so here rather than letting the silence read as a
+             stalled order. "up to about three hours" is deliberately the
+             owner's generous bound, not the measured ~45 min of training plus
+             stills — a stated time that gets missed is a broken promise, and
+             fal's queue is not something we control. -->
+        <p>Building your storyboard takes up to about three hours. We train a
+        custom model of your pet first, so every scene is unmistakably them —
+        not a generic lookalike. No need to wait around: we'll email you the
+        moment it's ready.</p>
         <p style="color:#888;font-size:12px">This is a private link, just for you.</p>
       `,
     });

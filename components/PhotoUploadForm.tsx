@@ -18,8 +18,16 @@ const PERSONALITIES = [
   { key: "timid", name: "Timid", blurb: "Shy heart. Finds courage by the finale." },
 ] as const;
 
-const MIN_PHOTOS = 4;
-const MAX_PHOTOS = 8;
+// LORA-STORYBOARD-SPEC.md §5 (owner-approved): raised from 4-8. The trainer's
+// own recommendation is 10+, but 7 is the owner's deliberate conversion
+// trade-off, not the trainer's floor — see the guidance copy below, which
+// pushes toward full-body / undressed / varied / same-era / mostly-frontal
+// photos rather than raising this further. camyu's own training set (the
+// bake-off that produced this spec) was 8 photos, all face-forward, none of
+// them a bare full body — exactly what this copy now steers customers away
+// from.
+const MIN_PHOTOS = 7;
+const MAX_PHOTOS = 12;
 const BRIEF_MIN = 20;
 const BRIEF_MAX = 2000;
 
@@ -336,10 +344,27 @@ export default function PhotoUploadForm({
         <legend className="font-display text-sm tracking-[0.2em] text-gold uppercase">
           {MIN_PHOTOS}–{MAX_PHOTOS} photos of your pet
         </legend>
-        <p className="mt-1 text-xs text-muted">
-          At least one clear front-facing face works best. Adding a side
-          profile too sharpens the likeness. Good light, one pet only.
-        </p>
+        {/* LORA-STORYBOARD-SPEC.md §5: the old one-liner ("front-facing face
+            works best, side profile sharpens it") pulled customers toward
+            face-only collections — camyu's own 8-photo set (the bake-off
+            behind this spec) was 4 face/chest close-ups, 2 near-duplicates,
+            and 0 full-body shots without a harness on, which is exactly why
+            the trained LoRA barely learned the body. This list steers toward
+            what the trainer actually needs, without turning any of it into a
+            hard requirement a customer could get stuck on. */}
+        <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-muted">
+          {/* The 7-in-10 split is the owner's call (spec §5). Don't dress it up
+              with an invented mechanism — "angles alone make the likeness
+              flatter" was never measured. The honest reason is downstream: all
+              six storyboard framings (SHOT_FRAMINGS, lib/film-script.ts) turn
+              the face toward camera, so front-facing is simply what most of
+              the film asks for. */}
+          <li>Mostly front-facing (about 7 in 10) — nearly every shot in the film looks your pet right in the face — with a few side and angled photos mixed in.</li>
+          <li>At least 2 standing full-body shots with no costume or harness on — this is what teaches the body, not just the face.</li>
+          <li>Skip near-duplicates — different moments and angles beat five photos of the same pose.</li>
+          <li>Keep it to one time period (e.g. all recent, not puppy photos mixed with grown-up ones) — mixing ages blends into a look that matches neither.</li>
+          <li>Good light, one pet only, nothing covering the face.</li>
+        </ul>
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
@@ -391,10 +416,18 @@ export default function PhotoUploadForm({
       >
         {pending ? submitButtonLabel(uploadStatus) : "Send photos — start pre-production"}
       </button>
+      {/* The wait is worth naming here, not just in email (LORA-STORYBOARD-SPEC.md
+          §2.1/§2.7): a model of this pet is trained before any scene is drawn,
+          so the storyboard takes hours now. Unexplained silence after a $99–$249
+          checkout reads as a stalled order. Split by plan because the wait
+          starts at different moments — a custom order writes its treatment
+          first and only kicks the pipeline once the customer approves it
+          (app/api/orders/approve-treatment/route.ts calls kickLoraTraining),
+          while a preset order starts the moment these photos land. */}
       <p className="mt-3 text-center text-xs text-muted">
         {isCustom
-          ? "Next step: your director writes a treatment for you to approve. Nothing goes to storyboard until you sign off."
-          : "Next step: we paint three concept stills. Nothing goes to film until you approve one."}
+          ? "Next step: your director writes a treatment for you to approve. Nothing goes to storyboard until you sign off — and once you do, the storyboard takes up to about three hours. We'll email you when it's ready."
+          : "Next step: we paint your storyboard — six scenes, three takes each. It takes up to about three hours, because we train a custom model of your pet first. We'll email you the moment it's ready, and nothing goes to film until you approve it."}
       </p>
     </div>
   );
