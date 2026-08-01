@@ -132,7 +132,11 @@ function Timeline({ current }: { current: number }) {
 /* ---------------------------------------------------------------- */
 
 function WaitingView({ petName, elapsedSeconds }: { petName: string; elapsedSeconds: number }) {
+  // The first message is the LoRA training that now opens this stage and eats
+  // most of the wait (~45 min of the whole thing) — the status line should
+  // describe what is actually happening, not skip to the drawing.
   const messages = [
+    `Studying ${petName} from every angle…`,
     `Casting ${petName} in the lead role…`,
     "Fitting the costume…",
     "Setting the lights…",
@@ -148,14 +152,23 @@ function WaitingView({ petName, elapsedSeconds }: { petName: string; elapsedSeco
         SCENE 01: {petName.toUpperCase()} IS IN WARDROBE
       </h1>
       <p className="mt-6 text-lg text-muted">
-        Our directors are storyboarding {petName}&apos;s film right now — six
-        scenes, three takes each. You&apos;ll pick your favorite of every scene
-        in a moment.
+        Our directors are storyboarding {petName}&apos;s film — six scenes,
+        three takes each — and it starts by training a model of {petName}
+        alone, so every shot is unmistakably them. That takes up to about three
+        hours.
       </p>
-      <ProductionProgress messages={messages} elapsedSeconds={elapsedSeconds} estimateSeconds={90} />
+      {/* No estimateSeconds any more. It used to say 90 and render a live
+          countdown, which was already a lie the moment LoRA training moved in
+          front of this stage (LORA-STORYBOARD-SPEC.md §2.1: ~45 min for
+          training alone). Feeding it the real number is no better — "About 178
+          minutes left" ticking down reads as a broken page, not a reassuring
+          one. Over hours, what reassures is knowing what's happening and that
+          the email will come; the countdown only helps at the scale of
+          minutes, which is where the other two waiting screens still use it. */}
+      <ProductionProgress messages={messages} elapsedSeconds={elapsedSeconds} />
       <p className="mt-6 text-xs text-muted">
-        This updates on its own — no need to refresh. You can also close the
-        page; we&apos;ll email you the moment it&apos;s ready.
+        No need to keep this open — close the page and we&apos;ll email you the
+        moment it&apos;s ready. If you stay, it updates on its own.
       </p>
     </div>
   );
@@ -291,6 +304,12 @@ function FilmingView({ order, petName, elapsedSeconds }: { order: Order; petName
         </div>
       )}
       <Timeline current={1} />
+      {/* No estimateSeconds, for the same reason as the storyboard screen
+          above: this used to claim 240s and then sit on "Almost ready…" for
+          however long the film actually took, directly under a paragraph
+          promising the premiere "within 48 hours". A countdown that expires
+          while the work continues is worse than no countdown — it turns a
+          working page into an apparently stuck one. */}
       <ProductionProgress
         messages={[
           `Action! Rolling ${petName}'s scenes…`,
@@ -300,7 +319,6 @@ function FilmingView({ order, petName, elapsedSeconds }: { order: Order; petName
           "Cutting the trailer together…",
         ]}
         elapsedSeconds={elapsedSeconds}
-        estimateSeconds={240}
       />
       <p className="mt-6 text-muted">
         {petName}&apos;s film is in production. Expect your premiere within 48

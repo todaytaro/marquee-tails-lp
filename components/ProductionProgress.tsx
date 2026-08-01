@@ -11,6 +11,14 @@ import { useEffect, useState } from "react";
  * `elapsedSeconds` (server-computed at render, from the status-change time)
  * and `estimateSeconds` drive the countdown; the client ticks from there.
  * When it overruns the estimate we say "Almost ready…" rather than 0.
+ *
+ * `estimateSeconds` IS OPTIONAL AND SHOULD STAY THAT WAY. It only helps at the
+ * scale of a minute or two — the treatment screen, where a single Claude call
+ * really does finish in ~30s. The storyboard and film screens pass nothing:
+ * once a stage runs for hours, a countdown either shows "About 178 minutes
+ * left" or expires and sits on "Almost ready…" while the work continues, and
+ * both read as a broken page rather than a reassuring one. Cycling status
+ * lines plus "we'll email you" carry a long wait; a timer does not.
  */
 export default function ProductionProgress({
   messages,
