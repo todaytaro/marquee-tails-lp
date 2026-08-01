@@ -68,7 +68,7 @@ type WorldMap<T> = Record<string, Record<Personality, T>>;
 /**
  * Six action/setting beats per arc (NO costume words — costume is locked).
  *
- * TWO RULES, both learned from a real storyboard the owner rejected.
+ * THREE RULES, all learned from real storyboards the owner rejected.
  *
  * 1. DON'T WRITE MOTION INTO A STILL. These beats generate a single frame;
  *    Kling adds the movement afterwards from that frame. A beat that says
@@ -87,9 +87,19 @@ type WorldMap<T> = Record<string, Record<Personality, T>>;
  *    that wants blinds opens them; a beat that wants an oversized coat lets it
  *    pool on the floor rather than swallow the animal.
  *
- * The noir/playful arc broke both rules at once and produced takes where the
+ * 3. NO SECOND ANIMAL IN FRAME. The pet is drawn by a LoRA trained to make
+ *    one specific animal THE animal in the picture; put a pigeon or a cat
+ *    beside it and the model has two candidates for that role, and blends
+ *    them. This is the same failure as LORA-STORYBOARD-SPEC.md §1.3's — a
+ *    generator resolving an ambiguity about which creature it is drawing —
+ *    just introduced by the scene instead of by the reference images. A beat
+ *    that wants another creature puts it far off, outside glass, or implied
+ *    (a parade the pet is imagining); it never shares the pet's space.
+ *
+ * The noir/playful arc broke all three at once and produced takes where the
  * dog could not be located in the frame at all. The anatomy gate does not
- * catch this — it counts legs, and a heap of fabric has none to miscount.
+ * catch any of it — it counts legs, and a heap of fabric has none to
+ * miscount, while a dog-cat hybrid has exactly four.
  */
 export const FILM_SCRIPTS: WorldMap<string[]> = {
   deepspace: {
@@ -138,18 +148,18 @@ export const FILM_SCRIPTS: WorldMap<string[]> = {
     easygoing: [
       "dozing on a velvet cushion in the royal library, a storybook open beneath one paw",
       "wandering a sunlit wildflower meadow below the castle, petals drifting",
-      "sitting by the royal pond watching koi glide under lily pads, golden afternoon",
-      "sharing a picnic of tiny cakes with songbirds on a blanket in the orchard",
+      "sitting at the edge of the royal pond among the lily pads, watching its own reflection, golden afternoon",
+      "settled on a picnic blanket in the orchard with a tray of tiny cakes, one paw hovering over its choice",
       "riding a slow wooden cart along a country lane, chin on the rail",
       "watching the sunset gild the whole kingdom from the castle balcony, serene",
     ],
     playful: [
-      "up on a mossy log in the enchanted forest, head lifted after a butterfly just out of reach",
+      "up on a mossy log in the enchanted forest, head lifted toward the light through the canopy",
       "standing on a fallen courtyard banner with one corner draped over its back, pleased with the mess",
       "standing in the shallow royal fountain, water beading on its coat, droplets catching the light around it",
       "caught mid-tiptoe stealing a tart from the kitchen window, crumbs on its beard",
       "sitting up at the foot of a grassy hill below the castle, coat full of leaves from the way down",
-      "leading a parade of ducklings across the drawbridge, delighted",
+      "marching across the drawbridge at the head of an imagined parade, chest out, delighted with itself",
     ],
     timid: [
       "peeking out from under a library table between hanging tapestries",
@@ -174,14 +184,14 @@ export const FILM_SCRIPTS: WorldMap<string[]> = {
       "at the counter of a late-night diner, neon buzzing warm outside",
       "strolling unhurried through the drizzle under a streetlamp, puddles mirroring the lights",
       "listening to a record spin in the dim office, one ear twitching, smoke curling",
-      "sharing a fire escape with a stray cat, watching the wet street below",
+      "stretched out alone on a fire escape, chin on the railing, watching the wet street below",
       "watching rain wash the neon city from the office window, calm",
     ],
     playful: [
       "sitting upright in a trench coat cut far too big, one empty sleeve pooled on the floor beside it, face bright and unbothered",
       "caught in the act with its own coat belt in its mouth, case papers scattered across the office floor",
       "both front paws planted on the typewriter keys, ribbon unspooled in loops across the desk",
-      "at the window with the venetian blinds pulled fully open, eyeing a pigeon on the sill with exaggerated suspicion",
+      "at the window with the venetian blinds pulled fully open, staring down with exaggerated suspicion at the empty street below, one small pigeon far off on a lamppost outside",
       "one paw on a donut it has finally cornered on the rain-wet street, neon reflected all around it",
       "grinning under the streetlamp with the recovered prize, case closed",
     ],

@@ -121,7 +121,8 @@ const TREATMENT_TOOL: Anthropic.Tool = {
           "Each beat becomes a SINGLE STILL FRAME, which a video model then animates — so do NOT write the middle of a movement. " +
           "\"Mid-pounce\", \"sliding across\", \"spinning\", \"running full tilt\", \"in a blur\" ask an image model for a body caught between poses, which is where it produces contorted, unreadable anatomy, and they ask the one stage that cannot animate anything. " +
           "Write the readable instant just before or after instead: not \"sliding across the street after a rolling ball\" but \"one paw on the ball it has finally cornered\". The energy survives, and the video stage still has somewhere to go. " +
-          "NOTHING may come between the camera and the pet's face — no blinds, bars, mesh, glass, smoke, or fabric draped over it. Anything crossing the face costs the fur texture and eye shape the customer is paying to recognize. A scene that wants blinds opens them; a scene that wants an oversized coat lets it pool on the floor rather than swallow the animal.",
+          "NOTHING may come between the camera and the pet's face — no blinds, bars, mesh, glass, smoke, or fabric draped over it. Anything crossing the face costs the fur texture and eye shape the customer is paying to recognize. A scene that wants blinds opens them; a scene that wants an oversized coat lets it pool on the floor rather than swallow the animal. " +
+          "NO OTHER ANIMAL may share the frame with the pet. The pet is drawn by a model trained to make one specific animal THE animal in the picture; a pigeon, a cat or a bird beside it gives that model two candidates for the role and it blends them into one creature. If a scene wants another animal, put it far away, outside a window, or make it imagined (a parade the pet is leading in its own head) — never next to the pet.",
         items: {
           type: "object",
           properties: { scene: { type: "string" } },
