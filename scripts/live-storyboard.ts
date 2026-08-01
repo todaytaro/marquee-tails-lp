@@ -1,8 +1,19 @@
 /**
  * Live storyboard run — seed a fresh order from an EXISTING order's real assets
  * (photos + description + portrait + LoRA) and generate the 6×3 storyboard for
- * real, stopping at Gate 1 (AWAITING_CUSTOMER_APPROVAL) so the approval wizard
- * can be driven in the browser.
+ * real.
+ *
+ * STORYBOARD-ADMIN-GATE-SPEC.md §3.1: this now stops at the ADMIN review
+ * queue, not Gate 1 — runStillsGeneration finishes with the order still in
+ * IMAGE_GENERATING (storyboardOptions populated), and nothing reaches
+ * AWAITING_CUSTOMER_APPROVAL until a human approves it from /admin/<orderId>.
+ * To drive the customer-facing approval wizard from this script's output,
+ * open that admin URL first and press "承認して顧客に送る" — only then does
+ * the printed /approve/<token> link show a populated Gate 1.
+ *
+ * (Before this feature, the pipeline itself transitioned straight to
+ * AWAITING_CUSTOMER_APPROVAL and this script's "path" line was ready to drive
+ * immediately — that direct path no longer exists.)
  *
  * Reuses the source's petDescription + identityPortraitUrl, so stills-pipeline
  * skips stage 0/1 (no re-analyze, no new portrait) — the pet's identity anchor
@@ -55,7 +66,10 @@ async function main() {
     console.log(`cut ${c} — ${cut.scene}`);
     cut.options.forEach((o, t) => console.log(`  take${t}: clean=${o.clean} preview=${o.preview}`));
   });
-  console.log(`\n=== APPROVE ===`);
+  console.log(`\n=== ADMIN REVIEW (new — STORYBOARD-ADMIN-GATE-SPEC.md) ===`);
+  console.log(`status: ${done.status} (stays IMAGE_GENERATING until an admin approves)`);
+  console.log(`review: /admin/${done.id}`);
+  console.log(`\n=== CUSTOMER APPROVAL (only live after the admin approves above) ===`);
   console.log(`token:  ${done.approveToken}`);
   console.log(`path:   /approve/${done.approveToken}`);
 }

@@ -418,16 +418,22 @@ export default function PhotoUploadForm({
       </button>
       {/* The wait is worth naming here, not just in email (LORA-STORYBOARD-SPEC.md
           §2.1/§2.7): a model of this pet is trained before any scene is drawn,
-          so the storyboard takes hours now. Unexplained silence after a $99–$249
-          checkout reads as a stalled order. Split by plan because the wait
-          starts at different moments — a custom order writes its treatment
+          so the storyboard takes real time now. Unexplained silence after a
+          $99–$249 checkout reads as a stalled order. Split by plan because the
+          wait starts at different moments — a custom order writes its treatment
           first and only kicks the pipeline once the customer approves it
           (app/api/orders/approve-treatment/route.ts calls kickLoraTraining),
-          while a preset order starts the moment these photos land. */}
+          while a preset order starts the moment these photos land.
+          STORYBOARD-ADMIN-GATE-SPEC.md §3.6: "up to about three hours" is gone
+          — a director now reviews all eighteen shots before any of them reach
+          the customer (§0/§3.1), and that review has no fixed duration, so "up
+          to one business day" is the bound we can actually keep. The director
+          review is named explicitly here too, so the longer wait reads as an
+          extra quality step, not an unexplained delay. */}
       <p className="mt-3 text-center text-xs text-muted">
         {isCustom
-          ? "Next step: your director writes a treatment for you to approve. Nothing goes to storyboard until you sign off — and once you do, the storyboard takes up to about three hours. We'll email you when it's ready."
-          : "Next step: we paint your storyboard — six scenes, three takes each. It takes up to about three hours, because we train a custom model of your pet first. We'll email you the moment it's ready, and nothing goes to film until you approve it."}
+          ? "Next step: your director writes a treatment for you to approve. Nothing goes to storyboard until you sign off — and once you do, a director reviews every shot before it reaches you, so it takes up to one business day. We'll email you when it's ready."
+          : "Next step: we paint your storyboard — six scenes, three takes each — then a director reviews every shot before it reaches you. It takes up to one business day, because we also train a custom model of your pet first. We'll email you the moment it's ready, and nothing goes to film until you approve it."}
       </p>
     </div>
   );

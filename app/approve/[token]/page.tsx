@@ -132,9 +132,14 @@ function Timeline({ current }: { current: number }) {
 /* ---------------------------------------------------------------- */
 
 function WaitingView({ petName, elapsedSeconds }: { petName: string; elapsedSeconds: number }) {
-  // The first message is the LoRA training that now opens this stage and eats
-  // most of the wait (~45 min of the whole thing) — the status line should
-  // describe what is actually happening, not skip to the drawing.
+  // The first message is the LoRA training that opens this stage and eats
+  // most of the machine-time part of the wait (~45 min) — the status line
+  // should describe what is actually happening, not skip to the drawing.
+  // The LAST message is the human step STORYBOARD-ADMIN-GATE-SPEC.md §0/§3.1
+  // added on top of that: a director looks at all eighteen shots before any
+  // of them reach the customer, which is why the bound below moved from
+  // hours to a business day (§3.6) — this message is what makes that extra
+  // time legible as care rather than a stall.
   const messages = [
     `Studying ${petName} from every angle…`,
     `Casting ${petName} in the lead role…`,
@@ -142,6 +147,7 @@ function WaitingView({ petName, elapsedSeconds }: { petName: string; elapsedSeco
     "Setting the lights…",
     "The director is storyboarding the scenes…",
     "Painting the opening shots…",
+    "A director is giving every shot a final look…",
   ];
   return (
     <div className="mx-auto max-w-2xl text-center">
@@ -153,16 +159,17 @@ function WaitingView({ petName, elapsedSeconds }: { petName: string; elapsedSeco
       </h1>
       <p className="mt-6 text-lg text-muted">
         Our directors are storyboarding {petName}&apos;s film — six scenes,
-        three takes each — and it starts by training a model of {petName}
-        alone, so every shot is unmistakably them. That takes up to about three
-        hours.
+        three takes each — starting with training a model of {petName} alone,
+        so every shot is unmistakably them. Then a director reviews all
+        eighteen shots before any of them come to you. That takes up to one
+        business day.
       </p>
       {/* No estimateSeconds any more. It used to say 90 and render a live
           countdown, which was already a lie the moment LoRA training moved in
           front of this stage (LORA-STORYBOARD-SPEC.md §2.1: ~45 min for
-          training alone). Feeding it the real number is no better — "About 178
-          minutes left" ticking down reads as a broken page, not a reassuring
-          one. Over hours, what reassures is knowing what's happening and that
+          training alone), and STORYBOARD-ADMIN-GATE-SPEC.md's human review
+          step (§3.1) has no fixed duration at all to count down from. Over a
+          span this long, what reassures is knowing what's happening and that
           the email will come; the countdown only helps at the scale of
           minutes, which is where the other two waiting screens still use it. */}
       <ProductionProgress messages={messages} elapsedSeconds={elapsedSeconds} />

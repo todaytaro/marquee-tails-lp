@@ -7,6 +7,12 @@ import { transitionOrder, TransitionError } from "@/lib/orders";
 import { approveVideo } from "@/lib/approvals";
 import { kickFilmGeneration, kickShotRerender } from "@/lib/film-pipeline";
 import {
+  NUM_CUTS,
+  TAKES_PER_CUT,
+  normalizeStoryboard,
+  adminRerollCutTakes,
+} from "@/lib/stills-pipeline";
+import {
   sendWelcomeUploadEmail,
   sendChooseStillEmail,
   sendDeliveryEmail,
@@ -39,6 +45,179 @@ export async function approveVideoAction(
     }
     console.error("[approveVideoAction]", err);
     return { ok: false, error: "サーバー側でエラーが発生しました。もう一度お試しください。" };
+  }
+
+  revalidatePath("/admin");
+  revalidatePath(`/admin/${orderId}`);
+  return { ok: true };
+}
+
+export type ApproveStoryboardResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * STORYBOARD-ADMIN-GATE-SPEC.md §3.5 — the Gate-1 admin gate this whole spec
+ * adds: the ONLY code path left that can move an order IMAGE_GENERATING ->
+ * AWAITING_CUSTOMER_APPROVAL, and the ONLY code path left that can send
+ * sendChooseStillEmail (the Gate-1 "choose your still" mail) for a fresh
+ * storyboard. lib/stills-pipeline.ts#completeStillsGeneration used to do
+ * both of those itself the moment generation finished; now it does neither
+ * (§3.1) — it just persists storyboardOptions and alerts the owner
+ * (sendAdminStoryboardReviewAlert), leaving the order sitting in the review
+ * queue (IMAGE_GENERATING + storyboardOptions populated, §2) until a human
+ * presses this button.
+ *
+ * Precondition, checked explicitly (§3.5's "生成途中の注文を承認できてはなら
+ * ない" — an order still being generated must never be approvable): the
+ * order must actually BE in that queue (status IMAGE_GENERATING) and its
+ * storyboard must be COMPLETE — all NUM_CUTS cuts present, each with
+ * TAKES_PER_CUT takes. A partially-generated storyboard (a crash mid-run, or
+ * this button double-firing before generation catches up) fails this check
+ * with a specific reason rather than silently sending a broken pick screen
+ * to the customer.
+ *
+ * Written in the same posture as approveVideoAction above (Gate 2): the
+ * TransitionError case reads as "someone else/another click already moved
+ * this", never a raw stack trace.
+ */
+export async function approveStoryboardAction(
+  orderId: string
+): Promise<ApproveStoryboardResult> {
+  if (!orderId) {
+    return { ok: false, error: "orderId が必要です。" };
+  }
+
+  const order = await prisma.order.findUnique({ where: { id: orderId } });
+  if (!order) {
+    return { ok: false, error: "注文が見つかりません。" };
+  }
+
+  const storyboard = normalizeStoryboard(order.storyboardOptions);
+  const isComplete =
+    storyboard.length >= NUM_CUTS &&
+    storyboard.slice(0, NUM_CUTS).every((cut) => cut.options.length >= TAKES_PER_CUT);
+  if (!isComplete) {
+    return {
+      ok: false,
+      error: `絵コンテがまだ揃っていません（${storyboard.length}/${NUM_CUTS}カット）。生成が完了してから承認してください。`,
+    };
+  }
+
+  let updated;
+  try {
+    updated = await transitionOrder(
+      orderId,
+      OrderStatus.IMAGE_GENERATING,
+      OrderStatus.AWAITING_CUSTOMER_APPROVAL,
+      "admin",
+      {},
+      "STORYBOARD-ADMIN-GATE-SPEC.md §3.5: admin approved storyboard for customer review"
+    );
+  } catch (err) {
+    if (err instanceof TransitionError) {
+      return {
+        ok: false,
+        error: "この注文は絵コンテ確認待ちではありません — すでに処理済みの可能性があります。ページを更新してください。",
+      };
+    }
+    console.error("[approveStoryboardAction]", err);
+    return { ok: false, error: "サーバー側でエラーが発生しました。もう一度お試しください。" };
+  }
+
+  // Non-fatal, same posture as every other lifecycle-email send in this file
+  // (see markRefundIssuedAction): the transition already committed, so a mail
+  // failure here must not read as "approval failed" — the admin's
+  // ResendEmailButton on this same page covers the retry.
+  try {
+    await sendChooseStillEmail(updated);
+  } catch (e) {
+    console.error(
+      `[approveStoryboardAction] order=${orderId} approved but the customer Gate-1 email failed — resend from admin`,
+      e
+    );
+  }
+
+  revalidatePath("/admin");
+  revalidatePath(`/admin/${orderId}`);
+  return { ok: true };
+}
+
+export type AdminRerollCutResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * STORYBOARD-ADMIN-GATE-SPEC.md §3.3 — admin re-roll of ONE cut's three
+ * takes, used from the storyboard review screen while an order still sits in
+ * the queue (status IMAGE_GENERATING, storyboardOptions populated). Reuses
+ * the same generation machinery as the customer's Gate-1 re-roll
+ * (generateGatedTake via adminRerollCutTakes) but is kept on its own action,
+ * its own counter, and its own seed band — see adminRerollCutTakes's and
+ * adminRerollSeedBase's doc comments in lib/stills-pipeline.ts for the two
+ * things that MUST stay separate from the customer's re-roll:
+ *
+ *   (a) this must never increment storyboardRerollCount — the customer's B2
+ *       free-reroll budget — only the separate adminRerollCount column;
+ *   (b) its seeds must be structurally unable to collide with a customer
+ *       re-roll's seeds for the same cut.
+ *
+ * The atomic `updateMany` below reserves the adminRerollCount slot BEFORE
+ * generating, mirroring reroll-cut/route.ts's guarded reservation for
+ * storyboardRerollCount — same double-click-safety shape, even though there
+ * is no cap here to race against: two concurrent admin clicks on the same
+ * cut must still land in two different, non-colliding seed bands rather than
+ * both computing the same pre-increment adminRerollCount.
+ */
+export async function adminRerollCutAction(
+  orderId: string,
+  cutIndex: number
+): Promise<AdminRerollCutResult> {
+  if (!orderId || !Number.isInteger(cutIndex) || cutIndex < 0 || cutIndex >= NUM_CUTS) {
+    return { ok: false, error: "orderId と有効な cutIndex が必要です。" };
+  }
+
+  const order = await prisma.order.findUnique({ where: { id: orderId } });
+  if (!order) {
+    return { ok: false, error: "注文が見つかりません。" };
+  }
+  if (order.status !== OrderStatus.IMAGE_GENERATING) {
+    return {
+      ok: false,
+      error: "この注文は絵コンテ確認待ちではありません。ページを更新してください。",
+    };
+  }
+  const storyboard = normalizeStoryboard(order.storyboardOptions);
+  if (!storyboard[cutIndex]) {
+    return { ok: false, error: "このカットの絵コンテがまだありません。" };
+  }
+
+  const { count } = await prisma.order.updateMany({
+    where: { id: orderId, status: OrderStatus.IMAGE_GENERATING },
+    data: { adminRerollCount: { increment: 1 } },
+  });
+  if (count !== 1) {
+    return {
+      ok: false,
+      error: "この注文は絵コンテ確認待ちではありません。ページを更新してください。",
+    };
+  }
+
+  const reserved = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+
+  try {
+    await adminRerollCutTakes(reserved, cutIndex, reserved.adminRerollCount);
+  } catch (err) {
+    // Compensating revert, same reasoning as reroll-cut/route.ts: a re-roll
+    // that fails outright delivered nothing, so the counter it reserved
+    // should give the slot back rather than silently drift from "how many
+    // admin re-rolls actually happened".
+    console.error(`[adminRerollCutAction] order=${orderId} cut=${cutIndex}`, err);
+    await prisma.order
+      .updateMany({
+        where: { id: orderId, adminRerollCount: reserved.adminRerollCount },
+        data: { adminRerollCount: { decrement: 1 } },
+      })
+      .catch((revertErr) =>
+        console.error(`[adminRerollCutAction] slot refund also failed order=${orderId}`, revertErr)
+      );
+    return { ok: false, error: "引き直しに失敗しました。もう一度お試しください。" };
   }
 
   revalidatePath("/admin");

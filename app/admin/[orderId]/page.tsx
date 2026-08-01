@@ -4,6 +4,7 @@ import { OrderStatus } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { ApproveForm } from "./ApproveForm";
 import { RerenderShotButton } from "./RerenderShotButton";
+import { StoryboardReviewPanel } from "./StoryboardReviewPanel";
 import { RetryFilmButton } from "../RetryFilmButton";
 import { RekickGenerationButton } from "../RekickGenerationButton";
 import { CopyLinkButton } from "./CopyLinkButton";
@@ -14,6 +15,7 @@ import MoviePosterOverlay from "@/components/MoviePosterOverlay";
 import { resolveWorld, fillPetName, type WorldBundle, type Personality } from "@/lib/film-script";
 import { LOGLINES_JA } from "@/lib/film-script-ja";
 import { STORYBOARD_REROLL_CAP } from "@/lib/safety-net";
+import { normalizeStoryboard, NUM_CUTS, TAKES_PER_CUT } from "@/lib/stills-pipeline";
 
 export const dynamic = "force-dynamic";
 
@@ -65,10 +67,28 @@ export default async function AdminOrderReviewPage({
 
   const awaitingReview = order.status === OrderStatus.AWAITING_ADMIN_APPROVAL;
   const isFailed = order.status === OrderStatus.FAILED;
+
+  // STORYBOARD-ADMIN-GATE-SPEC.md §2 — the Gate-1 admin review queue IS this
+  // exact combination: status still IMAGE_GENERATING (no new OrderStatus
+  // value was added), storyboardOptions already populated. No separate flag,
+  // no separate page — reading these two fields off the same order row is
+  // the whole "queue".
+  const storyboardForReview = normalizeStoryboard(order.storyboardOptions).map((cut) => ({
+    scene: cut.scene,
+    // Admin hasn't shown this to the customer yet, so — unlike Gate1View —
+    // there is no preview/clean split to respect here (§3.2): pass the clean
+    // url straight through.
+    options: cut.options.map((o) => o.clean),
+  }));
+  const isAdminReviewQueue =
+    order.status === OrderStatus.IMAGE_GENERATING && storyboardForReview.length > 0;
+
   // 生成中で止まっている可能性がある状態。タスクがクラッシュで死ぬと onFailure
   // が走らず FAILED にもならないので、ここから再キックできないと救えない。
+  // isAdminReviewQueue の間はこの再キック導線を出さない — 生成はもう完了して
+  // 人間の確認待ちなので、ここで再キックすると絵コンテを不要に作り直してしまう。
   const stalledStage =
-    order.status === OrderStatus.IMAGE_GENERATING
+    order.status === OrderStatus.IMAGE_GENERATING && !isAdminReviewQueue
       ? ("stills" as const)
       : order.status === OrderStatus.VIDEO_GENERATING
         ? ("film" as const)
@@ -264,6 +284,20 @@ export default async function AdminOrderReviewPage({
                 </div>
               )}
             </section>
+          )}
+
+          {/* GATE 1 — STORYBOARD-ADMIN-GATE-SPEC.md §3.2. New UI: before this
+              feature admin rendered no storyboard at all here (just the B2
+              re-roll count above). Shown exactly while this order IS the
+              admin review queue (§2) — status still IMAGE_GENERATING,
+              storyboardOptions already populated. */}
+          {isAdminReviewQueue && (
+            <StoryboardReviewPanel
+              orderId={order.id}
+              storyboard={storyboardForReview}
+              numCuts={NUM_CUTS}
+              takesPerCut={TAKES_PER_CUT}
+            />
           )}
 
           {/* 生成中 — 進捗が止まっているときの再キック（クラッシュ時の唯一の復旧手段） */}

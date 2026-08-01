@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { Prisma, OrderStatus, type Order } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
+import { normalizeStoryboard, NUM_CUTS, TAKES_PER_CUT } from "@/lib/stills-pipeline";
 import { RetryFilmButton } from "./RetryFilmButton";
 import { AdminSearch } from "./AdminSearch";
 
@@ -83,6 +84,38 @@ function stallBadge(status: OrderStatus, date: Date, now: number) {
 }
 
 /**
+ * Same completeness test approveStoryboardAction guards on
+ * (app/admin/actions.ts): six cuts, three takes each. Anything short of that
+ * is genuinely still generating, not waiting on a human.
+ */
+function hasFullStoryboard(order: Order): boolean {
+  const cuts = normalizeStoryboard(order.storyboardOptions);
+  return (
+    cuts.length >= NUM_CUTS &&
+    cuts.slice(0, NUM_CUTS).every((cut) => cut.options.length >= TAKES_PER_CUT)
+  );
+}
+
+/**
+ * The label for a row, which for IMAGE_GENERATING depends on WHICH half of
+ * that status the order is in. STORYBOARD-ADMIN-GATE-SPEC.md §2 deliberately
+ * added no enum value: an order whose storyboard is finished but not yet
+ * approved stays IMAGE_GENERATING, and the presence of storyboardOptions IS
+ * the review queue. That keeps the customer's waiting screen correct with no
+ * new state, but it leaves this list calling a finished storyboard "スチル生成中"
+ * — the one status where the owner is the blocker, shown as the one thing
+ * that needs no attention. The alert email is not enough on its own: it is a
+ * single message that can be missed, and this list is where the day's work is
+ * actually read.
+ */
+function statusLabel(order: Order): string {
+  if (order.status === OrderStatus.IMAGE_GENERATING && hasFullStoryboard(order)) {
+    return "絵コンテ確認待ち（あなた）";
+  }
+  return STATUS_LABELS[order.status];
+}
+
+/**
  * Row variant that shows the JP status label (A-1's progress queue, and A-2's
  * search results where orders can be in any status). Unlike OrderRow this
  * doesn't assume a single fixed status per section.
@@ -98,7 +131,7 @@ function StatusOrderRow({ order, now }: { order: Order; now: number }) {
           {order.petName ?? "（名前未設定）"}
         </span>
         <span className="min-w-40 text-xs tracking-wider text-gold/80">
-          {STATUS_LABELS[order.status]}
+          {statusLabel(order)}
         </span>
         <span className="min-w-48 text-muted">{order.customerEmail}</span>
         <span className="ml-auto flex items-center gap-2">

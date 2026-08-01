@@ -151,6 +151,17 @@ model Order {
   refundRequestedAt     DateTime? // customer asked for the $200 refund (§4.2) — set once, never cleared
   refundIssuedAt        DateTime? // admin recorded the $200 as actually refunded IN STRIPE'S DASHBOARD (§4.3) — this app never calls Stripe's refund API and never computes the amount
 
+  // --- Admin storyboard gate — STORYBOARD-ADMIN-GATE-SPEC.md §3.3/§4 ---
+  // How many times ADMIN (not the customer) has re-rolled a cut while the
+  // storyboard sat in the IMAGE_GENERATING review queue, before ever showing
+  // it to the customer. Deliberately a SEPARATE column from
+  // storyboardRerollCount above: an admin re-roll fixing our own quality miss
+  // must never spend the customer's 3-free-reroll/$200-refund budget (§3.3a).
+  // It also seeds a disjoint seed band from the customer's re-rolls
+  // (adminRerollSeedBase in lib/stills-pipeline.ts, §3.3b) so the two can
+  // never draw the same image for the same cut.
+  adminRerollCount Int @default(0)
+
   // customer-facing approval links authenticate with this token, not a login
   approveToken String @unique @default(cuid())
 

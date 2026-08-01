@@ -196,17 +196,22 @@ export async function sendWelcomeUploadEmail(order: Order): Promise<void> {
         <p>Thanks for your order — time to send us the photos that'll become
         your pet's premiere.</p>
         <p><a href="${link}">Upload your pet's photos →</a></p>
-        <!-- LORA-STORYBOARD-SPEC.md §2.1/§2.7: the storyboard now takes hours,
-             because a model of this specific pet is trained before any scene is
-             drawn. Say so here rather than letting the silence read as a
-             stalled order. "up to about three hours" is deliberately the
-             owner's generous bound, not the measured ~45 min of training plus
-             stills — a stated time that gets missed is a broken promise, and
-             fal's queue is not something we control. -->
-        <p>Building your storyboard takes up to about three hours. We train a
+        <!-- STORYBOARD-ADMIN-GATE-SPEC.md §3.6: was "up to about three hours"
+             (LORA-STORYBOARD-SPEC.md §2.1/§2.7 — the ~45min LoRA training
+             bound, with headroom). That promise no longer holds now that a
+             human director reviews every cut before anything reaches the
+             customer (§0/§3.1) — the review has no fixed duration, so "up to
+             one business day" is the bound we can actually keep, not a
+             number we hope fal's queue respects. The training-a-custom-model
+             reason still explains the wait; the director review is now ADDED
+             to that reason rather than replacing it, turning the extra time
+             into a second, visible quality step rather than an unexplained
+             delay. -->
+        <p>Building your storyboard takes up to one business day. We train a
         custom model of your pet first, so every scene is unmistakably them —
-        not a generic lookalike. No need to wait around: we'll email you the
-        moment it's ready.</p>
+        not a generic lookalike — then a director reviews all eighteen shots
+        before anything reaches you. No need to wait around: we'll email you
+        the moment it's ready.</p>
         <p style="color:#888;font-size:12px">This is a private link, just for you.</p>
       `,
     });
@@ -287,6 +292,55 @@ export async function sendAddonConfirmationEmail(order: Order): Promise<void> {
 
   console.log(
     `[mock:email] addon confirmation mail to=${order.customerEmail} order=${order.id} addon=${addonType} — set KLAVIYO_API_KEY or RESEND_API_KEY to send for real`
+  );
+}
+
+/**
+ * STORYBOARD-ADMIN-GATE-SPEC.md §3.4 — the storyboard (6 cuts × 3 takes) just
+ * finished generating and is sitting in the admin review queue
+ * (lib/stills-pipeline.ts#completeStillsGeneration leaves the order in
+ * IMAGE_GENERATING with storyboardOptions populated — that combination IS the
+ * queue, §2). Nothing moves toward the customer until a human looks at it
+ * (§0: a take where the dog was unreadable inside the costume once reached a
+ * real Gate 1 because nobody had). This alert is what makes that possible in
+ * practice — without it, an order simply sits here until someone happens to
+ * check /admin, and the customer waits indefinitely for a mail that will
+ * never come. Modeled directly on sendRefundRequestedAlert above: recipient
+ * is the OWNER (ADMIN_ALERT_EMAIL, falling back to support@marqueetails.com),
+ * never the customer, so — like that function — this skips the Klaviyo
+ * customer-event path entirely (trackKlaviyoEvent always profiles
+ * order.customerEmail, the wrong inbox for an internal ops alert) and goes
+ * straight Resend -> console.log.
+ */
+export async function sendAdminStoryboardReviewAlert(order: Order): Promise<void> {
+  const petName = order.petName ?? "Unnamed pet";
+  const adminEmail = process.env.ADMIN_ALERT_EMAIL ?? "support@marqueetails.com";
+  const link = new URL(
+    `/admin/${order.id}`,
+    process.env.APP_BASE_URL ?? "http://localhost:3100"
+  ).toString();
+
+  const resend = resendClient();
+  if (resend) {
+    const { error } = await resend.emails.send({
+      from: fromAddress(),
+      to: adminEmail,
+      subject: `[Review needed] ${petName}'s storyboard is ready (${order.id})`,
+      html: `
+        <p>${petName}'s order (${order.id}, ${order.customerEmail}, ${order.tier ?? "unknown"} tier)
+        has a finished storyboard waiting for your review before it goes to the
+        customer (STORYBOARD-ADMIN-GATE-SPEC.md §3.2/§3.5).</p>
+        <p>Check every cut for a readable dog, re-roll anything that isn't, then
+        approve to send it to ${order.customerEmail}:</p>
+        <p><a href="${link}">${link}</a></p>
+      `,
+    });
+    if (error) throw new Error(`Resend storyboard-review-alert send failed: ${JSON.stringify(error)}`);
+    return;
+  }
+
+  console.log(
+    `[mock:email] STORYBOARD REVIEW NEEDED alert to=${adminEmail} order=${order.id} pet=${petName} customer=${order.customerEmail} link=${link} — set RESEND_API_KEY to send for real`
   );
 }
 

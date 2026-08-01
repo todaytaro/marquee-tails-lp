@@ -5,10 +5,14 @@ import type { trainPetLoraTask } from "@/trigger/train-lora";
 import { OrderStatus, type Order } from "@/generated/prisma/client";
 import { prisma } from "./db";
 import { transitionOrder } from "./orders";
-import { sendChooseStillEmail } from "./mocks";
 import { resolveWorld, SHOT_FRAMINGS } from "./film-script";
 import { VISION_MODEL, VISION_LLM, publicUrl, scoreIdentity, scoreAnatomy } from "./identity";
 import { watermarkTakeForPreview } from "./watermark";
+import { sendAdminStoryboardReviewAlert } from "./mocks";
+// STORYBOARD-ADMIN-GATE-SPEC.md §3.3(b): pulled in purely to derive
+// adminRerollSeedBase's disjointness proof below from the SAME cap the
+// customer reroll route enforces, rather than re-hardcoding it.
+import { STORYBOARD_REROLL_CAP } from "./safety-net";
 
 /**
  * Storyboard generation — the whole Gate-1 payload, generated BEFORE approval.
@@ -196,6 +200,62 @@ const REROLL_SEED_BAND = 1_000_000;
  *  prove the no-collision property directly, without a database. */
 export function rerollSeedBase(cutIndex: number, rerollCount: number): number {
   return STILL_SEED + cutIndex * 100 + REROLL_SEED_BAND * rerollCount;
+}
+
+/*
+ * STORYBOARD-ADMIN-GATE-SPEC.md §3.3(b): the admin's own cut re-roll — used
+ * while a storyboard sits in the pre-approval review queue, BEFORE the
+ * customer ever sees it (see completeStillsGeneration below) — must never be
+ * able to draw a seed a CUSTOMER re-roll could also draw for that same cut.
+ * Reusing storyboardRerollCount for this would risk exactly that: an admin
+ * re-roll and a later customer re-roll could land on the same (cutIndex,
+ * count) pair and rerollSeedBase would hand them the identical seed. That is
+ * why adminRerollCount is its OWN column (prisma/schema.prisma) — never
+ * storyboardRerollCount, which §3.3(a) also protects for a completely
+ * different reason (it is the customer's B2 free-reroll budget, and an
+ * admin fixing OUR quality miss must never spend it).
+ *
+ * The proof below is arithmetic, not "very unlikely to collide":
+ *
+ * Every seed a customer re-roll can EVER produce for a given cut is
+ *   STILL_SEED + cutIndex*100 + REROLL_SEED_BAND*rerollCount + take*1000 + attempt*7919
+ * with cutIndex in [0, NUM_CUTS-1], rerollCount in [0, STORYBOARD_REROLL_CAP]
+ * (app/api/orders/reroll-cut/route.ts's guarded `updateMany` makes it
+ * structurally impossible for storyboardRerollCount to ever exceed
+ * STORYBOARD_REROLL_CAP — see that route's comment), take in
+ * [0, TAKES_PER_CUT-1], attempt in [0, MAX_TAKE_REROLLS]. The maximum
+ * possible OFFSET above STILL_SEED across that entire space is
+ * MAX_CUSTOMER_SEED_OFFSET below — derived FROM the exact same constants the
+ * customer path uses, so it cannot silently go stale if any of them change.
+ *
+ * ADMIN_REROLL_SEED_OFFSET is then set to MAX_CUSTOMER_SEED_OFFSET plus one
+ * full extra REROLL_SEED_BAND of headroom, so the SMALLEST seed an admin
+ * re-roll can EVER produce (adminRerollCount=0, cutIndex=0, take=0,
+ * attempt=0) is still strictly larger than the LARGEST seed a customer
+ * re-roll can ever produce. The two ranges are disjoint by inequality between
+ * two closed-form maxima — not a probability that happens to be small.
+ * ADMIN_REROLL_SEED_BAND then keeps two DIFFERENT admin re-rolls (varying
+ * adminRerollCount) apart from each other by the identical reasoning
+ * REROLL_SEED_BAND already uses for two different customer re-rolls.
+ */
+const MAX_CUSTOMER_SEED_OFFSET =
+  (NUM_CUTS - 1) * 100 +
+  REROLL_SEED_BAND * STORYBOARD_REROLL_CAP +
+  (TAKES_PER_CUT - 1) * 1000 +
+  MAX_TAKE_REROLLS * 7919; // = 3,018,338 with today's constants (5*100 + 1_000_000*3 + 2*1000 + 2*7919)
+
+const ADMIN_REROLL_SEED_OFFSET = MAX_CUSTOMER_SEED_OFFSET + REROLL_SEED_BAND; // strictly above the customer ceiling, with a full band of margin
+const ADMIN_REROLL_SEED_BAND = REROLL_SEED_BAND; // same per-reroll spacing as the customer band, same no-collision argument
+
+/**
+ * Admin-only counterpart to rerollSeedBase — see the block comment above for
+ * the disjointness proof. `adminRerollCount` is the ORDER-WIDE, atomically-
+ * incremented `Order.adminRerollCount` column (never storyboardRerollCount),
+ * AFTER increment — mirroring how rerollSeedBase consumes
+ * storyboardRerollCount after ITS atomic increment.
+ */
+export function adminRerollSeedBase(cutIndex: number, adminRerollCount: number): number {
+  return STILL_SEED + ADMIN_REROLL_SEED_OFFSET + cutIndex * 100 + ADMIN_REROLL_SEED_BAND * adminRerollCount;
 }
 
 // FILM-QUALITY-V3-SPEC.md §4.2: generateTakeOnce's prompt had no mouth/tongue
@@ -1281,6 +1341,124 @@ export async function rerollCutTakes(
 }
 
 /**
+ * Gate-1 ADMIN re-roll — STORYBOARD-ADMIN-GATE-SPEC.md §3.3. Used from the
+ * admin storyboard review screen (app/admin/[orderId]/page.tsx) while an
+ * order sits in the pre-approval review queue (status still IMAGE_GENERATING,
+ * storyboardOptions populated — see completeStillsGeneration's comment for
+ * why that combination IS the queue). Same shape as the customer's
+ * rerollCutTakes above — same scene/costume/identity, all three takes of one
+ * cut regenerated on fresh seeds, same {preview, clean} persistence — but
+ * DELIBERATELY duplicated rather than shared, for two reasons that make
+ * sharing the wrong call here:
+ *
+ * (a) §3.3(a): this must NEVER touch storyboardRerollCount — that column is
+ *     the customer's B2 free-reroll budget (3 free, then a $200 refund
+ *     unlocks), and an admin re-roll exists specifically to fix OUR quality
+ *     miss BEFORE the customer ever sees a bad take. Spending their budget on
+ *     our mistake would be exactly backwards. The caller
+ *     (app/admin/actions.ts#adminRerollCutAction) atomically increments the
+ *     SEPARATE `adminRerollCount` column instead, and passes the
+ *     post-increment value in here — this function never writes that column
+ *     itself, mirroring how rerollCutTakes never writes
+ *     storyboardRerollCount either (its caller, reroll-cut/route.ts, owns
+ *     that increment).
+ * (b) §3.3(b): the seed must come from adminRerollSeedBase, NOT
+ *     rerollSeedBase — see that function's doc comment for the arithmetic
+ *     proof that the two can never produce the same seed for the same cut.
+ *
+ * `adminRerollCount` MUST be the value adminRerollCutAction's guarded
+ * `updateMany` just committed (order-wide, 1, 2, 3, …) for the identical
+ * "reserve the slot atomically before generating" reason rerollCutTakes'
+ * own doc comment gives for storyboardRerollCount.
+ */
+export async function adminRerollCutTakes(
+  order: Order,
+  cutIndex: number,
+  adminRerollCount: number
+): Promise<StoryboardCut> {
+  assertEnv("FAL_KEY");
+  fal.config({ credentials: process.env.FAL_KEY });
+
+  const portrait = order.identityPortraitUrl;
+  if (!portrait) throw new Error(`order ${order.id} has no identityPortraitUrl`);
+
+  const storyboard = normalizeStoryboard(order.storyboardOptions);
+  const resolved = resolveWorld(order);
+  const scene = storyboard[cutIndex]?.scene ?? resolved.arc[cutIndex];
+  if (!scene) throw new Error(`order ${order.id} has no scene for cut ${cutIndex}`);
+
+  const description = order.petDescription ?? "the pet shown in the reference images";
+  const costume = resolved.costume;
+  const framing = SHOT_FRAMINGS[cutIndex] ?? SHOT_FRAMINGS[0];
+  const expression = expressionDirective(order.personality);
+  const portraitRef = publicUrl(portrait);
+  // Same anchor selection as rerollCutTakes/reshootCutStill — an admin
+  // re-roll must lock the same costume/identity as the original 18 takes, or
+  // "re-roll" would silently become "redesign".
+  const heroRef = order.heroSheetUrl ? publicUrl(order.heroSheetUrl) : undefined;
+  const realPhotoRef = order.uploadedPhotoUrls[0] ? publicUrl(order.uploadedPhotoUrls[0]) : undefined;
+  const hasRealPhotoFirst = !!realPhotoRef;
+  const refs = hasRealPhotoFirst
+    ? [realPhotoRef, heroRef, portraitRef].filter((u): u is string => !!u)
+    : [heroRef, portraitRef].filter((u): u is string => !!u);
+  // §2.1/§2.7: reuse the order's own trained LoRA — never retrain here either.
+  const lora = order.loraUrl && order.loraTriggerWord ? { url: order.loraUrl, triggerWord: order.loraTriggerWord } : undefined;
+
+  console.log(`[stills] ADMIN re-roll cut ${cutIndex} order=${order.id} (order-wide admin re-roll #${adminRerollCount})`);
+  const seedBase = adminRerollSeedBase(cutIndex, adminRerollCount);
+  const cleanTakes = await Promise.all(
+    Array.from({ length: TAKES_PER_CUT }, (_, take) =>
+      generateGatedTake(
+        refs,
+        hasRealPhotoFirst,
+        description,
+        costume,
+        scene,
+        framing,
+        expression,
+        realPhotoRef,
+        portraitRef,
+        seedBase + take * 1000,
+        `admin re-roll cut ${cutIndex} adminReroll#${adminRerollCount} take ${take}`,
+        lora,
+        heroRef // §2.2: B1's ONLY reference image — costume anchor, not identity
+      )
+    )
+  );
+
+  // Same {preview, clean} shape as every other producer of a StoryboardCut —
+  // watermarking is currently OFF (WATERMARK_PREVIEWS_ENABLED above), so
+  // preview === clean.
+  const options: StillOption[] = WATERMARK_PREVIEWS_ENABLED
+    ? await Promise.all(
+        cleanTakes.map(async (clean, i) => ({
+          clean,
+          preview: await watermarkTakeForPreview(
+            clean,
+            `order=${order.id}-cut=${cutIndex}-adminReroll=${adminRerollCount}-take=${i}`
+          ),
+        }))
+      )
+    : cleanTakes.map((clean) => ({ clean, preview: clean }));
+
+  const newCut: StoryboardCut = { scene, options };
+
+  const latest = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+  const latestStoryboard = normalizeStoryboard(latest.storyboardOptions);
+  latestStoryboard[cutIndex] = newCut;
+
+  await prisma.order.update({
+    where: { id: order.id },
+    data: {
+      storyboardOptions: latestStoryboard,
+      conceptImageUrls: [...latest.conceptImageUrls, ...cleanTakes],
+    },
+  });
+
+  return newCut;
+}
+
+/**
  * §2.7 — the front door for the whole storyboard pipeline as of this split:
  * kicks LoRA training FIRST. Callers (submit-photos, approve-treatment, the
  * admin re-kick action) call this instead of kickStillsGeneration directly —
@@ -1390,6 +1568,30 @@ export async function kickStillsGeneration(order: Order): Promise<void> {
   await tasks.trigger<typeof generateStillsTask>("generate-stills", { orderId: order.id });
 }
 
+/**
+ * STORYBOARD-ADMIN-GATE-SPEC.md §2/§3.1 — the storyboard is DONE, but the
+ * customer does not see it yet. Before this feature, this function saved the
+ * storyboard, transitioned IMAGE_GENERATING -> AWAITING_CUSTOMER_APPROVAL, and
+ * emailed the CUSTOMER (sendChooseStillEmail). That transition and that email
+ * are BOTH GONE from this function now — deliberately, per §0's incident (a
+ * take with the dog unreadable inside the costume reached a real customer's
+ * Gate 1 because nothing human ever looked at the 18 stills first).
+ *
+ * What happens now:
+ *   1. storyboardOptions is persisted, same as before.
+ *   2. The order is left in IMAGE_GENERATING. No transitionOrder call here at
+ *      all — `status === IMAGE_GENERATING && storyboardOptions` populated (6
+ *      cuts) IS the admin review queue (§2); there is no new OrderStatus
+ *      value to move into.
+ *   3. The OWNER is emailed instead of the customer (sendAdminStoryboardReviewAlert,
+ *      lib/mocks.ts) — someone has to know a review is waiting, or an order
+ *      sits here until a human happens to check /admin.
+ *   4. Only app/admin/actions.ts#approveStoryboardAction moves the order to
+ *      AWAITING_CUSTOMER_APPROVAL and sends sendChooseStillEmail now — that
+ *      is the ONLY code path left that can reach Gate 1's customer email; see
+ *      that action for the precondition it enforces before doing so (§6
+ *      proof 2/5).
+ */
 export async function completeStillsGeneration(
   orderId: string,
   storyboard: StoryboardCut[]
@@ -1399,41 +1601,27 @@ export async function completeStillsGeneration(
   // verified), purely an internal audit trail — so it holds the same clean
   // urls it always has, not the watermarked preview derivatives.
   const flat = storyboard.flatMap((cut) => cut.options.map((o) => o.clean));
-  await prisma.order.update({
+  const order = await prisma.order.update({
     where: { id: orderId },
     data: { storyboardOptions: storyboard, conceptImageUrls: flat },
   });
-  const order = await transitionOrder(
-    orderId,
-    OrderStatus.IMAGE_GENERATING,
-    OrderStatus.AWAITING_CUSTOMER_APPROVAL,
-    "system",
-    {},
-    `storyboard ready (${storyboard.length} cuts × ${storyboard[0]?.options.length ?? 0} takes)`
-  );
-  // Non-fatal, deliberately. The storyboard is finished and persisted and the
-  // order has already transitioned — by this line the expensive, irreversible
-  // work is done. Letting a mail failure throw here fails the whole task, and
-  // a retry re-runs generation: eighteen fresh renders thrown at an order that
-  // was already complete, because an email didn't send.
-  //
-  // This is not hypothetical. The first production LoRA order got its
-  // storyboard, then died on this line because APP_BASE_URL wasn't set in the
-  // Trigger.dev environment (it was only ever set on Vercel — GO-LIVE-RUNBOOK's
-  // table said the tasks needed nothing but DATABASE_URL and FAL_KEY, which
-  // missed that Gate 1's mail is sent from inside the task). The order survived
-  // only because the transition had already committed.
-  //
-  // Loud, because a silent failure here is the worst case of all now: the
-  // customer is waiting on an email they will never get, with no reason to
-  // come back to a page they were told to close.
+  // Non-fatal, deliberately — same posture (and the same real incident) that
+  // already justified this pattern for sendChooseStillEmail below §3.1: the
+  // storyboard is finished and persisted, so an alert-mail failure must not
+  // fail the whole task and retry eighteen fresh renders. Unlike the old
+  // customer-mail failure this one is recoverable without a resend button:
+  // the order is sitting, correctly, in the admin queue regardless of
+  // whether this mail ever lands — an admin who simply checks /admin will
+  // still find it. The alert is a nudge to look sooner, not the only way in.
   try {
-    await sendChooseStillEmail(order);
+    await sendAdminStoryboardReviewAlert(order);
   } catch (e) {
     console.error(
-      `[stills] order=${orderId} STORYBOARD IS READY BUT THE GATE-1 EMAIL FAILED — the customer has not been told. Check APP_BASE_URL / RESEND_API_KEY / RESEND_FROM_EMAIL in the Trigger.dev environment, then re-send from admin.`,
+      `[stills] order=${orderId} storyboard ready but the ADMIN REVIEW ALERT failed — check ADMIN_ALERT_EMAIL / RESEND_API_KEY / RESEND_FROM_EMAIL. The order is still correctly queued for review (IMAGE_GENERATING + storyboardOptions) and will be found by anyone who checks /admin.`,
       e
     );
   }
-  console.log(`[stills] order=${orderId} -> AWAITING_CUSTOMER_APPROVAL`);
+  console.log(
+    `[stills] order=${orderId} storyboard ready (${storyboard.length} cuts × ${storyboard[0]?.options.length ?? 0} takes) — awaiting ADMIN review (status stays IMAGE_GENERATING)`
+  );
 }
