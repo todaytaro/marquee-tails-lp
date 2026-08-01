@@ -14,7 +14,28 @@
 | 置き場所 | 何のため | 入れるもの |
 |---|---|---|
 | **Vercel**（プロジェクト設定 → Environment Variables） | Next.jsアプリ本体の実行 | `DATABASE_URL`, `APP_BASE_URL`, `VIDEO_PIPELINE_MOCK=0`, `FAL_KEY`, `TRIGGER_SECRET_KEY`, `ADMIN_API_SECRET`, `ADMIN_PASSWORD`, `SESSION_SECRET`, `STRIPE_*`, `PRINTIFY_*`, `KLAVIYO_API_KEY` or `RESEND_*`, `BLOB_READ_WRITE_TOKEN` |
-| **Trigger.dev**（ダッシュボード → Environment Variables → Production） | 重い生成タスクの実行 | `DATABASE_URL`, `FAL_KEY`（タスクが使うもののみ。`VIDEO_PIPELINE_MOCK`は入れない＝本番は実生成） |
+| **Trigger.dev**（ダッシュボード → Environment Variables → Production） | 重い生成タスクの実行 | `DATABASE_URL`, `FAL_KEY`, **`APP_BASE_URL`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`**（`VIDEO_PIPELINE_MOCK`は入れない＝本番は実生成） |
+
+> **メール系をTrigger.dev側にも入れる理由（実際に踏んだ）。** この表は当初
+> 「Trigger.devには `DATABASE_URL` と `FAL_KEY` だけ」と書いていた。**間違い。**
+> Gate 1の「絵コンテできました」メールは `lib/stills-pipeline.ts` の
+> `completeStillsGeneration` から送られる — つまり**タスクの内側**。
+> Vercel側にだけ入れても届かない。ウェルカムメールと返金メールはVercel側の
+> ルートから送られるので、そちらが届いていても判定材料にならない。
+>
+> 失敗の仕方が2通りあり、どちらも気づきにくい:
+> - `RESEND_API_KEY` が無い → モックのブランチに落ちて `console.log` するだけ。
+>   **エラーにならず、メールも飛ばない**
+> - `APP_BASE_URL` が無い → `approveUrl` が例外を投げる（localhostのリンクを
+>   顧客に送らないためのガード）
+>
+> 初回の本番LoRA注文が後者で落ちた。絵コンテは完成していたのにタスクはFailed扱いになり、
+> 顧客には何も届かなかった。**メール送信は現在 `completeStillsGeneration` 内で
+> try/catchされている**ので、失敗しても絵コンテを作り直すことはもう無い。
+> ただし**環境変数が入っていなければ、静かに届かないことに変わりはない。**
+>
+> 切り分け: Trigger.dev の Runs で `generate-stills` が **Failed** なら `APP_BASE_URL`、
+> **Completed なのに未着**なら `RESEND_API_KEY`。
 
 ---
 

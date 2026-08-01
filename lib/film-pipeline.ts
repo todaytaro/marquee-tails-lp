@@ -13,7 +13,14 @@ import { prisma } from "./db";
 import { transitionOrder } from "./orders";
 import { TITLE_CARDS, resolveWorld, getShotMotion, type Loglines } from "./film-script";
 import { publicUrl, scoreFrame, scoreIdentity } from "./identity";
-import { reshootCutStill, EDIT_MODEL, IDENTITY_RULES, STYLE_RULES } from "./stills-pipeline";
+import {
+  reshootCutStill,
+  STYLE_RULES,
+  LORA_EDIT_MODEL,
+  LORA_SCALE,
+  LORA_GUIDANCE_SCALE,
+  B1_IMAGE_SIZE,
+} from "./stills-pipeline";
 
 /**
  * Film pipeline — the trailer assembler (TRAILER-EDIT-SPEC.md v2).
@@ -440,43 +447,73 @@ const MAX_END_FRAME_REROLLS = 1;
 const END_FRAME_SEED = 84931;
 
 /**
- * Generate ONE candidate end frame (spec §5.2): the nano-banana EDIT model
- * (same EDIT_MODEL stills-pipeline.ts uses for every storyboard take),
- * referenced to (1) the start frame itself and (2) the hero sheet, asked for
- * the SAME scene a few seconds later with exactly ONE change (`endPose`,
- * from SHOT_END_POSES). No new API/dependency: same model, same identity/
- * style rule strings, just a different caller and a different prompt.
+ * The order's trained LoRA, or undefined when it has none (training failed, or
+ * the order predates LORA-STORYBOARD-SPEC.md). Both fields are required —
+ * a url without its trigger word cannot be prompted.
+ */
+function orderLora(order: Order): { url: string; triggerWord: string } | undefined {
+  return order.loraUrl && order.loraTriggerWord
+    ? { url: order.loraUrl, triggerWord: order.loraTriggerWord }
+    : undefined;
+}
+
+/**
+ * Generate ONE candidate end frame (spec §5.2): the SAME scene a few seconds
+ * later with exactly ONE change (`endPose`, from SHOT_END_POSES), used as
+ * Kling's second anchor so it interpolates between two approved frames
+ * instead of inventing motion.
+ *
+ * Drawn by the order's own LoRA when it has one. This used to be nano-banana
+ * unconditionally, and that became untenable the moment the storyboard moved
+ * to a per-pet LoRA (LORA-STORYBOARD-SPEC.md §1.3): nano-banana re-draws a dog
+ * it has never seen as the breed average, so a cut would open on the
+ * customer's dog and close on a stock one — mid-shot, with Kling smoothly
+ * morphing between them. The owner's first instinct was to drop start+end
+ * over exactly that, which would have cost the motion this feature exists to
+ * buy. Handing the end frame to the LoRA keeps both: measured on camyu, the
+ * pose moved visibly AND the dog stayed the same animal, which is the pair of
+ * outcomes that were in doubt (the LoRA edit path had previously protected an
+ * image so completely it refused to change it at all — see §1.3's B3 arm, and
+ * note that two identical anchors interpolate to a dead-still shot, the very
+ * failure start+end was built to fix).
+ *
+ * There is deliberately NO nano-banana fallback. An order without a LoRA had
+ * its storyboard drawn by nano-banana too, so it is already the degraded
+ * product; bolting a second-pass redraw onto that trades a real risk of drift
+ * for a nice-to-have, on the one class of order least able to afford it. It
+ * would also be a path nothing can verify, since it only ever runs when
+ * training failed. One rule instead: the end frame comes from the LoRA or the
+ * cut ships as single-frame i2v (generateGatedEndFrame returns null).
  */
 async function generateEndFrame(
   startFrameUrl: string,
-  heroSheetUrl: string | undefined,
   endPose: string,
-  seed: number
+  seed: number,
+  lora: { url: string; triggerWord: string }
 ): Promise<string> {
-  const refs = [publicUrl(startFrameUrl), ...(heroSheetUrl ? [publicUrl(heroSheetUrl)] : [])];
-  const r = await fal.subscribe(EDIT_MODEL, {
+  // Only the start frame is referenced. The hero sheet used to be passed here
+  // as a costume anchor for a model that needed one; this model already
+  // carries the animal, and the costume is already in the frame it is editing.
+  //
+  // No IDENTITY_RULES, for the same reason B1 takes omit them
+  // (LORA-STORYBOARD-SPEC.md §2.2): those rules exist to argue a general model
+  // out of drifting toward a breed standard, and this one has been taught the
+  // individual instead.
+  const r = await fal.subscribe(LORA_EDIT_MODEL, {
     input: {
-      // The change has to be asserted as hard as the sameness. Handed
-      // "identical pet, identical costume, identical location, lighting and
-      // framing" plus IDENTITY_RULES, an edit model will happily hand the
-      // reference straight back — and two identical anchors interpolate to a
-      // static shot, which is exactly the dead air start+end exists to fix.
-      // So the pose is stated twice: as the single permitted change, and as a
-      // requirement that it be plainly visible.
       prompt:
-        `The FIRST reference image is this exact frame of the film. Generate the SAME scene a few seconds later: ` +
-        `identical pet, identical costume, identical location, lighting and camera framing. The ONLY change: ${endPose}. ` +
-        `That change must be OBVIOUS at a glance — this frame must NOT look like a copy of the reference image; the ` +
-        `pet's body has clearly moved into the new pose, while its face stays turned the same way and the camera has ` +
-        `not moved. ${STYLE_RULES} ${IDENTITY_RULES}`,
-      image_urls: refs,
+        `The reference image is a frame of a film starring ${lora.triggerWord}, a small dog. Generate the SAME scene a few ` +
+        `seconds later: identical dog, identical costume, identical location, lighting and camera framing. The ONLY change: ` +
+        `the dog ${endPose}. That change must be OBVIOUS at a glance — this frame must NOT look like a copy of the reference ` +
+        `image; the dog's body has clearly moved into the new pose, while its face stays turned the same way and the camera ` +
+        `has not moved. ${STYLE_RULES}`,
+      image_urls: [publicUrl(startFrameUrl)],
+      loras: [{ path: lora.url, scale: LORA_SCALE }],
       num_images: 1,
-      resolution: "2K",
-      // 16:9 — this becomes a real film frame (the video model's end anchor),
-      // same reasoning as every storyboard take in stills-pipeline.ts.
-      aspect_ratio: "16:9",
+      image_size: B1_IMAGE_SIZE,
       output_format: "png",
       seed,
+      guidance_scale: LORA_GUIDANCE_SCALE, // never raise — §1.8
     },
   });
   const url = (r.data as { images?: { url?: string }[] })?.images?.[0]?.url;
@@ -499,16 +536,22 @@ async function generateEndFrame(
  */
 async function generateGatedEndFrame(
   startFrameUrl: string,
-  heroSheetUrl: string | undefined,
   endPose: string,
   identityRefUrl: string | undefined,
-  shotIndex: number
+  shotIndex: number,
+  lora: { url: string; triggerWord: string } | undefined
 ): Promise<string | null> {
+  if (!lora) {
+    console.log(
+      `[film] shot ${shotIndex}: no LoRA on this order — skipping start+end, single-frame i2v for this cut`
+    );
+    return null;
+  }
   try {
     let best: { url: string; score: number } | null = null;
     for (let attempt = 0; attempt <= MAX_END_FRAME_REROLLS; attempt++) {
       const seed = END_FRAME_SEED + shotIndex * 100 + attempt * 7919; // same reroll-offset convention as generateGatedTake
-      const url = await generateEndFrame(startFrameUrl, heroSheetUrl, endPose, seed);
+      const url = await generateEndFrame(startFrameUrl, endPose, seed, lora);
       const score = identityRefUrl ? await scoreIdentity(identityRefUrl, url) : 100;
       console.log(`[film] shot ${shotIndex} end frame attempt ${attempt}: identity ${score}`);
       if (score >= END_FRAME_IDENTITY_THRESHOLD) return url;
@@ -1731,7 +1774,7 @@ export async function runFilmGeneration(order: Order): Promise<void> {
       shotStillUrls.map((stillUrl, i) => {
         const endPose = resolved.endPoses[i] ?? null;
         if (!endPose) return Promise.resolve(null);
-        return generateGatedEndFrame(stillUrl, order.heroSheetUrl ?? undefined, endPose, identityGateRef, i);
+        return generateGatedEndFrame(stillUrl, endPose, identityGateRef, i, orderLora(order));
       })
     );
     art = await saveArtifacts(order.id, { endFrameUrls });
@@ -2113,10 +2156,10 @@ export async function runShotRerender(
   if (endPose && !endFrameUrls[shotIndex]) {
     endFrameUrls[shotIndex] = await generateGatedEndFrame(
       still,
-      order.heroSheetUrl ?? undefined,
       endPose,
       identityGateRef,
-      shotIndex
+      shotIndex,
+      orderLora(order)
     );
   }
 

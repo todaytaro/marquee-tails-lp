@@ -234,23 +234,23 @@ function assertEnv(name: string): string {
 
 const LORA_TRAINER_MODEL = "fal-ai/flux-2-trainer-v2";
 // fal-ai/flux-2/lora/edit — the single-call take generator (B1, §2.2).
-const LORA_EDIT_MODEL = "fal-ai/flux-2/lora/edit";
+export const LORA_EDIT_MODEL = "fal-ai/flux-2/lora/edit";
 // §1.7's camyu measurement, reused verbatim (not re-derived here): the
 // trainer's own recommendation is higher, but this is what actually validated
 // during the bake-off.
 const LORA_TRAIN_STEPS = 1500;
-const LORA_SCALE = 1.0;
+export const LORA_SCALE = 1.0;
 // §4.1/§1.8: the model's own default, kept EXPLICIT (not omitted) so a future
 // edit can see, in code, that this is a deliberate ceiling — raising it made
 // the render more detailed but swapped in a visibly different dog in the
 // owner's own comparison (§1.8's "C" arm). Never raise this.
-const LORA_GUIDANCE_SCALE = 2.5;
+export const LORA_GUIDANCE_SCALE = 2.5;
 // §2.2 trap: this MUST be an explicit {width,height} object. The preset name
 // "landscape_16_9" silently downgrades this exact endpoint to 1024x576 — an
 // entire comparison run was measured at the wrong resolution before that was
 // caught (§2.2/§2.4). 2048x1152 is B1's native ceiling (nano-banana's
 // 2752x1536 was higher — see §2.4 for why that drop doesn't reach the poster).
-const B1_IMAGE_SIZE = { width: 2048, height: 1152 } as const;
+export const B1_IMAGE_SIZE = { width: 2048, height: 1152 } as const;
 
 // §4.1: a POSITIVE anatomy directive (this endpoint has no negative-prompt
 // input), added to every take regardless of which generation path produced
@@ -1411,6 +1411,29 @@ export async function completeStillsGeneration(
     {},
     `storyboard ready (${storyboard.length} cuts × ${storyboard[0]?.options.length ?? 0} takes)`
   );
-  await sendChooseStillEmail(order);
+  // Non-fatal, deliberately. The storyboard is finished and persisted and the
+  // order has already transitioned — by this line the expensive, irreversible
+  // work is done. Letting a mail failure throw here fails the whole task, and
+  // a retry re-runs generation: eighteen fresh renders thrown at an order that
+  // was already complete, because an email didn't send.
+  //
+  // This is not hypothetical. The first production LoRA order got its
+  // storyboard, then died on this line because APP_BASE_URL wasn't set in the
+  // Trigger.dev environment (it was only ever set on Vercel — GO-LIVE-RUNBOOK's
+  // table said the tasks needed nothing but DATABASE_URL and FAL_KEY, which
+  // missed that Gate 1's mail is sent from inside the task). The order survived
+  // only because the transition had already committed.
+  //
+  // Loud, because a silent failure here is the worst case of all now: the
+  // customer is waiting on an email they will never get, with no reason to
+  // come back to a page they were told to close.
+  try {
+    await sendChooseStillEmail(order);
+  } catch (e) {
+    console.error(
+      `[stills] order=${orderId} STORYBOARD IS READY BUT THE GATE-1 EMAIL FAILED — the customer has not been told. Check APP_BASE_URL / RESEND_API_KEY / RESEND_FROM_EMAIL in the Trigger.dev environment, then re-send from admin.`,
+      e
+    );
+  }
   console.log(`[stills] order=${orderId} -> AWAITING_CUSTOMER_APPROVAL`);
 }
