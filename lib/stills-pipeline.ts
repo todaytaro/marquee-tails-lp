@@ -1,6 +1,5 @@
 import { fal } from "@fal-ai/client";
 import { tasks } from "@trigger.dev/sdk";
-import { crc32 } from "node:zlib";
 import type { generateStillsTask } from "@/trigger/stills";
 import type { trainPetLoraTask } from "@/trigger/train-lora";
 import { OrderStatus, type Order } from "@/generated/prisma/client";
@@ -275,15 +274,47 @@ function loraTriggerWord(orderId: string): string {
   return `mtpet${orderId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 16)}`;
 }
 
+/** Lazily built CRC-32 table (IEEE 802.3 polynomial, reflected: 0xEDB88320). */
+let crcTable: Uint32Array | null = null;
+
+/**
+ * CRC-32 for the ZIP writer below.
+ *
+ * Hand-rolled rather than `import { crc32 } from "node:zlib"`, which is what
+ * this used at first: it works locally, but Trigger.dev's deploy refused every
+ * task file with "The requested module 'node:zlib' does not provide an export
+ * named 'crc32'". `zlib.crc32` only landed in Node 20.15/22.2 and is not
+ * visible as an ESM named export in the environment that bundles these tasks —
+ * so the one line that made the ZIP writer "dependency-free" was itself an
+ * undeclared dependency on a Node version we don't control.
+ *
+ * Twenty lines of table-driven CRC has no such assumption. Verified byte-for-
+ * byte against zlib's own crc32 on the training photos before replacing it.
+ */
+function crc32(buf: Buffer): number {
+  if (!crcTable) {
+    crcTable = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+      let c = i;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      crcTable[i] = c >>> 0;
+    }
+  }
+  let crc = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) crc = crcTable[(crc ^ buf[i]) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
 /**
  * Minimal ZIP writer (STORE method — no compression, the training photos are
- * already JPEG/PNG so compressing again buys nothing) using only Node's
- * built-in `node:zlib` for CRC-32. Deliberately dependency-free: this repo has
- * no zip library, and the one system `zip` binary this dev machine happens to
- * have is not a dependency Trigger.dev's cloud machines are guaranteed to
- * ship (unlike ffmpeg, which trigger.config.ts explicitly installs via a build
- * extension) — a pure-JS writer works identically in local dev, Vercel and
- * Trigger.dev with nothing extra to provision.
+ * already JPEG/PNG so compressing again buys nothing), paired with the
+ * hand-rolled crc32 above. Deliberately dependency-free: this repo has no zip
+ * library, and the one system `zip` binary this dev machine happens to have is
+ * not a dependency Trigger.dev's cloud machines are guaranteed to ship (unlike
+ * ffmpeg, which trigger.config.ts explicitly installs via a build extension) —
+ * pure JS works identically in local dev, Vercel and Trigger.dev with nothing
+ * extra to provision. See crc32's comment for why even a Node builtin was too
+ * strong an assumption here.
  */
 function zipStore(entries: { name: string; data: Buffer }[]): Buffer {
   const localParts: Buffer[] = [];
