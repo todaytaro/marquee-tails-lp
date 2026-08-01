@@ -24,14 +24,33 @@ export type Personality = "brave" | "easygoing" | "playful" | "timid";
 
 export const PERSONALITIES: Personality[] = ["brave", "easygoing", "playful", "timid"];
 
-/** One locked costume per world — identical across every shot of a film. */
+/**
+ * One locked costume per world — identical across every shot of a film.
+ *
+ * NOTHING GOES OVER THE FACE. A helmet, visor, mask or goggles forces every
+ * generator to re-draw the face through it, and the reflections, distortion
+ * and edges take the fur texture and eye shape down with them — the exact
+ * signal the customer is paying to recognize. deepspace used to specify a
+ * clear glass helmet; the astronaut read now comes from an open locking
+ * collar ring instead, which says "spacesuit" without covering anything.
+ *
+ * LORA-STORYBOARD-SPEC.md §1.6(a)/§3: B1 (the LoRA take generator) holds the
+ * SAME costume across cuts less reliably than the old nano-banana chain did —
+ * "the same general kind of outfit" instead of "the identical outfit". The
+ * deepspace collar specifically wobbled between a rigid metal ring and soft
+ * fabric, and the suit occasionally grew a flag patch or an extra
+ * harness/strap the reference never showed. §3's fix (prompt-only, no gating
+ * yet) is to name every wobbling element explicitly and forbid additions —
+ * each string below now states its material/count where that matters and
+ * closes with an explicit "nothing else" clause.
+ */
 export const WORLD_COSTUMES: Record<string, string> = {
   deepspace:
-    "wearing a fitted white astronaut suit with orange trim, a small mission patch on the chest, and a clear glass helmet",
+    "wearing a fitted white astronaut suit with orange trim, a small mission patch on the chest, and a rigid open metal collar ring — not soft fabric or cloth — at the neck where a helmet would lock on, head bare and fully visible. No national flag patch, no extra chest harness, no additional straps or belts beyond what is described here.",
   storybook:
-    "wearing a deep-blue velvet knight's cloak with silver trim and a small round silver clasp at the throat",
+    "wearing a deep-blue velvet knight's cloak with silver trim and exactly one small round silver clasp at the throat. No additional emblems, sashes, medallions or armor pieces beyond what is described here.",
   noir:
-    "wearing a tan belted trench coat and a small dark-brown fedora",
+    "wearing a tan belted trench coat with the collar turned up and exactly one belt at the waist, head bare and fully visible. No additional scarf, harness or accessories beyond what is described here.",
 };
 
 /** Per-world music prompt for the original score (generated once, reused). */
@@ -70,13 +89,13 @@ export const FILM_SCRIPTS: WorldMap<string[]> = {
       "spinning in the captain's chair, ears flying, console buttons lighting up around it",
       "peeking upside-down into frame from the top of the airlock hatch, tongue out",
       "bouncing across the alien desert in low gravity, all four paws off the ground",
-      "helmet slightly crooked, nose smudged against the visor, stars reflected around a grin",
+      "nose smudged flat against the cold porthole glass, stars reflected around a grin",
       "riding a cargo sled down the loading ramp under the nebula sky, ears streaming back",
     ],
     timid: [
       "peeking around a dim corridor corner, ears low, eyes huge in the emergency light",
       "hiding behind the pilot seat with only eyes and ears showing over the backrest",
-      "taking one careful step into the airlock, breath fogging the visor",
+      "taking one careful step into the airlock, breath clouding in the cold air",
       "clinging to the tether on a first spacewalk, wide-eyed, the planet turning below",
       "walking across the pale grey lunar surface under harsh, neutral sunlight, small footprints trailing in the dust behind it, ears lifting with quiet new resolve, Earth hanging small and blue in the black sky above — no fantasy color, no sunset, true photographic moon-mission lighting",
       "standing tall at the viewport facing the great nebula head-on, no longer afraid",
@@ -134,7 +153,7 @@ export const FILM_SCRIPTS: WorldMap<string[]> = {
       "watching rain wash the neon city from the office window, calm",
     ],
     playful: [
-      "a fedora three sizes too big sliding over both eyes, one ear holding it up",
+      "tangled in its own trench coat, one sleeve flopping far past the paw, face bright and unbothered",
       "chasing its own trailing coat belt in a circle, papers swirling off the desk",
       "pouncing on the typewriter keys, ribbon unspooling dramatically",
       "peeking through venetian blinds with exaggerated suspicion at a passing pigeon",
@@ -470,8 +489,12 @@ export const SHOT_END_POSES: (string | null)[] = [
  * Parallel to SHOT_MOTIONS and the 6 arc beats.
  */
 export const SHOT_FRAMINGS: string[] = [
-  // 1 — opening shot / poster: safest, face-forward medium hero
-  "Framed as a medium hero shot, the pet's face large, sharp and turned toward the camera, head and chest filling much of the frame",
+  // 1 — opening shot / poster: safest, face-forward medium hero.
+  // LORA-STORYBOARD-SPEC.md §1.5/§2.3: under B1 (the LoRA take generator),
+  // "medium hero shot" alone came back as an extreme nose-to-lens close-up —
+  // the ONLY of the six framings that needed a negation added, since cut 4
+  // below is already an INTENTIONAL close-up and needs no such guard.
+  "Framed as a medium hero shot — this is NOT an extreme close-up of the face — the pet's face large, sharp and turned toward the camera, head and chest filling much of the frame",
   // 2 — full-body three-quarter action: shows costume + movement
   "Framed as a full-body three-quarter action shot showing the whole costumed body in motion, the face still turned toward the camera and in sharp focus",
   // 3 — dramatic low angle: heroic scale
@@ -480,8 +503,13 @@ export const SHOT_FRAMINGS: string[] = [
   "Framed as a tight close-up on the pet's face, the eyes and expression filling the frame in razor-sharp focus",
   // 5 — medium establishing: the world reads, but the pet stays prominent so
   //     identity holds (was a full wide — too small in frame, drifted; the gate
-  //     kept scoring it low, so we pulled the pet forward).
-  "Framed as a medium establishing shot — the pet prominent with its face large and sharp, the environment suggested behind it rather than dominating the frame",
+  //     kept scoring it low, so we pulled the pet forward). LORA-STORYBOARD-
+  //     SPEC.md §2.3: this was the one entry of the six missing the explicit
+  //     "toward the camera" face direction the other five already state —
+  //     added here to match, not because this framing behaved differently in
+  //     testing (the production SHOT_FRAMINGS text, unlike the simplified
+  //     framing string the §1.5 bake-off script used, always had it on 5/6).
+  "Framed as a medium establishing shot — the pet prominent with its face large, sharp and turned toward the camera, the environment suggested behind it rather than dominating the frame",
   // 6 — triumphant low-angle medium-wide: the climax
   "Framed as a triumphant low-angle medium-wide shot, the pet head-high and heroic against the backdrop, its face lit and toward the camera",
 ];
