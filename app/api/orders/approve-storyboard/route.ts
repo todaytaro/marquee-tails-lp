@@ -5,6 +5,7 @@ import { transitionOrder, TransitionError } from "@/lib/orders";
 import { kickFilmGeneration } from "@/lib/film-pipeline";
 import { kickPosterGeneration } from "@/lib/poster-pipeline";
 import { normalizeStoryboard } from "@/lib/stills-pipeline";
+import { recordEvidence } from "@/lib/evidence";
 
 /**
  * Gate 1 — the customer approves their storyboard: one take per cut.
@@ -59,8 +60,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Order not found." }, { status: 404 });
   }
 
-  // B2-SAFETY-NET-SPEC.md §4.2: once the customer has asked for the $200
-  // refund, Gate 1 is frozen for this order — approving the storyboard
+  // B2-SAFETY-NET-SPEC.md §4.2: once the customer has asked for the refund,
+  // Gate 1 is frozen for this order — approving the storyboard
   // afterward would kick off production the customer already opted out of.
   // Custom-only in practice (refundRequestedAt is never set on a preset
   // order — see lib/safety-net.ts#canRequestRefund's tier check), so this
@@ -129,6 +130,19 @@ export async function POST(req: Request) {
       "customer",
       { selectedImageUrl: picks[0], chosenStills: picks, posterCutIndex },
       "Gate 1: customer approved storyboard (6 cuts)"
+    );
+
+    // CHARGEBACK-DEFENSE-SPEC.md §3 storyboard.approved — the transition
+    // above already proves the state change; this records exactly which
+    // take the customer picked for every cut, and which cut they chose as
+    // the poster scene (never throws — lib/evidence.ts). Recorded regardless
+    // of whether the pipeline kick below succeeds: the approval itself
+    // already happened.
+    await recordEvidence(
+      order.id,
+      "storyboard.approved",
+      { chosenStills: picks, posterCutIndex },
+      req
     );
 
     // Side effect fires only after the transition is committed. If the kick

@@ -1,6 +1,7 @@
 import { Resend } from "resend";
 import type { Order } from "@/generated/prisma/client";
 import { STORYBOARD_REROLL_CAP, REFUND_AMOUNT_USD, NONREFUNDABLE_FEE_USD } from "@/lib/safety-net";
+import { recordEvidence } from "@/lib/evidence";
 
 /**
  * Order-lifecycle email — provider chain, same shape as lib/waitlist.ts:
@@ -96,6 +97,28 @@ function fromAddress(): string {
   return process.env.RESEND_FROM_EMAIL ?? "Marquee Tails <onboarding@resend.dev>";
 }
 
+/**
+ * CHARGEBACK-DEFENSE-SPEC.md §3 email.sent — recorded only for a REAL Resend
+ * send. The dev/console.log mock path never actually delivers anything, so
+ * recording it as evidence would misrepresent what happened, and the Klaviyo
+ * path's event-tracking API hands back no message id to anchor a record to.
+ * Capturing Resend's own message id (`data.id` from `resend.emails.send`)
+ * means a dispute can point at Resend's own delivery record, not just this
+ * app's say-so. Never throws (lib/evidence.ts) — a failed evidence insert
+ * must never turn a successful send into a failed one.
+ */
+async function recordEmailEvidence(
+  order: Order,
+  template: string,
+  resendMessageId: string | null | undefined
+): Promise<void> {
+  await recordEvidence(order.id, "email.sent", {
+    template,
+    to: order.customerEmail,
+    resendMessageId: resendMessageId ?? null,
+  });
+}
+
 export async function sendChooseStillEmail(order: Order): Promise<void> {
   const petName = order.petName ?? "Your Star";
   const link = approveUrl(order);
@@ -113,7 +136,7 @@ export async function sendChooseStillEmail(order: Order): Promise<void> {
 
   const resend = resendClient();
   if (resend) {
-    const { error } = await resend.emails.send({
+    const { data, error } = await resend.emails.send({
       from: fromAddress(),
       to: order.customerEmail,
       subject: `${petName}'s storyboard is ready — pick your favorites`,
@@ -125,6 +148,7 @@ export async function sendChooseStillEmail(order: Order): Promise<void> {
       `,
     });
     if (error) throw new Error(`Resend "choose still" send failed: ${JSON.stringify(error)}`);
+    await recordEmailEvidence(order, "choose-still", data?.id);
     return;
   }
 
@@ -152,7 +176,7 @@ export async function sendDeliveryEmail(order: Order): Promise<void> {
 
   const resend = resendClient();
   if (resend) {
-    const { error } = await resend.emails.send({
+    const { data, error } = await resend.emails.send({
       from: fromAddress(),
       to: order.customerEmail,
       subject: `${petName}'s premiere is ready!`,
@@ -165,6 +189,7 @@ export async function sendDeliveryEmail(order: Order): Promise<void> {
       `,
     });
     if (error) throw new Error(`Resend delivery send failed: ${JSON.stringify(error)}`);
+    await recordEmailEvidence(order, "delivery", data?.id);
     return;
   }
 
@@ -188,7 +213,7 @@ export async function sendWelcomeUploadEmail(order: Order): Promise<void> {
 
   const resend = resendClient();
   if (resend) {
-    const { error } = await resend.emails.send({
+    const { data, error } = await resend.emails.send({
       from: fromAddress(),
       to: order.customerEmail,
       subject: `You're in! Let's meet your star`,
@@ -216,6 +241,7 @@ export async function sendWelcomeUploadEmail(order: Order): Promise<void> {
       `,
     });
     if (error) throw new Error(`Resend "welcome" send failed: ${JSON.stringify(error)}`);
+    await recordEmailEvidence(order, "welcome-upload", data?.id);
     return;
   }
 
@@ -277,7 +303,7 @@ export async function sendAddonConfirmationEmail(order: Order): Promise<void> {
 
   const resend = resendClient();
   if (resend) {
-    const { error } = await resend.emails.send({
+    const { data, error } = await resend.emails.send({
       from: fromAddress(),
       to: order.customerEmail,
       subject: `Your ${petName} keepsake is on its way`,
@@ -287,6 +313,7 @@ export async function sendAddonConfirmationEmail(order: Order): Promise<void> {
       `,
     });
     if (error) throw new Error(`Resend addon confirmation send failed: ${JSON.stringify(error)}`);
+    await recordEmailEvidence(order, "addon-confirmation", data?.id);
     return;
   }
 
@@ -346,7 +373,7 @@ export async function sendAdminStoryboardReviewAlert(order: Order): Promise<void
 
 /**
  * B2-SAFETY-NET-SPEC.md §4.4 — the customer just used their last free
- * re-roll and requested the $200 refund; alert US so a human can process it
+ * re-roll and requested the refund; alert US so a human can process it
  * (§4.3 — this app never calls Stripe's refund API, so nothing happens on
  * this order until a person acts on this email). Unlike every other
  * function in this file the recipient is the ADMIN, not the customer, so
@@ -389,12 +416,12 @@ export async function sendRefundRequestedAlert(order: Order): Promise<void> {
 }
 
 /**
- * B2-SAFETY-NET-SPEC.md §4.4 — sent once the admin records the $200 as
+ * B2-SAFETY-NET-SPEC.md §4.4 — sent once the admin records the refund as
  * actually refunded in Stripe (app/admin/actions.ts#markRefundIssuedAction).
  * Standard customer-lifecycle fallback chain, like every other send above.
  *
  * Links back to the approve page (now rendering, on this CANCELLED order,
- * the treatment + full storyboard as the keepsake the $49 fee paid for —
+ * the treatment + full storyboard as the keepsake the fee paid for —
  * app/approve/[token]/page.tsx#RefundIssuedView). A refunded customer has no
  * other reason to revisit that link, so this email is the one moment that
  * makes them aware the keepsake is even there; without the link, "yours to
@@ -418,7 +445,7 @@ export async function sendRefundIssuedEmail(order: Order): Promise<void> {
 
   const resend = resendClient();
   if (resend) {
-    const { error } = await resend.emails.send({
+    const { data, error } = await resend.emails.send({
       from: fromAddress(),
       to: order.customerEmail,
       subject: `Your $${REFUND_AMOUNT_USD} refund is on its way`,
@@ -435,6 +462,7 @@ export async function sendRefundIssuedEmail(order: Order): Promise<void> {
       `,
     });
     if (error) throw new Error(`Resend refund-issued send failed: ${JSON.stringify(error)}`);
+    await recordEmailEvidence(order, "refund-issued", data?.id);
     return;
   }
 

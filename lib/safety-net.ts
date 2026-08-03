@@ -4,7 +4,7 @@
  *
  *   1. Three free storyboard RE-ROLLS (§1.1 — one cut's three takes, no
  *      customer instruction, order-wide count).
- *   2. A $200 REFUND once all three are spent and Gate 1 is still
+ *   2. A $150 REFUND once all three are spent and Gate 1 is still
  *      unapproved (§4.1).
  *
  * WHY this file is pure functions with no Prisma/DB import: every guard
@@ -41,11 +41,11 @@ export const TREATMENT_REVISION_CAP = 2;
 
 // Customer-facing dollar figures from the same spec section. COPY constants
 // ONLY: the app never feeds these into a Stripe call and never treats them as
-// the source of truth for what was actually refunded — the admin reads $200
+// the source of truth for what was actually refunded — the admin reads $150
 // off the same policy this constant backs and types it into Stripe's own
 // dashboard by hand (B2-SAFETY-NET-SPEC.md §4.3, HARD CONSTRAINT #3).
-export const REFUND_AMOUNT_USD = 200;
-export const NONREFUNDABLE_FEE_USD = 49;
+export const REFUND_AMOUNT_USD = 150;
+export const NONREFUNDABLE_FEE_USD = 99;
 
 // The exact wire value of OrderStatus.AWAITING_CUSTOMER_APPROVAL (see
 // prisma/schema.prisma) — see the file-level note above for why this is a
@@ -106,8 +106,8 @@ export function canReroll(order: OrderForGuard): GuardResult {
 }
 
 /**
- * $200 refund-request guard (§4.1) — a conjunction of:
- *   1. tier === "custom" (§7 — Preset has no Gate 0, no $49/$200 split)
+ * $150 refund-request guard (§4.1) — a conjunction of:
+ *   1. tier === "custom" (§7 — Preset has no Gate 0, no $99/$150 split)
  *   2. all STORYBOARD_REROLL_CAP re-rolls spent ("fix it first" — the whole
  *      point of B2 is that re-rolling comes before refunding)
  *   3. Gate 1 not yet approved (still AWAITING_CUSTOMER_APPROVAL — once video

@@ -2,10 +2,11 @@
 
 import { useState, useTransition } from "react";
 import { markRefundIssuedAction } from "../actions";
+import { REFUND_AMOUNT_USD } from "@/lib/safety-net";
 
 /**
  * B2-SAFETY-NET-SPEC.md §4.3 — records that the admin ALREADY issued the
- * $200 refund by hand in the Stripe dashboard. Two-step confirm (arm, then
+ * refund by hand in the Stripe dashboard. Two-step confirm (arm, then
  * fire) because this is irreversible: it moves the order to CANCELLED and
  * sends the customer a confirmation email — same "explicit confirm step"
  * requirement the spec places on the CUSTOMER-facing refund request
@@ -42,7 +43,7 @@ export function MarkRefundIssuedButton({ orderId }: { orderId: string }) {
         onClick={() => setArmed(true)}
         className="rounded-[var(--radius-chip)] border border-red-500/50 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-400 transition-colors hover:bg-red-500/20"
       >
-        $200 返金済みとして記録
+        ${REFUND_AMOUNT_USD} 返金済みとして記録
       </button>
     );
   }
@@ -50,7 +51,7 @@ export function MarkRefundIssuedButton({ orderId }: { orderId: string }) {
   return (
     <div className="space-y-2 rounded-[var(--radius-chip)] border border-red-500/40 bg-red-500/5 p-3">
       <p className="text-xs text-red-400">
-        先にStripeダッシュボードで実際に$200を返金してください。押すとこの注文はCANCELLED（完了不可）になり、顧客に確認メールが送られます。取り消せません。
+        先にStripeダッシュボードで実際に${REFUND_AMOUNT_USD}を返金してください。押すとこの注文はCANCELLED（完了不可）になり、顧客に確認メールが送られます。取り消せません。
       </p>
       <div className="flex flex-wrap gap-2">
         <button

@@ -3,6 +3,8 @@
 import { useState } from "react";
 import Image from "next/image";
 import ProductionProgress from "./ProductionProgress";
+import { REFUND_AMOUNT_USD, NONREFUNDABLE_FEE_USD } from "@/lib/safety-net";
+import { refundConfirmText } from "@/lib/refund-consent";
 
 /**
  * Gate 1 interactive picker — the storyboard wizard. The customer walks one
@@ -24,7 +26,7 @@ import ProductionProgress from "./ProductionProgress";
  *     (/api/orders/reroll-cut) — no customer instruction, see the route's own
  *     doc comment for why this is a distinct lever from Gate 0's revision
  *     loop or the admin's Gate-2 shot re-render.
- *   - once all are spent, a $200 refund offer (/api/orders/request-refund)
+ *   - once all are spent, a refund offer (/api/orders/request-refund)
  *     that freezes Gate 1 for this order once accepted.
  * Preset ($99) orders pass isCustom=false and see none of this (spec §7).
  */
@@ -36,7 +38,7 @@ type Props = {
   approveToken: string;
   petName: string;
   storyboard: Cut[];
-  // B2-SAFETY-NET-SPEC.md §7 — Preset has no Gate 0, no $49/$200 split, and
+  // B2-SAFETY-NET-SPEC.md §7 — Preset has no Gate 0, no fee/refund split, and
   // NO re-roll/refund UI at all. Only a Director's Cut order ever sets this.
   isCustom: boolean;
   // STORYBOARD_REROLL_CAP (lib/safety-net.ts), passed as a prop rather than
@@ -109,7 +111,7 @@ export default function StoryboardWizard({
   const [rerollStatus, setRerollStatus] = useState<RerollStatus>("idle");
   const [rerollError, setRerollError] = useState<string | null>(null);
 
-  // B2 — $200 refund state (§4.2).
+  // B2 — refund state (§4.2).
   const [refundRequested, setRefundRequested] = useState(refundAlreadyRequested);
   const [refundPanel, setRefundPanel] = useState<RefundPanel>("hidden");
   const [refundError, setRefundError] = useState<string | null>(null);
@@ -198,7 +200,7 @@ export default function StoryboardWizard({
     }
   }
 
-  /** B2 §4.2 — the $200 refund request, after the confirm step below. */
+  /** B2 §4.2 — the refund request, after the confirm step below. */
   async function confirmRefund() {
     setRefundPanel("submitting");
     setRefundError(null);
@@ -235,10 +237,11 @@ export default function StoryboardWizard({
           REFUND REQUESTED
         </p>
         <p className="mt-4 text-muted">
-          We&apos;ve recorded your request for a $200 refund, and production
-          on {petName}&apos;s film stops here. The $49 concept &amp;
-          storyboard fee stays non-refundable — the treatment and storyboard
-          we made for {petName} are yours to keep either way.
+          We&apos;ve recorded your request for a ${REFUND_AMOUNT_USD} refund,
+          and production on {petName}&apos;s film stops here. The $
+          {NONREFUNDABLE_FEE_USD} concept &amp; storyboard fee stays
+          non-refundable — the treatment and storyboard we made for {petName}{" "}
+          are yours to keep either way.
         </p>
         <p className="mt-4 text-muted">
           You&apos;ll get a confirmation email once the refund is issued
@@ -330,7 +333,8 @@ export default function StoryboardWizard({
             onClick={() => setRefundPanel("confirming")}
             className="mt-1 text-xs text-muted underline decoration-hairline underline-offset-4 transition-colors hover:text-gold"
           >
-            Get $200 back (the $49 concept &amp; storyboard fee stays non-refundable)
+            Get ${REFUND_AMOUNT_USD} back (the ${NONREFUNDABLE_FEE_USD} concept
+            &amp; storyboard fee stays non-refundable)
           </button>
           {refundPanel === "error" && refundError && (
             <p role="alert" className="mt-2 text-sm text-gold-bright">
@@ -342,12 +346,13 @@ export default function StoryboardWizard({
     }
     return (
       <div className="mx-auto mt-3 max-w-md rounded-[var(--radius-card)] border border-hairline bg-surface p-4 text-left">
-        <p className="text-sm text-ivory">
-          This ends production for good. We&apos;ll refund $200 of your $249
-          order — the $49 concept &amp; storyboard fee stays non-refundable
-          (the treatment and storyboard we made for {petName} are yours to
-          keep either way).
-        </p>
+        {/*
+          refundConfirmText (lib/refund-consent.ts) — this is the EXACT
+          string app/api/orders/request-refund/route.ts records as the
+          refund.requested evidence event's consent text (CHARGEBACK-DEFENSE-
+          SPEC.md §7 proof 4), so the two must never drift apart.
+        */}
+        <p className="text-sm text-ivory">{refundConfirmText(petName)}</p>
         <div className="mt-3 flex flex-wrap gap-3">
           <button
             type="button"
@@ -355,7 +360,7 @@ export default function StoryboardWizard({
             disabled={refundPanel === "submitting"}
             className="rounded-[var(--radius-chip)] border border-gold/50 px-4 py-2 text-sm text-gold transition-colors hover:bg-gold/10 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {refundPanel === "submitting" ? "Submitting…" : "Yes — refund $200 and stop here"}
+            {refundPanel === "submitting" ? "Submitting…" : `Yes — refund $${REFUND_AMOUNT_USD} and stop here`}
           </button>
           <button
             type="button"

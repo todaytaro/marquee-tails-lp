@@ -40,8 +40,8 @@ export default function RefundPage() {
         revisions to your written treatment, plus up to three (3) free
         re-rolls of any single storyboard scene at Gate 1 (before filming
         begins). If, after using all three re-rolls, you still cannot approve
-        the storyboard, you may end production there in exchange for a $200
-        refund. The $49 concept &amp; storyboard fee is non-refundable in
+        the storyboard, you may end production there in exchange for a $150
+        refund. The $99 concept &amp; storyboard fee is non-refundable in
         that case &mdash; it covers the treatment and storyboard work we
         already completed specifically for you, which remain yours to keep.
         This option is only available before Gate 1 approval (i.e., before
@@ -74,7 +74,7 @@ export default function RefundPage() {
         number and a description of the issue.
       </p>
 
-      <p className="mt-10 text-xs">Last updated: July 31, 2026</p>
+      <p className="mt-10 text-xs">Last updated: August 3, 2026</p>
     </>
   );
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { normalizeStoryboard } from "@/lib/stills-pipeline";
+import { recordEvidence } from "@/lib/evidence";
 
 /**
  * Same-origin download proxy for the customer's deliverables.
@@ -45,6 +46,7 @@ export async function GET(req: NextRequest) {
   const order = await prisma.order.findUnique({
     where: { approveToken: token },
     select: {
+      id: true,
       petName: true,
       finalVideoUrl: true,
       socialVideoUrl: true,
@@ -100,6 +102,20 @@ export async function GET(req: NextRequest) {
     console.error(`[download] upstream ${upstream.status} for kind=${kind} order-token=${token.slice(0, 8)}…`);
     return bad(502, "The file couldn't be fetched just now. Please try again.");
   }
+
+  // CHARGEBACK-DEFENSE-SPEC.md §3 download.* / §7 proof 3 — recorded ONLY
+  // here, after the upstream fetch above has already succeeded: a 404/502
+  // never reaches this line, so a failed download can never be logged as a
+  // successful one. "Receipt of the deliverable" is the strongest evidence a
+  // digital-goods dispute can produce (§0 point 3) — recording a download
+  // that didn't actually happen would be worse than not recording at all.
+  // Never throws (lib/evidence.ts).
+  await recordEvidence(
+    order.id,
+    `download.${kind}` as const,
+    kind === "take" ? { cut: Number(params.get("cut")), take: Number(params.get("take")) } : { filename },
+    req
+  );
 
   // Stream rather than buffer: these are 60-second films, and holding one in
   // memory per concurrent download is the kind of thing that works fine until

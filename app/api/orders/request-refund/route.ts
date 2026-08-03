@@ -8,9 +8,11 @@ import {
   NONREFUNDABLE_FEE_USD,
 } from "@/lib/safety-net";
 import { sendRefundRequestedAlert } from "@/lib/mocks";
+import { refundConfirmText } from "@/lib/refund-consent";
+import { recordEvidence } from "@/lib/evidence";
 
 /**
- * Gate 1 — the customer's $200 way out (B2-SAFETY-NET-SPEC.md §4).
+ * Gate 1 — the customer's refund way out (B2-SAFETY-NET-SPEC.md §4).
  *
  * POST { orderId, approveToken }
  *
@@ -83,6 +85,18 @@ export async function POST(req: Request) {
   }
 
   const updated = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+
+  // CHARGEBACK-DEFENSE-SPEC.md §3 refund.requested / §7 proof 4 — records
+  // the EXACT confirm-panel text the customer read before clicking through
+  // (refundConfirmText, shared verbatim with components/StoryboardWizard.tsx,
+  // so this is never a paraphrase). Never throws (lib/evidence.ts).
+  await recordEvidence(
+    orderId,
+    "refund.requested",
+    { consentText: refundConfirmText(updated.petName ?? "Your Star") },
+    req
+  );
+
   // Fire-and-forget: never let an alert-email failure hide from the customer
   // that their refund request WAS successfully recorded.
   try {

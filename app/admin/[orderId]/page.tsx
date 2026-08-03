@@ -14,8 +14,9 @@ import { MarkRefundIssuedButton } from "./MarkRefundIssuedButton";
 import MoviePosterOverlay from "@/components/MoviePosterOverlay";
 import { resolveWorld, fillPetName, type WorldBundle, type Personality } from "@/lib/film-script";
 import { LOGLINES_JA } from "@/lib/film-script-ja";
-import { STORYBOARD_REROLL_CAP } from "@/lib/safety-net";
+import { STORYBOARD_REROLL_CAP, REFUND_AMOUNT_USD, NONREFUNDABLE_FEE_USD } from "@/lib/safety-net";
 import { normalizeStoryboard, NUM_CUTS, TAKES_PER_CUT } from "@/lib/stills-pipeline";
+import { buildTimeline, buildEvidenceText } from "@/lib/evidence-text";
 
 export const dynamic = "force-dynamic";
 
@@ -61,9 +62,21 @@ export default async function AdminOrderReviewPage({
 
   const order = await prisma.order.findUnique({
     where: { id: orderId },
-    include: { statusEvents: { orderBy: { createdAt: "asc" } } },
+    include: {
+      statusEvents: { orderBy: { createdAt: "asc" } },
+      evidenceEvents: { orderBy: { createdAt: "asc" } },
+    },
   });
   if (!order) notFound();
+
+  // CHARGEBACK-DEFENSE-SPEC.md §4 — merge StatusEvent (transitions) and
+  // EvidenceEvent (everything else: consent, downloads, picks, re-rolls,
+  // emails) into one chronological timeline, and the plain-English text the
+  // owner can paste straight into Stripe's dispute-response form. Built from
+  // data already on this page — no new API route.
+  const evidenceTimeline = buildTimeline(order.statusEvents, order.evidenceEvents);
+  const consentEvent = order.evidenceEvents.find((e) => e.kind === "checkout.consent") ?? null;
+  const evidenceText = buildEvidenceText(order, evidenceTimeline, consentEvent);
 
   const awaitingReview = order.status === OrderStatus.AWAITING_ADMIN_APPROVAL;
   const isFailed = order.status === OrderStatus.FAILED;
@@ -249,10 +262,10 @@ export default async function AdminOrderReviewPage({
           {/*
             B2-SAFETY-NET-SPEC.md §3.3/§4.3 — Gate 1 safety net (custom
             only, §7): how many of the 3 free re-rolls this order has spent,
-            and whether the customer has asked for the $200 refund. The
-            refund itself is issued BY A HUMAN in the Stripe dashboard —
-            this app never calls Stripe's refund API and never computes the
-            $200 figure; MarkRefundIssuedButton only records that it
+            and whether the customer has asked for the REFUND_AMOUNT_USD
+            refund. The refund itself is issued BY A HUMAN in the Stripe
+            dashboard — this app never calls Stripe's refund API and never
+            computes the figure; MarkRefundIssuedButton only records that it
             already happened.
           */}
           {isCustom && (
@@ -269,13 +282,13 @@ export default async function AdminOrderReviewPage({
                 <p className="text-xs text-muted">返金要求はありません。</p>
               ) : order.refundIssuedAt ? (
                 <p className="rounded-[var(--radius-chip)] border border-hairline bg-night/40 px-3 py-2 text-xs text-muted">
-                  $200返金済みとして記録済み — {timeFormat.format(order.refundIssuedAt)}
+                  ${REFUND_AMOUNT_USD}返金済みとして記録済み — {timeFormat.format(order.refundIssuedAt)}
                 </p>
               ) : (
                 <div className="space-y-3 rounded-[var(--radius-chip)] border border-amber-500/40 bg-amber-500/10 p-3">
                   <p className="text-xs text-amber-400">
                     ⚠ 返金要求あり（{timeFormat.format(order.refundRequestedAt)}）—
-                    Stripeダッシュボードで$200を手動返金してください（$49の企画・絵コンテ費は対象外）。
+                    Stripeダッシュボードで${REFUND_AMOUNT_USD}を手動返金してください（${NONREFUNDABLE_FEE_USD}の企画・絵コンテ費は対象外）。
                   </p>
                   <div className="flex flex-wrap items-center gap-2">
                     <CopyLinkButton value={order.stripeSessionId} label="Stripeセッションをコピー" />
@@ -780,6 +793,55 @@ export default async function AdminOrderReviewPage({
                 />
                 <Meta label="POD ステータス" value={order.podStatus ?? "—"} />
               </dl>
+            )}
+          </section>
+
+          {/*
+            CHARGEBACK-DEFENSE-SPEC.md §4 — the whole point of this spec:
+            when a chargeback arrives, assemble one order's evidence in five
+            minutes, not an afternoon. Consent status first (an order with no
+            consent record is a weaker defense, and that fact should never be
+            hidden), then the merged StatusEvent+EvidenceEvent timeline, then
+            a one-click copy of the plain-English text for Stripe's dispute
+            form — assembled server-side from data already on this page (no
+            new API route).
+          */}
+          <section className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4">
+            <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="font-display text-xl tracking-wide text-ivory">
+                紛争対応（チャージバック証拠）
+              </h2>
+              <CopyLinkButton value={evidenceText} label="証拠テキストをコピー" />
+            </div>
+
+            {consentEvent ? (
+              <p className="mb-3 rounded-[var(--radius-chip)] border border-green-500/50 bg-green-500/10 px-3 py-2 text-xs text-green-400">
+                ✓ 決済時の同意記録あり — {timeFormat.format(consentEvent.createdAt)}
+              </p>
+            ) : (
+              <p className="mb-3 rounded-[var(--radius-chip)] border border-red-500/50 bg-red-500/10 px-3 py-2 text-xs text-red-400">
+                ⚠ 同意記録なし — この注文はチャージバック対応が弱い状態です。
+              </p>
+            )}
+
+            {evidenceTimeline.length === 0 ? (
+              <p className="text-sm text-muted">記録された操作はまだありません。</p>
+            ) : (
+              <ol className="max-h-96 space-y-2 overflow-y-auto pr-1 text-xs">
+                {evidenceTimeline.map((entry, i) => (
+                  <li key={i} className="border-l-2 border-hairline pl-3">
+                    <p className="text-ivory">
+                      <span className="font-semibold uppercase tracking-wider text-gold/80">
+                        {entry.actor}
+                      </span>{" "}
+                      <span>{entry.kind}</span>
+                      {entry.ip && <span className="text-muted"> · IP {entry.ip}</span>}
+                    </p>
+                    {entry.detailLine && <p className="mt-0.5 text-muted">{entry.detailLine}</p>}
+                    <p className="mt-0.5 text-muted/80">{timeFormat.format(entry.time)}</p>
+                  </li>
+                ))}
+              </ol>
             )}
           </section>
 

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { transitionOrder, TransitionError } from "@/lib/orders";
 import { kickLoraTraining } from "@/lib/stills-pipeline";
 import { generateTreatment } from "@/lib/claude-script";
+import { recordEvidence } from "@/lib/evidence";
 
 /**
  * Intake — the customer submits pet photos + quiz answers (preset) or photos
@@ -166,6 +167,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Please pick a personality." }, { status: 400 });
     }
   }
+
+  // CHARGEBACK-DEFENSE-SPEC.md §3 photos.submitted — every validation above
+  // has passed, so this IS the customer's submission, whatever happens next
+  // (recordEvidence never throws — a failed insert here must not block
+  // intake, same non-fatal posture as every email send in this app).
+  await recordEvidence(
+    order.id,
+    "photos.submitted",
+    { count: photoUrls.length, photoUrls },
+    req
+  );
 
   try {
     // Photos were already uploaded client-side to Vercel Blob (validated

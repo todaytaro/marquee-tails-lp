@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Image from "next/image";
+import { REFUND_AMOUNT_USD, NONREFUNDABLE_FEE_USD } from "@/lib/safety-net";
 
 type TierKey = "preset" | "custom";
 
@@ -47,10 +48,11 @@ const tiers: readonly Tier[] = [
       "Then approve the storyboard, shot by shot, before we film a frame",
       // B2-SAFETY-NET-SPEC.md §5 disclosure point 1 — must be visible BEFORE
       // purchase, not just at checkout, so "$249 up front" never reads as an
-      // AI slot machine. $49 of the $249 is the non-refundable concept &
-      // storyboard fee; see the checkout consent line, Terms, Refund Policy
-      // and Tokushoho page for the other four disclosure points.
-      "Don't love your storyboard? Re-roll any scene up to 3 times free — and if it's still not right before we film, get $200 back ($49 concept & storyboard fee stays non-refundable)",
+      // AI slot machine. NONREFUNDABLE_FEE_USD of the $249 is the
+      // non-refundable concept & storyboard fee; see the checkout consent
+      // line, Terms, Refund Policy and Tokushoho page for the other four
+      // disclosure points.
+      `Don't love your storyboard? Re-roll any scene up to 3 times free — and if it's still not right before we film, get $${REFUND_AMOUNT_USD} back ($${NONREFUNDABLE_FEE_USD} concept & storyboard fee stays non-refundable)`,
       "Digital movie poster — included free",
       "Strictly limited slots each day — reserved, not mass-produced",
     ],

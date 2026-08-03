@@ -11,8 +11,9 @@ import { fal } from "@fal-ai/client";
  *
  * THE PROBLEM THIS FILE CLOSES: storyboardOptions used to hold the raw fal CDN
  * URL to each take — full 2K resolution, no mark. A customer could open Gate 1,
- * save those images, then use the pre-production refund path to get $200 back
- * while walking away with usable 2K art for the $49 non-refundable fee. The
+ * save those images, then use the pre-production refund path to get the
+ * refund back while walking away with usable 2K art for the non-refundable
+ * fee. The
  * Director's Cut refund guarantee is only safe to offer if the thing the
  * customer can save before paying in full is deliberately unusable as a
  * finished product.

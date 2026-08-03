@@ -6,7 +6,12 @@ import { prisma } from "@/lib/db";
 import StoryboardWizard from "@/components/StoryboardWizard";
 import PosterPicker from "@/components/PosterPicker";
 import { normalizeStoryboard } from "@/lib/stills-pipeline";
-import { STORYBOARD_REROLL_CAP, TREATMENT_REVISION_CAP } from "@/lib/safety-net";
+import {
+  STORYBOARD_REROLL_CAP,
+  TREATMENT_REVISION_CAP,
+  REFUND_AMOUNT_USD,
+  NONREFUNDABLE_FEE_USD,
+} from "@/lib/safety-net";
 import { resolveWorld, fillPetName, type WorldBundle } from "@/lib/film-script";
 import PhotoUploadForm from "@/components/PhotoUploadForm";
 import StatusPoller from "@/components/StatusPoller";
@@ -399,16 +404,16 @@ function QualityCheckView({ order, petName }: { order: Order; petName: string })
 }
 
 /**
- * B2-SAFETY-NET-SPEC.md §4.3 — reached only after an admin records the $200
- * refund as issued (AWAITING_CUSTOMER_APPROVAL -> CANCELLED, lib/orders.ts).
- * Read-only: there is nothing left for the customer to do on this page, and
- * this app never displays a computed refund amount as if it paid it — this
- * is the same fixed $200/$49 split disclosed before purchase, not a number
- * this page calculated.
+ * B2-SAFETY-NET-SPEC.md §4.3 — reached only after an admin records the
+ * REFUND_AMOUNT_USD refund as issued (AWAITING_CUSTOMER_APPROVAL ->
+ * CANCELLED, lib/orders.ts). Read-only: there is nothing left for the
+ * customer to do on this page, and this app never displays a computed
+ * refund amount as if it paid it — this is the same fixed refund/fee split
+ * disclosed before purchase, not a number this page calculated.
  *
  * Below the refund facts, this view now backs up the line StoryboardWizard
  * says at the moment of refund request ("the treatment and storyboard we
- * made for {petName} are yours to keep either way"): the $49 concept &
+ * made for {petName} are yours to keep either way"): the concept &
  * storyboard fee bought real work, and a CANCELLED order is the only place
  * that work is ever handed over — there is no login, no separate delivery
  * email attachment, nothing else. Without this, the promise was a memory of
@@ -417,7 +422,7 @@ function QualityCheckView({ order, petName }: { order: Order; petName: string })
  * Shows ALL THREE takes of every cut, not one "winning" pick — the customer
  * never chose a winner (refund only fires before Gate 1 approval, so
  * chosenStills is empty), and "the storyboard" in the promise is the whole
- * six-scene, three-take set the $49 paid for, not a curated one-per-cut
+ * six-scene, three-take set the fee paid for, not a curated one-per-cut
  * highlight reel that would quietly hand over less than advertised.
  *
  * Uses `.preview`, never `.clean` (same posture as Gate1View above): with
@@ -444,10 +449,10 @@ function RefundIssuedView({ order, petName }: { order: Order; petName: string })
         {petName.toUpperCase()}&apos;S REFUND IS ON ITS WAY
       </h1>
       <p className="mt-6 text-muted">
-        We&apos;ve issued your $200 refund — it should land on your card
-        within 5&ndash;10 business days. The $49 concept &amp; storyboard fee
-        covered the treatment and storyboard work already done for {petName},
-        so it isn&apos;t included.
+        We&apos;ve issued your ${REFUND_AMOUNT_USD} refund — it should land on
+        your card within 5&ndash;10 business days. The ${NONREFUNDABLE_FEE_USD}{" "}
+        concept &amp; storyboard fee covered the treatment and storyboard
+        work already done for {petName}, so it isn&apos;t included.
       </p>
       <p className="mt-4 text-xs text-muted">
         Questions? Just reply to any of our emails.
@@ -459,8 +464,8 @@ function RefundIssuedView({ order, petName }: { order: Order; petName: string })
             Yours to keep
           </p>
           <p className="mx-auto mt-3 max-w-xl text-center text-sm text-muted">
-            The $49 concept &amp; storyboard fee paid for real work on{" "}
-            {petName}&apos;s film. Here it is, in full.
+            The ${NONREFUNDABLE_FEE_USD} concept &amp; storyboard fee paid for
+            real work on {petName}&apos;s film. Here it is, in full.
           </p>
 
           {treatmentParagraphs.length > 0 && (

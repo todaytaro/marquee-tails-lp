@@ -25,8 +25,8 @@ enum OrderStatus {
   AWAITING_ADMIN_APPROVAL // Gate 2: admin quality check
   COMPLETED // delivered + POD ordered
   FAILED // film generation failed after retries — awaiting admin retry
-  // B2 (Director's Cut safety net): the terminal state after a manual $200
-  // refund is recorded (AWAITING_CUSTOMER_APPROVAL -> CANCELLED, see
+  // B2 (Director's Cut safety net): the terminal state after a manual refund
+  // is recorded (AWAITING_CUSTOMER_APPROVAL -> CANCELLED, see
   // lib/orders.ts). A refund is an attribute of an order, not a new stage —
   // this reuses CANCELLED rather than adding an enum value (B2-SAFETY-NET-
   // SPEC.md §2/§4.3). No other flow transitions in/out.
@@ -142,21 +142,23 @@ model Order {
 
   // --- Director's Cut safety net — B2 ---
   // PRICING-PRODUCT-V2-SPEC.md §3.5(C)'s "hybrid" promise: three free Gate-1
-  // storyboard re-rolls, then a $200 refund (of the $249 custom price; the
-  // $49 concept & storyboard fee stays non-refundable) if the customer still
-  // can't approve before filming. Custom ($249) only — Preset ($99) has no
-  // Gate 0 and no $49/$200 split, so these three columns are simply unused
-  // (always 0/null) on a preset row (B2-SAFETY-NET-SPEC.md §7).
+  // storyboard re-rolls, then a refund (of the $249 custom price; the
+  // concept & storyboard fee stays non-refundable — see REFUND_AMOUNT_USD /
+  // NONREFUNDABLE_FEE_USD in lib/safety-net.ts for the current figures) if
+  // the customer still can't approve before filming. Custom ($249) only —
+  // Preset ($99) has no Gate 0 and no fee/refund split, so these three
+  // columns are simply unused (always 0/null) on a preset row
+  // (B2-SAFETY-NET-SPEC.md §7).
   storyboardRerollCount Int       @default(0) // Gate 1 free re-rolls spent (order-wide, cap in lib/safety-net.ts STORYBOARD_REROLL_CAP)
-  refundRequestedAt     DateTime? // customer asked for the $200 refund (§4.2) — set once, never cleared
-  refundIssuedAt        DateTime? // admin recorded the $200 as actually refunded IN STRIPE'S DASHBOARD (§4.3) — this app never calls Stripe's refund API and never computes the amount
+  refundRequestedAt     DateTime? // customer asked for the refund (§4.2) — set once, never cleared
+  refundIssuedAt        DateTime? // admin recorded the refund as actually issued IN STRIPE'S DASHBOARD (§4.3) — this app never calls Stripe's refund API and never computes the amount
 
   // --- Admin storyboard gate — STORYBOARD-ADMIN-GATE-SPEC.md §3.3/§4 ---
   // How many times ADMIN (not the customer) has re-rolled a cut while the
   // storyboard sat in the IMAGE_GENERATING review queue, before ever showing
   // it to the customer. Deliberately a SEPARATE column from
   // storyboardRerollCount above: an admin re-roll fixing our own quality miss
-  // must never spend the customer's 3-free-reroll/$200-refund budget (§3.3a).
+  // must never spend the customer's 3-free-reroll/refund budget (§3.3a).
   // It also seeds a disjoint seed band from the customer's re-rolls
   // (adminRerollSeedBase in lib/stills-pipeline.ts, §3.3b) so the two can
   // never draw the same image for the same cut.
@@ -168,7 +170,8 @@ model Order {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  statusEvents StatusEvent[]
+  statusEvents   StatusEvent[]
+  evidenceEvents EvidenceEvent[]
 
   @@index([status])
 }
@@ -183,6 +186,28 @@ model StatusEvent {
   to      OrderStatus
   actor   String // "customer" | "admin" | "system"
   note    String?
+
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
+}
+
+// CHARGEBACK-DEFENSE-SPEC.md §3 — StatusEvent above only covers state
+// TRANSITIONS (from/to required); a download, a poster pick, or a re-roll
+// doesn't transition anything, so none of that customer-operated evidence had
+// anywhere to live. This is StatusEvent's sibling, not a replacement: append-
+// only, never mutated, one row per recorded action, kept even after an order
+// reaches a terminal state. See lib/evidence.ts#recordEvidence for the single
+// writer (never throws — a failed insert must not break the flow it's
+// attached to).
+model EvidenceEvent {
+  id        String   @id @default(cuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  kind      String // see lib/evidence.ts's EvidenceKind for the closed set of values
+  detail    Json? // kind-specific structured data (chosen storyboard URLs, consent text shown, etc.)
+  ip        String? // first hop of x-forwarded-for, customer-operated kinds only (never set for webhook/system kinds)
+  userAgent String?
 
   createdAt DateTime @default(now())
 

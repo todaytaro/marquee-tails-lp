@@ -130,11 +130,12 @@ const IDENTITY_THRESHOLD = 50;
 // land in that set — see rerollSeedBase's comment.
 export const MAX_TAKE_REROLLS = 2;
 /*
- * OFF until the $200 pre-production refund exists.
+ * OFF until the pre-production refund exists.
  *
  * Watermarking Gate 1 has exactly one justification (PRICING-PRODUCT-V2-SPEC
  * §3.5(C)): stopping someone from paying $249, keeping the storyboard,
- * claiming the $200 back and walking off with 18 usable 2K stills for $49.
+ * claiming the refund back and walking off with 18 usable 2K stills for the
+ * non-refundable fee.
  * That refund is B2 and is not built, so right now the customer cannot get
  * their money back and there is nothing to walk away with — the exploit the
  * marks defend against has no entry point.
@@ -1352,8 +1353,8 @@ export async function rerollCutTakes(
  * sharing the wrong call here:
  *
  * (a) §3.3(a): this must NEVER touch storyboardRerollCount — that column is
- *     the customer's B2 free-reroll budget (3 free, then a $200 refund
- *     unlocks), and an admin re-roll exists specifically to fix OUR quality
+ *     the customer's B2 free-reroll budget (3 free, then a refund unlocks),
+ *     and an admin re-roll exists specifically to fix OUR quality
  *     miss BEFORE the customer ever sees a bad take. Spending their budget on
  *     our mistake would be exactly backwards. The caller
  *     (app/admin/actions.ts#adminRerollCutAction) atomically increments the

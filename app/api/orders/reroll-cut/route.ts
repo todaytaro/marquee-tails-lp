@@ -3,6 +3,7 @@ import { OrderStatus } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { canReroll, STORYBOARD_REROLL_CAP } from "@/lib/safety-net";
 import { NUM_CUTS, normalizeStoryboard, rerollCutTakes } from "@/lib/stills-pipeline";
+import { recordEvidence } from "@/lib/evidence";
 
 /**
  * Gate 1 — one free storyboard re-roll (B2-SAFETY-NET-SPEC.md §3.1).
@@ -138,6 +139,17 @@ export async function POST(req: Request) {
 
   const updated = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
   const updatedCut = normalizeStoryboard(updated.storyboardOptions)[cutIndex];
+
+  // CHARGEBACK-DEFENSE-SPEC.md §3 reroll.requested — records which re-roll
+  // this was (order-wide count, per §1.1) and which cut, only once the
+  // re-roll actually delivered new takes (never throws — lib/evidence.ts).
+  await recordEvidence(
+    orderId,
+    "reroll.requested",
+    { cutIndex, rerollNumber: updated.storyboardRerollCount },
+    req
+  );
+
   return NextResponse.json({
     ok: true,
     rerollsRemaining: Math.max(0, STORYBOARD_REROLL_CAP - updated.storyboardRerollCount),

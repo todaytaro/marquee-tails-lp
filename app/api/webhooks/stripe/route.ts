@@ -3,6 +3,8 @@ import Stripe from "stripe";
 import { getStripeClient, priceIdToTier } from "@/lib/stripe";
 import { prisma } from "@/lib/db";
 import { OrderStatus } from "@/generated/prisma/client";
+import { checkoutConsentText } from "@/lib/checkout-consent";
+import { recordEvidence } from "@/lib/evidence";
 
 /**
  * Stripe webhook — creates the Order row once checkout completes.
@@ -79,6 +81,10 @@ export async function POST(req: Request) {
   // Note: the spec (POD-INTEGRATION-SPEC.md §4) references `session.shipping_details`,
   // but this Stripe SDK version (22.x) nests it under `collected_information` instead.
   const shipping = session.collected_information?.shipping_details;
+  // Same default as app/api/checkout/route.ts — needed here only to
+  // reconstruct the identical checkoutConsentText() the buyer saw, for the
+  // checkout.consent evidence row below.
+  const base = process.env.APP_BASE_URL ?? "http://localhost:3100";
 
   try {
     const order = await prisma.order.create({
@@ -98,6 +104,27 @@ export async function POST(req: Request) {
       },
     });
     console.log(`[stripe-webhook] order created id=${order.id} tier=${tier} email=${customerEmail}`);
+
+    // CHARGEBACK-DEFENSE-SPEC.md §3 checkout.consent — the buyer's
+    // pre-purchase agreement to the ToS/Refund Policy consent line is the
+    // single strongest piece of evidence in a dispute (§0). session.consent
+    // reflects Stripe's own record of the checkbox on the Checkout page; the
+    // paired consentText is the SAME string checkoutConsentText() put in
+    // custom_text at session-creation time (app/api/checkout/route.ts), so
+    // this row proves exactly what the buyer read, not a reconstruction.
+    // recordEvidence never throws (lib/evidence.ts), so this can never fail
+    // the webhook or duplicate an order.
+    await recordEvidence(order.id, "checkout.consent", {
+      // Stripe's Consent type isn't a plain JSON-safe object as far as
+      // Prisma's InputJsonValue is concerned (no string index signature) —
+      // narrow it to the two fields that actually exist rather than fighting
+      // the type.
+      termsOfService: session.consent?.terms_of_service ?? null,
+      promotions: session.consent?.promotions ?? null,
+      tier,
+      consentText: checkoutConsentText(tier, base),
+    });
+
     // Fire-and-forget: email the upload link. Never let an email failure
     // fail the webhook (Stripe would retry and we'd double-create — though
     // the unique stripeSessionId constraint below already guards that).

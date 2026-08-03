@@ -33,7 +33,7 @@ const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
     OrderStatus.AWAITING_TREATMENT_APPROVAL,
   ],
   // Gate 1: customer approval is the ONLY way into video generation — or
-  // (B2-SAFETY-NET-SPEC.md §4.3) the admin recording that the $200 refund
+  // (B2-SAFETY-NET-SPEC.md §4.3) the admin recording that the refund
   // was issued by hand in Stripe, which ends the order at the existing
   // CANCELLED value (no new OrderStatus — see app/admin/actions.ts
   // markRefundIssuedAction).

@@ -3,7 +3,8 @@ import { OrderStatus } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { transitionOrder, TransitionError } from "@/lib/orders";
 import { generateTreatment, type WorldBundle } from "@/lib/claude-script";
-import { TREATMENT_REVISION_CAP } from "@/lib/safety-net";
+import { TREATMENT_REVISION_CAP, REFUND_AMOUNT_USD } from "@/lib/safety-net";
+import { recordEvidence } from "@/lib/evidence";
 
 /**
  * Director's Cut "Gate 0" — the customer asks for a treatment revision.
@@ -14,7 +15,7 @@ import { TREATMENT_REVISION_CAP } from "@/lib/safety-net";
  * up front (PricingTeaser, checkout consent, terms, refund policy,
  * Tokushoho — all five updated together with this cap). Past the cap the
  * customer still has the Gate-1 storyboard re-rolls (B2-SAFETY-NET-SPEC.md)
- * and, failing those, the $200 refund path — the cap doesn't strand anyone,
+ * and, failing those, the refund path — the cap doesn't strand anyone,
  * it moves them to the next lever.
  *
  * AWAITING_TREATMENT_APPROVAL -> TREATMENT_GENERATING (increment
@@ -62,7 +63,7 @@ export async function POST(req: Request) {
       {
         ok: false,
         error:
-          "You've used both free treatment revisions. Approve to move to the storyboard — you'll get 3 more free re-rolls there, one scene at a time. Still not right after that? You can end production for a $200 refund.",
+          `You've used both free treatment revisions. Approve to move to the storyboard — you'll get 3 more free re-rolls there, one scene at a time. Still not right after that? You can end production for a $${REFUND_AMOUNT_USD} refund.`,
       },
       { status: 429 }
     );
@@ -109,6 +110,17 @@ export async function POST(req: Request) {
         { generatedScript: result.bundle, treatmentText: result.treatmentText },
         "revised treatment ready"
       );
+
+      // CHARGEBACK-DEFENSE-SPEC.md §3 treatment.revision — records what the
+      // customer asked for and the treatment text it produced (never throws
+      // — lib/evidence.ts).
+      await recordEvidence(
+        order.id,
+        "treatment.revision",
+        { instruction, treatmentText: revised.treatmentText },
+        req
+      );
+
       return NextResponse.json({
         ok: true,
         status: revised.status,

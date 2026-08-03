@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getStripeClient, getPriceId, type Tier } from "@/lib/stripe";
+import { checkoutConsentText } from "@/lib/checkout-consent";
 
 const VALID_TIERS: Tier[] = ["preset", "custom"];
 
@@ -73,15 +74,13 @@ export async function POST(req: Request) {
           // resolve — and Checkout is served from Stripe's domain, so a
           // relative path would not work either.
           //
-          // B2-SAFETY-NET-SPEC.md §5 disclosure point 2 — custom (Director's
-          // Cut) ONLY: the $49-of-$249 non-refundable concept & storyboard
-          // fee is a Director's Cut-specific structure (Preset has no Gate 0
-          // and no $49/$200 split, §7), so this line does not belong on a
-          // preset checkout.
-          message:
-            tier === "custom"
-              ? `I agree to the [Marquee Tails Terms of Service](${base}/terms) and [Refund Policy](${base}/refund). I understand $49 of this order is a non-refundable concept & storyboard fee.`
-              : `I agree to the [Marquee Tails Terms of Service](${base}/terms) and [Refund Policy](${base}/refund).`,
+          // checkoutConsentText (lib/checkout-consent.ts) owns the exact
+          // wording — including the non-refundable-fee dollar figure, which
+          // it derives from NONREFUNDABLE_FEE_USD (lib/safety-net.ts) rather
+          // than a literal here — so the Stripe webhook can record this SAME
+          // string as chargeback evidence without the two ever drifting
+          // apart (CHARGEBACK-DEFENSE-SPEC.md §3).
+          message: checkoutConsentText(tier as Tier, base),
         },
       },
       success_url: `${base}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,

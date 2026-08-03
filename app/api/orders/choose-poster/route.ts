@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { OrderStatus } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
+import { recordEvidence } from "@/lib/evidence";
 
 /**
  * The second human pick — the customer chooses THE poster from the three
@@ -55,5 +56,9 @@ export async function POST(req: Request) {
   }
 
   await prisma.order.update({ where: { id: orderId }, data: { posterUrl } });
+
+  // CHARGEBACK-DEFENSE-SPEC.md §3 poster.chosen — never throws (lib/evidence.ts).
+  await recordEvidence(orderId, "poster.chosen", { posterUrl }, req);
+
   return NextResponse.json({ ok: true });
 }

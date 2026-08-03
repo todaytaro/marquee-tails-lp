@@ -71,7 +71,7 @@ export default function TermsPage() {
         storyboard scene up to three (3) times at no additional cost before
         approving it. If, after using all three re-rolls, you still cannot
         approve the storyboard, you may end production before filming begins
-        in exchange for a $200 refund; the $49 concept &amp; storyboard fee is
+        in exchange for a $150 refund; the $99 concept &amp; storyboard fee is
         non-refundable in that case, because it covers the treatment and
         storyboard work already completed for you. This is separate from,
         and does not replace, the defect-based remake/refund process in our{" "}
@@ -133,7 +133,7 @@ export default function TermsPage() {
         <a href="mailto:support@marqueetails.com">support@marqueetails.com</a>.
       </p>
 
-      <p className="mt-10 text-xs">Last updated: July 31, 2026</p>
+      <p className="mt-10 text-xs">Last updated: August 3, 2026</p>
     </>
   );
 }

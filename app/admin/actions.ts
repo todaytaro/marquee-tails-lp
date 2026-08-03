@@ -5,6 +5,7 @@ import { OrderStatus } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { transitionOrder, TransitionError } from "@/lib/orders";
 import { approveVideo } from "@/lib/approvals";
+import { REFUND_AMOUNT_USD } from "@/lib/safety-net";
 import { kickFilmGeneration, kickShotRerender } from "@/lib/film-pipeline";
 import {
   NUM_CUTS,
@@ -394,11 +395,12 @@ export async function retryFilmAction(orderId: string): Promise<RetryFilmResult>
 export type MarkRefundIssuedResult = { ok: true } | { ok: false; error: string };
 
 /**
- * B2-SAFETY-NET-SPEC.md §4.3 — the admin has ALREADY issued the $200 refund
- * by hand in the Stripe dashboard (this app never calls Stripe's refund API
- * and never computes the amount — a human reads $200 off the disclosed
- * policy and types it into Stripe directly). This button only RECORDS that
- * it happened: it stamps refundIssuedAt and moves the order to the existing
+ * B2-SAFETY-NET-SPEC.md §4.3 — the admin has ALREADY issued the
+ * REFUND_AMOUNT_USD refund by hand in the Stripe dashboard (this app never
+ * calls Stripe's refund API and never computes the amount — a human reads
+ * the figure off the disclosed policy and types it into Stripe directly).
+ * This button only RECORDS that it happened: it stamps refundIssuedAt and
+ * moves the order to the existing
  * CANCELLED terminal state (no new OrderStatus value — a refund is an
  * attribute of an order, not a new stage, per spec §2/§4.3).
  *
@@ -431,7 +433,7 @@ export async function markRefundIssuedAction(orderId: string): Promise<MarkRefun
       OrderStatus.CANCELLED,
       "admin",
       { refundIssuedAt: new Date() },
-      "B2: $200 refund recorded as issued (Stripe dashboard, manual)"
+      `B2: $${REFUND_AMOUNT_USD} refund recorded as issued (Stripe dashboard, manual)`
     );
     try {
       const { sendRefundIssuedEmail } = await import("@/lib/mocks");

@@ -3,6 +3,7 @@ import { OrderStatus } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { transitionOrder, TransitionError } from "@/lib/orders";
 import { kickLoraTraining } from "@/lib/stills-pipeline";
+import { recordEvidence } from "@/lib/evidence";
 
 /**
  * Director's Cut "Gate 0" — the customer approves the treatment.
@@ -51,6 +52,16 @@ export async function POST(req: Request) {
       "customer",
       {},
       "Gate 0: customer approved the treatment"
+    );
+
+    // CHARGEBACK-DEFENSE-SPEC.md §3 treatment.approved — the transition above
+    // already proves the state change; this records the actual text the
+    // customer signed off on (never throws — lib/evidence.ts).
+    await recordEvidence(
+      order.id,
+      "treatment.approved",
+      { treatmentText: order.treatmentText },
+      req
     );
 
     try {
