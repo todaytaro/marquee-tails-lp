@@ -631,7 +631,13 @@ export default async function AdminOrderReviewPage({
                   ⚠ 顧客がまだポスターを選んでいません。承認すると1案目で確定します（顧客にもその旨を表示済み）。急ぐ理由がなければ、選ぶ時間を残してください。
                 </p>
               )}
-              <ApproveForm orderId={order.id} />
+              {/* Candidates are handed over ONLY when the customer hasn't
+                  picked — an admin choice must never overwrite theirs, and
+                  they can still pick until this approval commits. */}
+              <ApproveForm
+                orderId={order.id}
+                posterOptions={order.posterUrl ? [] : order.posterOptions}
+              />
             </section>
           )}
 

@@ -27,14 +27,20 @@ export type ApproveVideoResult = { ok: true } | { ok: false; error: string };
  */
 export async function approveVideoAction(
   orderId: string,
-  adminNote?: string
+  adminNote?: string,
+  // Only consulted when the customer never picked a poster — see approveVideo.
+  adminPosterChoice?: string
 ): Promise<ApproveVideoResult> {
   if (!orderId) {
     return { ok: false, error: "orderId が必要です。" };
   }
 
   try {
-    await approveVideo(orderId, adminNote?.trim() ? adminNote.trim() : undefined);
+    await approveVideo(
+      orderId,
+      adminNote?.trim() ? adminNote.trim() : undefined,
+      adminPosterChoice || undefined
+    );
   } catch (err) {
     if (err instanceof TransitionError) {
       return {

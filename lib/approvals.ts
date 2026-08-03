@@ -20,7 +20,15 @@ import { renderPosterPng } from "@/lib/poster-print";
  */
 export async function approveVideo(
   orderId: string,
-  adminNote?: string
+  adminNote?: string,
+  // The reviewer's poster choice, offered only when the customer hasn't made
+  // one. Deliberately supplied HERE rather than saved earlier: the customer
+  // can still pick right up until this approval (choose-poster accepts
+  // AWAITING_ADMIN_APPROVAL), so an admin choice stored in advance would
+  // appear to the customer as "already chosen" and quietly take away the
+  // pick that is theirs to make. Arriving with the approval, it cannot —
+  // the same transition that consumes it also closes the customer's window.
+  adminPosterChoice?: string
 ): Promise<Order> {
   let updated = await transitionOrder(
     orderId,
@@ -41,14 +49,32 @@ export async function approveVideo(
   // three candidates are of their pet, in their film's world, and the picker
   // says up front that the first one ships if they don't choose.
   //
-  // Only fills a genuine blank, so a real pick is never overwritten.
+  // Only fills a genuine blank, so a real pick is never overwritten — that
+  // holds for the admin's choice too. Order of preference: what the customer
+  // chose, then what the reviewer chose for them, then candidate 1. The
+  // reviewer's choice is a better default than the first candidate (they have
+  // actually looked at all three), but it is still only a default.
   if (!updated.posterUrl && updated.posterOptions.length > 0) {
+    // Must be one of THIS order's candidates. Anything else is a bug or a
+    // tampered form post, and either way we fall back rather than write a
+    // poster URL that belongs to nobody.
+    const adminPick =
+      adminPosterChoice && updated.posterOptions.includes(adminPosterChoice)
+        ? adminPosterChoice
+        : undefined;
+    if (adminPosterChoice && !adminPick) {
+      console.warn(
+        `[approvals] order=${updated.id} admin poster choice is not one of this order's candidates — ignoring it`
+      );
+    }
     console.log(
-      `[approvals] order=${updated.id} completed with no poster pick — defaulting to candidate 1`
+      `[approvals] order=${updated.id} completed with no customer poster pick — using ${
+        adminPick ? "the reviewer's choice" : "candidate 1"
+      }`
     );
     updated = await prisma.order.update({
       where: { id: updated.id },
-      data: { posterUrl: updated.posterOptions[0] },
+      data: { posterUrl: adminPick ?? updated.posterOptions[0] },
     });
   }
 
