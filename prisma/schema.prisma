@@ -164,6 +164,11 @@ model Order {
   // never draw the same image for the same cut.
   adminRerollCount Int @default(0)
 
+  // --- 納品評価（DELIVERY-RATING-SPEC.md）---
+  ratingStars   Int?      // 1-5。null = まだ評価していない
+  ratingComment String?   // 任意の自由記述（最大2000字、空文字はnullで保存）
+  ratedAt       DateTime? // 最終送信時刻。顧客は星を変更できるので「最初」ではない
+
   // customer-facing approval links authenticate with this token, not a login
   approveToken String @unique @default(cuid())
 

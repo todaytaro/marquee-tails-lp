@@ -22,7 +22,8 @@ export type EvidenceKind =
   | "download.social"
   | "download.poster"
   | "download.take"
-  | "email.sent";
+  | "email.sent"
+  | "rating.submitted";
 
 /** First hop of x-forwarded-for — the customer's own IP, not a proxy hop. */
 function extractIp(req: Request | undefined): string | null {

@@ -18,6 +18,7 @@ import StatusPoller from "@/components/StatusPoller";
 import ProductionProgress from "@/components/ProductionProgress";
 import AddonUpsell from "@/components/AddonUpsell";
 import TreatmentApproval from "@/components/TreatmentApproval";
+import DeliveryRating from "@/components/DeliveryRating";
 
 /**
  * Customer approval page (Gate 1) — opened from the email link.
@@ -614,6 +615,20 @@ function PremiereView({ order, petName }: { order: Order; petName: string }) {
             asks for photos.
           </p>
         </div>
+      )}
+      {/* DELIVERY-RATING-SPEC.md §4 — right after the watch-and-download
+          moment (the answer rate here is as good as it ever gets) and
+          before the paid upsell below, so the ask never pushes real
+          revenue off screen. videoUrl-gated like the block above: no film,
+          nothing to rate yet. */}
+      {videoUrl && (
+        <DeliveryRating
+          orderId={order.id}
+          approveToken={order.approveToken}
+          petName={petName}
+          initialStars={order.ratingStars}
+          initialComment={order.ratingComment}
+        />
       )}
       {order.posterPrintUrl && (
         <AddonUpsell

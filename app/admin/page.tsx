@@ -148,6 +148,23 @@ function StatusOrderRow({ order, now }: { order: Order; now: number }) {
   );
 }
 
+/**
+ * DELIVERY-RATING-SPEC.md §5 — a compact "★4" badge so a rated order is
+ * visible without opening it. Unrated orders show nothing at all (no
+ * "★-" filler) — this only ever appears once a customer has actually rated.
+ */
+function ratingBadge(stars: number | null) {
+  if (stars === null) return null;
+  return (
+    <span
+      className="rounded-[var(--radius-chip)] border border-gold/40 bg-gold/5 px-1.5 py-0.5 text-[10px] font-semibold tracking-wider text-gold"
+      title={`納品評価 ${stars}/5`}
+    >
+      ★{stars}
+    </span>
+  );
+}
+
 function OrderRow({
   order,
   now,
@@ -174,6 +191,7 @@ function OrderRow({
           {order.stripeSessionId}
         </span>
         <span className="ml-auto flex items-center gap-2">
+          {ratingBadge(order.ratingStars)}
           {sla && slaBadge(order.updatedAt, now)}
           <span className="text-xs text-muted">
             {formatAge(order.updatedAt, now)}

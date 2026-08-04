@@ -833,6 +833,43 @@ export default async function AdminOrderReviewPage({
           </section>
 
           {/*
+            DELIVERY-RATING-SPEC.md §0/§5 — the customer's own post-delivery
+            star rating. Placed right beside 紛争対応 on purpose: per §0 this
+            is arguably the strongest chargeback evidence this app records,
+            stronger than anything written on our side, because it's the
+            customer's own stated satisfaction, captured right after
+            delivery.
+          */}
+          <section className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4">
+            <h2 className="mb-3 font-display text-xl tracking-wide text-ivory">
+              納品評価
+            </h2>
+            {order.ratingStars === null ? (
+              <p className="text-sm text-muted">まだ評価はありません。</p>
+            ) : (
+              <div className="space-y-2 text-sm">
+                <p className="text-gold">
+                  {"★".repeat(order.ratingStars)}
+                  {"☆".repeat(5 - order.ratingStars)}
+                  <span className="ml-2 text-xs text-muted">
+                    （{order.ratingStars}/5）
+                  </span>
+                </p>
+                {order.ratingComment && (
+                  <p className="whitespace-pre-wrap text-ivory">
+                    {order.ratingComment}
+                  </p>
+                )}
+                {order.ratedAt && (
+                  <p className="text-xs text-muted">
+                    {timeFormat.format(order.ratedAt)}
+                  </p>
+                )}
+              </div>
+            )}
+          </section>
+
+          {/*
             CHARGEBACK-DEFENSE-SPEC.md §4 — the whole point of this spec:
             when a chargeback arrives, assemble one order's evidence in five
             minutes, not an afternoon. Consent status first (an order with no
