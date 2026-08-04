@@ -220,24 +220,26 @@ function buildUserMessage(input: {
   let msg =
     `Pet name: ${name}\n\n` +
     `<customer_brief>\n${brief}\n</customer_brief>\n\n` +
-    // NAME the language instead of asking the model to infer it. An English
-    // brief twice came back with a Japanese treatmentText — the one field the
-    // customer reads — and one response even spliced an English word into a
-    // Japanese sentence, which reads like a model genuinely torn rather than
-    // one ignoring an instruction. Restating "mirror the brief" more loudly
-    // did not fix it, so stop relying on inference: the script is trivially
-    // detectable here, and a named language is a directive rather than a
-    // mapping to work out.
+    // NAME the language. Asking the model to infer it produced Japanese
+    // treatmentText for English briefs more than once, so the script — which is
+    // trivially detectable here — decides instead.
     //
-    // Deliberately narrow: a CJK character means Japanese, and everything
-    // else is told what it is NOT, so a Spanish brief still gets Spanish
-    // rather than being forced into English. The failure being fixed is
-    // "defaults to Japanese", not "cannot identify Portuguese".
-    `Write "treatmentText" in ${
-      /[぀-ヿ一-龯]/.test(brief)
-        ? "JAPANESE — the brief above is written in Japanese"
-        : "THE SAME LANGUAGE AS THE BRIEF ABOVE, which is NOT Japanese. Do not answer in Japanese"
-    }. ` +
+    // AND DO NOT NAME ANY OTHER LANGUAGE. This previously read "THE SAME
+    // LANGUAGE AS THE BRIEF ABOVE, which is NOT Japanese. Do not answer in
+    // Japanese" for non-Japanese briefs: two mentions of Japanese in a
+    // sentence forbidding it, plus the inference it was supposed to remove. A
+    // real English-brief order came back with the treatment opening in
+    // Japanese — the model narrating, in Japanese, that it was about to answer
+    // in English, straight into the one field the customer reads. Telling a
+    // model what not to write puts that thing in front of it; the fix is to
+    // name only the target and never mention the alternative.
+    //
+    // hasCjk is deliberately narrow: CJK means Japanese, and a Latin-script
+    // brief is named English because this product's entire surface is English.
+    // A Spanish brief therefore gets an English treatment, which is a known
+    // and accepted trade against the failure actually observed in production.
+    // If that becomes real, detect properly rather than reintroducing "not X".
+    `Write "treatmentText" in ${hasCjk(brief) ? "JAPANESE" : "ENGLISH"}. ` +
     `Everything else in the bundle stays English, and "loglinesJa" stays Japanese.\n\n` +
     `Turn this into a WorldBundle + treatment via submit_treatment.`;
 
@@ -454,6 +456,32 @@ function mockTreatment(input: {
  * treat a thrown error as a kick failure and compensate/revert, same pattern
  * as the stills/film pipelines).
  */
+/**
+ * Does this text contain CJK characters? Used both to choose the treatment's
+ * language and to verify afterwards that the model obeyed — see
+ * treatmentLanguageMismatch.
+ */
+function hasCjk(text: string): boolean {
+  return /[぀-ヿ一-龯]/.test(text);
+}
+
+/**
+ * Did treatmentText come back in the wrong script?
+ *
+ * The prompt asks for one language; this checks the answer. Prompt wording
+ * alone has failed at this twice in production, and treatmentText is the only
+ * customer-facing field in the bundle — an English-speaking customer opening
+ * their $249 treatment to a Japanese paragraph is not a defect anyone can
+ * shrug off, so the output gets verified rather than trusted.
+ *
+ * Script-level only, which is exactly as much as can be checked cheaply and
+ * exactly the failure that happens: Japanese where English was asked for, or
+ * the reverse.
+ */
+function treatmentLanguageMismatch(brief: string, treatmentText: string): boolean {
+  return hasCjk(brief) !== hasCjk(treatmentText);
+}
+
 export async function generateTreatment(input: {
   brief: string;
   petName: string;
@@ -488,10 +516,26 @@ export async function generateTreatment(input: {
     return parseToolInput(block.input);
   };
 
+  // A wrong-language treatment is a malformed result too, so it goes through
+  // the same one-retry path rather than getting its own. `attempt` throwing is
+  // what triggers the retry, so the check throws.
+  const attemptChecked = async (): Promise<TreatmentResult> => {
+    const result = await attempt();
+    if (result.status === "ok" && treatmentLanguageMismatch(input.brief, result.treatmentText)) {
+      throw new Error(
+        "generateTreatment: treatmentText came back in the wrong script for this brief"
+      );
+    }
+    return result;
+  };
+
   try {
-    return await attempt();
+    return await attemptChecked();
   } catch (e) {
-    console.warn("[claude-script] malformed output, retrying once:", e);
-    return await attempt(); // one retry only — a second failure propagates up
+    console.warn("[claude-script] bad output, retrying once:", e);
+    // A second failure propagates: submit-photos reverts the order to
+    // UPLOADING and tells the customer to try again, which is better than
+    // handing them a treatment they cannot read.
+    return await attemptChecked();
   }
 }
