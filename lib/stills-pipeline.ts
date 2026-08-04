@@ -1,4 +1,5 @@
 import { fal } from "@fal-ai/client";
+import { FAL_IMAGE_CAP_MS, FAL_TRAIN_CAP_MS, FAL_VISION_CAP_MS, falDeadline } from "./fal-deadline";
 import { tasks } from "@trigger.dev/sdk";
 import type { generateStillsTask } from "@/trigger/stills";
 import type { trainPetLoraTask } from "@/trigger/train-lora";
@@ -501,6 +502,7 @@ async function trainPetLora(
         default_caption: `photo of ${triggerWord}, a small dog`,
         steps: LORA_TRAIN_STEPS,
       },
+      abortSignal: falDeadline(FAL_TRAIN_CAP_MS),
     });
     const d = t.data as { diffusers_lora_file?: { url?: string }; lora_file?: { url?: string } };
     const loraUrl = d.diffusers_lora_file?.url ?? d.lora_file?.url;
@@ -589,6 +591,7 @@ async function analyzePhotos(
         `"distinguishingFromBreed":"<the 2-3 most important ways this INDIVIDUAL differs from a generic/breed-standard example of the same breed (not a breed description) — MUST cover: (1) current grooming/coat-length state, e.g. freshly trimmed and neat vs overgrown/shaggy and where (2) face shape vs breed-standard, e.g. rounder/softer or more angular/sharp (3) eye size impression vs breed-standard, e.g. proportionally larger/softer-looking or smaller>",` +
         `"best_frontal_index":<index of the photo with the clearest, sharpest FRONT-FACING view of the face, or -1 if none is front-facing>}`,
     },
+    abortSignal: falDeadline(FAL_VISION_CAP_MS),
   });
   const raw = String((r.data as { output?: string; text?: string })?.output ?? (r.data as { text?: string })?.text ?? "");
   try {
@@ -652,6 +655,7 @@ async function generateIdentityPortrait(
       output_format: "png",
       seed,
     },
+    abortSignal: falDeadline(FAL_IMAGE_CAP_MS),
   });
   const url = (r.data as { images?: { url?: string }[] })?.images?.[0]?.url;
   if (!url) throw new Error("identity portrait result missing image url");
@@ -737,6 +741,7 @@ async function generateHeroSheet(refs: string[], description: string, costume: s
       aspect_ratio: "16:9",
       output_format: "png",
     },
+    abortSignal: falDeadline(FAL_IMAGE_CAP_MS),
   });
   const url = (r.data as { images?: { url?: string }[] })?.images?.[0]?.url;
   if (!url) throw new Error("hero sheet missing url");
@@ -801,6 +806,7 @@ async function generateTakeOnce(
         guidance_scale: LORA_GUIDANCE_SCALE, // §4.1/§1.8: never above the 2.5 default
         seed,
       },
+      abortSignal: falDeadline(FAL_IMAGE_CAP_MS),
     });
     const url = (r.data as { images?: { url?: string }[] })?.images?.[0]?.url;
     if (!url) throw new Error("B1 take result missing url");
@@ -826,6 +832,7 @@ async function generateTakeOnce(
       output_format: "png",
       seed,
     },
+    abortSignal: falDeadline(FAL_IMAGE_CAP_MS),
   });
   const url = (r.data as { images?: { url?: string }[] })?.images?.[0]?.url;
   if (!url) throw new Error("take result missing url");

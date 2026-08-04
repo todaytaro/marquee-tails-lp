@@ -1,6 +1,7 @@
 import { tasks } from "@trigger.dev/sdk";
 import type { generatePosterTask } from "@/trigger/poster"; // type-only: task code stays out of the Next bundle
 import { fal } from "@fal-ai/client";
+import { FAL_IMAGE_CAP_MS, falDeadline } from "./fal-deadline";
 import { type Order } from "@/generated/prisma/client";
 import { prisma } from "./db";
 import { publicUrl, scoreIdentity } from "./identity";
@@ -66,6 +67,7 @@ async function generatePosterArt(
       output_format: "png",
       seed,
     },
+    abortSignal: falDeadline(FAL_IMAGE_CAP_MS),
   });
   const url = (r.data as { images?: { url?: string }[] })?.images?.[0]?.url;
   if (!url) throw new Error("poster art missing url");

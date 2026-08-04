@@ -1,4 +1,5 @@
 import { fal } from "@fal-ai/client";
+import { FAL_VISION_CAP_MS, falDeadline } from "./fal-deadline";
 
 /**
  * Identity scoring — the shared "is this the SAME individual pet?" check.
@@ -79,6 +80,7 @@ export async function scoreFrame(
           "B) REALISM 0-100: is image 2 photorealistic live-action footage? 100 = indistinguishable from a real film shot of a real animal; 50 = noticeably smoothed/CG-tinged; 0 = obvious CGI / Pixar-style cartoon / illustration.\n" +
           "Reply with ONLY the two integers separated by a comma, e.g. 90,85",
       },
+      abortSignal: falDeadline(FAL_VISION_CAP_MS),
     });
     const txt = String(
       (r.data as { output?: string; text?: string })?.output ??
@@ -117,6 +119,7 @@ export async function scoreIdentity(referenceUrl: string, candidateUrl: string):
         prompt:
           "Image 1 is the REAL pet. Image 2 is an AI render of the same pet in costume. How confidently is the render the SAME INDIVIDUAL animal — same breed, same coat colors in the same places, same facial markings (beard, eyebrows), same proportions? Ignore costume, background and pose. Reply with ONLY an integer 0-100 (100 = unmistakably the same individual).",
       },
+      abortSignal: falDeadline(FAL_VISION_CAP_MS),
     });
     const txt = String(
       (r.data as { output?: string; text?: string })?.output ??
@@ -163,6 +166,7 @@ export async function scoreAnatomy(candidateUrl: string): Promise<{ ok: boolean;
           "B) broken: true if there is ANY visible anatomical fault — an extra limb, a missing limb where one should clearly be visible, a duplicated or floating paw, tangled/fused/merged legs, or a limb attached in the wrong place on the body. false if the visible anatomy looks like a normal, coherent animal (including images where legs simply aren't in frame).\n" +
           'Reply with ONLY minified JSON, no prose: {"legCount":<integer>,"broken":<true|false>}',
       },
+      abortSignal: falDeadline(FAL_VISION_CAP_MS),
     });
     const raw = String(
       (r.data as { output?: string; text?: string })?.output ??

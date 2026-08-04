@@ -20,7 +20,22 @@ export const generateFilmTask = task({
   // order in VIDEO_GENERATING. The bigger machine also fixes the encode being
   // painfully slow on half a core.
   machine: "large-1x",
-  maxDuration: 1800,
+  // 3600s, raised from 1800s after production run `euoonp01` (2026-08-04) was
+  // killed by MAX_DURATION_EXCEEDED. Two things made 1800 the wrong number:
+  //
+  //   1. It was never generous. The two runs that DID succeed took 21m33s and
+  //      21m55s — 27% headroom, on a pipeline whose work scales with the plan
+  //      (a Director's Cut adds insert clips and end frames a preset skips).
+  //   2. A max-duration kill is the worst failure this task has. It is not
+  //      retried, `onFailure` below does NOT run, and so the order is left in
+  //      VIDEO_GENERATING with no failureReason and a customer watching a
+  //      progress screen — recoverable only by a human in the admin UI. Same
+  //      hole as the "Crashed" case described above, reached a different way.
+  //
+  // Raising the ceiling is only safe because every fal call underneath now
+  // carries its own deadline (lib/fal-deadline.ts). Without those, this change
+  // would just mean waiting an hour for the same hang instead of half an hour.
+  maxDuration: 3600,
   retry: { maxAttempts: 2 },
   run: async ({ orderId }: { orderId: string }) => {
     const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });

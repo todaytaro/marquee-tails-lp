@@ -8,6 +8,7 @@ import { tasks } from "@trigger.dev/sdk";
 import type { generateFilmTask } from "@/trigger/film"; // type-only: task code stays out of the Next bundle
 import type { rerenderShotTask } from "@/trigger/rerender"; // type-only: ditto
 import { fal } from "@fal-ai/client";
+import { FAL_AUDIO_CAP_MS, FAL_IMAGE_CAP_MS, FAL_POLL_CAP_MS, falDeadline } from "./fal-deadline";
 import { OrderStatus, type Order } from "@/generated/prisma/client";
 import { prisma } from "./db";
 import { transitionOrder } from "./orders";
@@ -244,13 +245,25 @@ async function submitClip(input: Record<string, unknown>, capMs: number): Promis
   // with a narrow cast.
   const { request_id } = await fal.queue.submit(KLING_MODEL, {
     input: input as never,
+    abortSignal: falDeadline(FAL_POLL_CAP_MS),
   });
   const deadline = Date.now() + capMs;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 8000));
-    const s = await fal.queue.status(KLING_MODEL, { requestId: request_id, logs: false });
+    // Each round-trip is bounded too. `Date.now() < deadline` is only checked
+    // BETWEEN iterations, so without this one hung status call makes the capMs
+    // above unenforceable — the same shape of failure that stranded a film run
+    // for 23 minutes on an unbounded subscribe (lib/fal-deadline.ts).
+    const s = await fal.queue.status(KLING_MODEL, {
+      requestId: request_id,
+      logs: false,
+      abortSignal: falDeadline(FAL_POLL_CAP_MS),
+    });
     if (s.status === "COMPLETED") {
-      const res = await fal.queue.result(KLING_MODEL, { requestId: request_id });
+      const res = await fal.queue.result(KLING_MODEL, {
+        requestId: request_id,
+        abortSignal: falDeadline(FAL_POLL_CAP_MS),
+      });
       const url = (res.data as { video?: { url?: string } })?.video?.url;
       if (!url) throw new Error("kling result missing url");
       return url;
@@ -515,6 +528,7 @@ async function generateEndFrame(
       seed,
       guidance_scale: LORA_GUIDANCE_SCALE, // never raise — §1.8
     },
+    abortSignal: falDeadline(FAL_IMAGE_CAP_MS),
   });
   const url = (r.data as { images?: { url?: string }[] })?.images?.[0]?.url;
   if (!url) throw new Error("end frame result missing url");
@@ -588,6 +602,7 @@ async function generateInsertStill(subject: string): Promise<string> {
       aspect_ratio: "16:9",
       output_format: "png",
     },
+    abortSignal: falDeadline(FAL_IMAGE_CAP_MS),
   });
   const url = (r.data as { images?: { url?: string }[] })?.images?.[0]?.url;
   if (!url) throw new Error("insert still result missing url");
@@ -646,6 +661,7 @@ async function generateScore(scorePrompt: string): Promise<string> {
       seconds_total: TRAILER_SECONDS,
       num_inference_steps: 8,
     },
+    abortSignal: falDeadline(FAL_AUDIO_CAP_MS),
   });
   const url = (r.data as { audio?: { url?: string } })?.audio?.url;
   if (!url) throw new Error("music result missing url");
