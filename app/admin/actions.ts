@@ -296,7 +296,11 @@ export async function rerenderShotAction(
   return { ok: true };
 }
 
-export type RekickGenerationResult = { ok: true } | { ok: false; error: string };
+export type RekickGenerationResult =
+  | { ok: true }
+  // needsOverwriteConfirm distinguishes "refused, but you may insist" from a
+  // plain failure, so the button can offer a confirmation instead of dead-ending.
+  | { ok: false; error: string; needsOverwriteConfirm?: boolean };
 
 /**
  * 生成中のまま止まった注文を再キックする（ステータスは変えない）。
@@ -329,7 +333,10 @@ export type RekickGenerationResult = { ok: true } | { ok: false; error: string }
  * the original revisionInstruction anyway.
  */
 export async function rekickGenerationAction(
-  orderId: string
+  orderId: string,
+  // TREATMENT_GENERATING のみ意味を持つ。既存のトリートメントを作り直す
+  // 意思表示で、既定は false — 事故で上書きされる側に倒す。
+  overwriteExisting = false
 ): Promise<RekickGenerationResult> {
   if (!orderId) {
     return { ok: false, error: "orderId が必要です。" };
@@ -356,11 +363,18 @@ export async function rekickGenerationAction(
       // 上のdocコメント参照: すでに treatmentText があるなら、この注文は
       // クラッシュで止まっているのではなく revise-treatment の生成中 —
       // 上書き防止のため再実行しない。
-      if (order.treatmentText) {
+      // すでに treatmentText がある注文は2通りある: revise-treatment の
+      // 再生成中で無事に進む注文と、中身が壊れているので作り直したい注文
+      // （実例: 英語ブリーフに日本語が混ざったトリートメント）。前者を
+      // 黙って上書きすると、顧客が今読んでいる文書が足元で入れ替わる。
+      // 後者を禁じると admin に打つ手がなくなる。なので禁止ではなく、
+      // 呼び出し側に明示的な意思表示を要求する。
+      if (order.treatmentText && !overwriteExisting) {
         return {
           ok: false,
+          needsOverwriteConfirm: true,
           error:
-            "この注文にはすでにトリートメントがあります（改訂の再生成中の可能性）。上書きを避けるため、この操作では再実行できません。",
+            "この注文にはすでにトリートメントがあります。顧客が読んでいる可能性があります。作り直す場合は確認のうえ再実行してください。",
         };
       }
       if (!order.customBrief) {

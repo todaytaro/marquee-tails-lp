@@ -108,8 +108,18 @@ export default async function AdminOrderReviewPage({
   // compensating revert and strands the order here instead. Always shown
   // for this status — unlike IMAGE_GENERATING there is no separate "waiting
   // for human review" meaning for TREATMENT_GENERATING to avoid colliding
-  // with, and rekickGenerationAction itself refuses to run when treatmentText
-  // is already set (a revise-treatment regeneration in flight, not a stall).
+  // with, and rekickGenerationAction refuses on the first click when
+  // treatmentText is already set (that is a revise-treatment regeneration in
+  // flight, not a stall) — offering an explicit confirm for the case where the
+  // existing treatment is the thing being thrown away.
+  //
+  // NOT shown for AWAITING_TREATMENT_APPROVAL. A treatment that generated
+  // successfully but came out wrong is a quality problem, not a stall, and it
+  // has no admin path at all today — the customer's own "request changes"
+  // (revise-treatment) is the only way to redraft it, which spends one of
+  // their two free revisions on our defect. Gate 1 got an admin review gate
+  // for exactly this shape of problem (STORYBOARD-ADMIN-GATE-SPEC.md); Gate 0
+  // still shows the customer the treatment before anyone here sees it.
   const stalledStage =
     order.status === OrderStatus.IMAGE_GENERATING && !isAdminReviewQueue
       ? ("stills" as const)
