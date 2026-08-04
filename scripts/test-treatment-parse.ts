@@ -71,5 +71,42 @@ expectThrow("status absent, five cuts", { ...BUNDLE, cuts: BUNDLE.cuts.slice(0, 
 expectThrow("status absent, incomplete loglines", { ...BUNDLE, loglines: { intro: "a" } });
 expectThrow("status absent, empty treatmentText", { ...BUNDLE, treatmentText: "   " });
 
+// Tool-call scaffolding leaking into the customer-facing prose. A real order
+// shipped with this visible on its approval page.
+function expectTreatment(label: string, input: unknown, expected: string) {
+  try {
+    const r = parseToolInput(input);
+    if (r.status !== "ok") throw new Error(`expected ok, got ${r.status}`);
+    if (r.treatmentText !== expected) {
+      throw new Error(`treatmentText was ${JSON.stringify(r.treatmentText)}, expected ${JSON.stringify(expected)}`);
+    }
+    console.log(`  ok      ${label}`);
+  } catch (e) {
+    failures++;
+    console.log(`  FAILED  ${label} — ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+console.log("\ntool-call scaffolding in treatmentText:");
+expectTreatment(
+  "strips </treatmentText> + <parameter> tail (the production leak)",
+  { ...BUNDLE, treatmentText: 'Tagline: CAMYU.</treatmentText>\n<parameter name="status">ok' },
+  "Tagline: CAMYU."
+);
+expectTreatment(
+  "strips a bare <invoke tail",
+  { ...BUNDLE, treatmentText: "All done.<invoke name=\"x\">" },
+  "All done."
+);
+expectTreatment(
+  "leaves clean prose untouched",
+  { ...BUNDLE, treatmentText: "  A cozy submarine cabin.  " },
+  "A cozy submarine cabin."
+);
+expectThrow("treatmentText that is ONLY scaffolding", {
+  ...BUNDLE,
+  treatmentText: '</treatmentText><parameter name="status">ok',
+});
+
 console.log(failures === 0 ? "\nall passed" : `\n${failures} FAILED`);
 process.exit(failures === 0 ? 0 : 1);

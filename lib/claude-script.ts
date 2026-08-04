@@ -255,6 +255,45 @@ function buildUserMessage(input: {
 }
 
 /**
+ * Tool-call scaffolding that must never reach a customer.
+ *
+ * treatmentText is the LAST field the model writes, and when its tool call
+ * serialises badly the closing tag and the following parameter arrive as
+ * literal characters inside the prose. A real order shipped with
+ * `</treatmentText>\n<parameter name="status">ok` on the end of its treatment,
+ * visible on the approval page — and that same leak is why `status` looked
+ * "missing": it was written into the text instead of as a field.
+ *
+ * Truncating at the first marker is safe because none of these strings can
+ * occur in prose about a pet's film. Recovering the treatment beats discarding
+ * a complete, well-written bundle over trailing markup, but the leak is logged:
+ * it means the model struggled with the call, which is worth seeing.
+ */
+const TOOL_SCAFFOLD_MARKERS = [
+  "</treatmentText>",
+  "<parameter",
+  "</parameter>",
+  "<invoke",
+  "</invoke>",
+  "<function",
+  "</function",
+  "<",
+];
+
+function stripToolScaffolding(text: string): string {
+  let cut = text.length;
+  for (const marker of TOOL_SCAFFOLD_MARKERS) {
+    const i = text.indexOf(marker);
+    if (i >= 0 && i < cut) cut = i;
+  }
+  if (cut === text.length) return text;
+  console.warn(
+    `[claude-script] treatmentText carried tool-call scaffolding from index ${cut} — truncated before delivery`
+  );
+  return text.slice(0, cut);
+}
+
+/**
  * Validates + narrows Claude's raw tool input into a TreatmentResult; throws on
  * malformed output (caller retries once).
  *
@@ -321,6 +360,11 @@ export function parseToolInput(raw: unknown): TreatmentResult {
   }
   if (typeof treatmentText !== "string" || !treatmentText.trim()) {
     throw new Error("submit_treatment: missing/empty treatmentText");
+  }
+  const cleanTreatment = stripToolScaffolding(treatmentText).trim();
+  // Only scaffolding and nothing else means the call was too broken to salvage.
+  if (!cleanTreatment) {
+    throw new Error("submit_treatment: treatmentText was entirely tool-call scaffolding");
   }
 
   // inserts is OPTIONAL garnish (spec §4.3) — accept-if-valid, silently ignore
@@ -391,7 +435,7 @@ export function parseToolInput(raw: unknown): TreatmentResult {
     ...(inserts ? { inserts } : {}),
     ...(endPoses ? { endPoses } : {}),
   };
-  return { status: "ok", bundle, treatmentText: treatmentText.trim().slice(0, 4000) };
+  return { status: "ok", bundle, treatmentText: cleanTreatment.slice(0, 4000) };
 }
 
 /** Canned bundle for VIDEO_PIPELINE_MOCK=1 — no Anthropic key needed locally/e2e. */
