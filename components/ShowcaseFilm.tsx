@@ -15,6 +15,15 @@ import { useRef, useState } from "react";
  * generated so the "before" shot reads as an everyday US pet photo rather
  * than a candid indoor snap that doesn't travel well outside Japan.
  *
+ * INTERIM (LP copy fix, 2026-08): that illustrative image was previously
+ * presented with alt text and a caption implying it was Camyu's actual
+ * upload — inside the one section whose whole job is proof. The label under
+ * the thumbnail below and this alt text are the interim fix: make the
+ * illustration status visible to the reader, without touching the film,
+ * stills, or poster, which ARE real pipeline output. This whole showcase is
+ * slated for replacement (real photo + new-pipeline film) after the next
+ * Director's Cut verification — remove the label and this note then.
+ *
  * The video autoplays muted + looping (ambient teaser); "Play with sound"
  * restarts from the top, unmuted, with native controls so they can hear the
  * scored 60-second cut. Reduced-motion visitors get the poster frame + button.
@@ -22,7 +31,7 @@ import { useRef, useState } from "react";
 
 const UPLOAD_PHOTO = {
   src: "/assets/showcase/camus/uploads/camyu-before.jpg",
-  alt: "An everyday backyard snapshot of Camyu, a miniature schnauzer, sitting on a wooden deck — the kind of ordinary phone photo owners send in.",
+  alt: "Illustrative recreation of the kind of ordinary phone photo owners send in — not Camyu's actual uploaded photo.",
 };
 
 const STILLS = [
@@ -66,8 +75,9 @@ export default function ShowcaseFilm() {
           Meet Camyu
         </h2>
         <p className="mx-auto mt-4 max-w-2xl text-center text-[clamp(0.95rem,2.5vw,1.05rem)] leading-relaxed text-pretty text-muted">
-          A real schnauzer. Eight photos in — one 60-second space epic out. Watch
-          his face across every shot:{" "}
+          A real schnauzer, Camyu&apos;s own order. His owner sent in eight
+          photos — one 60-second space epic came out. Watch his face across
+          every shot:{" "}
           <span className="text-ivory">unmistakably him, the whole way.</span>
         </p>
 
@@ -76,14 +86,21 @@ export default function ShowcaseFilm() {
           <p className="text-xs uppercase tracking-[0.25em] text-muted">
             You send us this
           </p>
-          <div className="size-24 rotate-[-2deg] overflow-hidden rounded-chip border border-hairline bg-surface shadow-[0_10px_30px_rgba(0,0,0,0.4)] sm:size-32">
-            <Image
-              src={UPLOAD_PHOTO.src}
-              alt={UPLOAD_PHOTO.alt}
-              width={128}
-              height={128}
-              className="size-full object-cover"
-            />
+          <div className="flex flex-col items-center gap-1.5">
+            <div className="size-24 rotate-[-2deg] overflow-hidden rounded-chip border border-hairline bg-surface shadow-[0_10px_30px_rgba(0,0,0,0.4)] sm:size-32">
+              <Image
+                src={UPLOAD_PHOTO.src}
+                alt={UPLOAD_PHOTO.alt}
+                width={128}
+                height={128}
+                className="size-full object-cover"
+              />
+            </div>
+            {/* Visible disclosure, not sr-only and not a tooltip — see the
+                INTERIM note in the file-level doc comment above. */}
+            <span className="text-[0.65rem] uppercase tracking-[0.15em] text-muted/80">
+              Illustration — representative example
+            </span>
           </div>
           <p className="font-display text-sm uppercase tracking-[0.2em] text-gold">
             &darr; we send back a premiere

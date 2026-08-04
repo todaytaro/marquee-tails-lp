@@ -118,7 +118,7 @@ export default function WaitlistForm() {
               </h3>
               <p className="mx-auto mt-3 max-w-prose text-sm leading-relaxed text-[#f4f1e8] sm:text-base">
                 We&rsquo;ve sent your launch discount code, good on any
-                edition. Orders are open now — start shortlisting your 5–8
+                edition. Orders are open now — start shortlisting your 7–12
                 best photos and put your pet on the marquee today.
               </p>
             </div>

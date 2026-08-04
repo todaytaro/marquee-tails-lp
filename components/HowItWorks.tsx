@@ -1,13 +1,16 @@
+// Photo count (7-12) mirrors MIN_PHOTOS/MAX_PHOTOS in
+// components/PhotoUploadForm.tsx, the source of truth — not re-exported here
+// since these are plain copy strings, not shared logic.
 const steps = [
   {
     scene: "01",
     title: "Send the photos",
-    body: "Upload 5–8 photos of your pet — different angles, good light, no studio required. Our team builds a character sheet: the official reference that locks in their face, markings, and that one look they give you.",
+    body: "Upload 7–12 photos of your pet — different angles, good light, no studio required. We train a model of your pet from those alone — the thing that makes every shot recognizably them, not just their breed.",
   },
   {
     scene: "02",
     title: "Direct your star",
-    body: 'You pick their world — Deep Space Explorer, Storybook Kingdom, or Noir Detective — then approve the storyboard shot by shot, choosing your favorite take of every scene. Nothing gets filmed until you say "that’s my pet."',
+    body: 'You pick their world — Deep Space Explorer, Storybook Kingdom, or Noir Detective — right when you send the photos. From there it takes up to one business day: your model trains, we shoot eighteen takes, and a director reviews every one. Then you approve the storyboard shot by shot, choosing your favorite take of every scene. Nothing gets filmed until you say "that’s my pet."',
   },
   {
     scene: "03",

@@ -29,6 +29,7 @@ const tiers: readonly Tier[] = [
       "Choose Deep Space Explorer, Storybook Kingdom, or Noir Detective",
       "Your pet, instantly recognizable, across six starring shots",
       "Digital movie poster — included free",
+      "Storyboard ready in up to one business day — we train a model of your pet, shoot eighteen takes, and a director reviews every one",
       "HD delivery, 48h after storyboard approval",
     ],
     flag: "Available now",

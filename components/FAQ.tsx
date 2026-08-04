@@ -1,11 +1,14 @@
+// Photo count (7-12) mirrors MIN_PHOTOS/MAX_PHOTOS in
+// components/PhotoUploadForm.tsx, the source of truth — not re-exported here
+// since these are plain copy strings, not shared logic.
 const faqs = [
   {
     q: "How does it work, and what do I actually get?",
-    a: "You upload 5–8 photos of your pet. We build a character sheet — the official reference for their face, coat, and markings — then a full storyboard, and you approve it shot by shot before anything gets filmed. Our studio produces a 60-second cinematic trailer: six shots in your chosen world, scored and edited like a real film. Every plan includes a digital movie poster, free. Printed poster and gallery canvas are available as add-ons once your film is delivered.",
+    a: "You upload 7–12 photos of your pet. We train a model of your pet from them, then build a full storyboard, and you approve it shot by shot before anything gets filmed. Our studio produces a 60-second cinematic trailer: six shots in your chosen world, scored and edited like a real film. Every plan includes a digital movie poster, free. Printed poster and gallery canvas are available as add-ons once your film is delivered.",
   },
   {
     q: "Will it actually look like my pet?",
-    a: "That's the whole product. The character sheet exists so your pet is recognizably themselves in every shot — not a generic breed lookalike. You approve it before production starts, and a human director checks every frame against it before delivery. If it doesn't look like your pet, it doesn't ship.",
+    a: "That's the whole product. We train a model of your pet before drawing anything, so they're recognizably themselves in every shot — not a generic breed lookalike. You approve it before production starts, and a human director checks every frame against it before delivery. If it doesn't look like your pet, it doesn't ship.",
   },
   {
     q: "How is this different from free AI filter apps?",
@@ -13,7 +16,7 @@ const faqs = [
   },
   {
     q: "How long does it take?",
-    a: "48 hours from the moment you approve the storyboard. We keep it that fast by producing only 5 films per day — real slots, reserved on a first-come basis.",
+    a: "Getting to your storyboard takes up to one business day — we train a model of your pet, shoot eighteen takes, and a director reviews every one before you see anything. Once you approve it, your film premieres 48 hours later. We keep that turnaround fast by producing only 5 films per day — real slots, reserved on a first-come basis.",
   },
   {
     q: "Is this made with AI?",
@@ -21,7 +24,7 @@ const faqs = [
   },
   {
     q: "Can I give it as a gift?",
-    a: "Please do — most of our films are gifts. Birthdays, Gotcha Days, anniversaries of the day they picked their human. You just need 5–8 photos of the pet (borrow them from the camera roll or the group chat), and we handle the rest, including a reveal card that makes the surprise feel like a premiere.",
+    a: "Please do — most of our films are gifts. Birthdays, Gotcha Days, anniversaries of the day they picked their human. You just need 7–12 photos of the pet (borrow them from the camera roll or the group chat), and we handle the rest, including a reveal card that makes the surprise feel like a premiere.",
   },
   {
     q: "Can I order right now?",

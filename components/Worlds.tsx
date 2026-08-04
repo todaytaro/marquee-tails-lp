@@ -15,7 +15,7 @@ const WORLDS: World[] = [
     logline:
       "One small crew, one vast galaxy — and a captain who never left your side.",
     image: "/assets/world-deepspace-hero.jpg",
-    alt: "Camyu, a miniature schnauzer in a white-and-orange astronaut suit and glass helmet, stands on a starship bridge with a vivid purple-and-red nebula filling the viewport behind him.",
+    alt: "A miniature schnauzer in a white-and-orange astronaut suit, its head bare above an open metal collar ring, stands on a starship bridge with a vivid purple nebula filling the viewport behind it.",
   },
   {
     key: "storybook",
@@ -23,7 +23,7 @@ const WORLDS: World[] = [
     logline:
       "An enchanted realm in peril calls for its bravest knight. The knight is napping on your couch.",
     image: "/assets/world-storybook-hero.jpg",
-    alt: "A French Bulldog in a tiny crimson-and-gold royal robe and a jeweled crown stands on a mossy stone castle balcony, overlooking a painterly fairytale kingdom of hills, a winding river, and villages at golden hour.",
+    alt: "A French Bulldog in a deep-blue velvet knight\u2019s cloak with silver trim stands on a mossy stone castle balcony, overlooking a painterly fairytale kingdom of hills, a winding river, and villages at golden hour.",
   },
   {
     key: "noir",
@@ -31,7 +31,7 @@ const WORLDS: World[] = [
     logline:
       "Rain-slick streets. A case nobody could crack. A detective who works for belly rubs.",
     image: "/assets/world-noir-hero.jpg",
-    alt: "A Golden Retriever in a tiny belted trench coat and fedora stands in a rain-slicked 1940s cobblestone alley in dramatic black and white, lit by a single warm streetlamp cutting through the mist.",
+    alt: "A Golden Retriever in a tan belted trench coat with the collar turned up stands in a rain-slicked 1940s cobblestone alley in dramatic black and white, lit by a single warm streetlamp cutting through the mist.",
   },
 ];
 
