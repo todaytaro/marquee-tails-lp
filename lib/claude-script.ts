@@ -94,7 +94,7 @@ const TREATMENT_TOOL: Anthropic.Tool = {
       status: {
         type: "string",
         enum: ["ok", "rejected"],
-        description: "\"ok\" when a WorldBundle + treatment was produced; \"rejected\" when the brief violates policy or is unsalvageable.",
+        description: "ALWAYS set this. \"ok\" when a WorldBundle + treatment was produced; \"rejected\" when the brief violates policy or is unsalvageable. Omitting it is read as \"ok\", but say it explicitly.",
       },
       reason: {
         type: "string",
@@ -254,8 +254,14 @@ function buildUserMessage(input: {
   return msg;
 }
 
-/** Validates + narrows Claude's raw tool input into a TreatmentResult; throws on malformed output (caller retries once). */
-function parseToolInput(raw: unknown): TreatmentResult {
+/**
+ * Validates + narrows Claude's raw tool input into a TreatmentResult; throws on
+ * malformed output (caller retries once).
+ *
+ * Exported for scripts/test-treatment-parse.ts. A missing `status` here took a
+ * real order down, and that regression is worth a test that needs no API key.
+ */
+export function parseToolInput(raw: unknown): TreatmentResult {
   const o = (raw ?? {}) as Record<string, unknown>;
 
   if (o.status === "rejected") {
@@ -265,8 +271,25 @@ function parseToolInput(raw: unknown): TreatmentResult {
         : "We couldn't turn that into a film just yet — could you reword your brief a bit?";
     return { status: "rejected", reason };
   }
-  if (o.status !== "ok") {
+  // A MISSING status counts as "ok" when the bundle it would have described is
+  // present. `status` is in the tool's `required` list and the model still
+  // dropped it — twice in a row, taking a real $249 order down with it. The
+  // schema's field descriptions have grown a lot (costume rules, the three
+  // beat rules, endPoses), and under that much instruction the model spends
+  // its attention on the hard fields and skips restating the obvious one.
+  //
+  // Which is fair: a call carrying a costume, six cuts, loglines and a
+  // treatment cannot mean anything except "ok". Throwing all of that away over
+  // an absent enum is the parser being pedantic about a field that only exists
+  // to tell "rejected" apart from "ok" — and "rejected" says so explicitly,
+  // above, so absence is not ambiguous. The field checks below still reject a
+  // genuinely incomplete bundle, so this loosens the ceremony without
+  // loosening the validation.
+  if (o.status !== "ok" && o.status !== undefined) {
     throw new Error(`submit_treatment: invalid status "${String(o.status)}"`);
+  }
+  if (o.status === undefined) {
+    console.warn('[claude-script] tool call omitted "status" — treating as "ok" since a bundle is present');
   }
 
   const { costume, score, cuts, loglines, treatmentText } = o;
