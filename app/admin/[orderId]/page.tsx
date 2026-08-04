@@ -100,12 +100,24 @@ export default async function AdminOrderReviewPage({
   // が走らず FAILED にもならないので、ここから再キックできないと救えない。
   // isAdminReviewQueue の間はこの再キック導線を出さない — 生成はもう完了して
   // 人間の確認待ちなので、ここで再キックすると絵コンテを不要に作り直してしまう。
+  //
+  // TREATMENT_GENERATING (Director's Cut Gate 0) is the same "stuck mid-
+  // generation, no recovery path" shape but a different cause: submit-photos
+  // runs generateTreatment() inline in the request handler, so a killed
+  // serverless function (not a crashed background task) skips its
+  // compensating revert and strands the order here instead. Always shown
+  // for this status — unlike IMAGE_GENERATING there is no separate "waiting
+  // for human review" meaning for TREATMENT_GENERATING to avoid colliding
+  // with, and rekickGenerationAction itself refuses to run when treatmentText
+  // is already set (a revise-treatment regeneration in flight, not a stall).
   const stalledStage =
     order.status === OrderStatus.IMAGE_GENERATING && !isAdminReviewQueue
       ? ("stills" as const)
       : order.status === OrderStatus.VIDEO_GENERATING
         ? ("film" as const)
-        : null;
+        : order.status === OrderStatus.TREATMENT_GENERATING
+          ? ("treatment" as const)
+          : null;
   // Poster copy reuses the film's own loglines — no separate authoring, same
   // story as the trailer's title cards (see app/approve/[token]/page.tsx).
   const petName = order.petName ?? "Unnamed Pet";
@@ -320,13 +332,27 @@ export default async function AdminOrderReviewPage({
                 生成中
               </h2>
               <p className="mb-3 text-xs text-muted">
-                {stalledStage === "stills"
-                  ? "通常10分前後で絵コンテ待ちに進みます。"
-                  : "通常10〜15分で管理者確認待ちに進みます。"}
-                これを大きく超えている場合、生成タスクがクラッシュして止まっている
-                可能性があります（その場合ステータスは変わらないまま残ります）。
-                再実行すると、キャッシュ済みの素材は再利用され、未完了の工程だけが
-                やり直されます。
+                {stalledStage === "treatment" ? (
+                  <>
+                    通常は数秒〜十数秒でトリートメント承認待ちに進みます。
+                    これを大きく超えている場合、写真・ブリーフ提出時にトリートメント生成を
+                    呼び出したリクエストが処理の途中で強制終了された可能性があります
+                    （その場合ステータスは変わらないまま残ります）。
+                    再実行すると、保存済みのブリーフからトリートメントを生成し直します
+                    — 顧客が写真やブリーフを再送信する必要はありません。
+                    すでにトリートメントがある場合（改訂の再生成中）は再実行できません。
+                  </>
+                ) : (
+                  <>
+                    {stalledStage === "stills"
+                      ? "通常10分前後で絵コンテ待ちに進みます。"
+                      : "通常10〜15分で管理者確認待ちに進みます。"}
+                    これを大きく超えている場合、生成タスクがクラッシュして止まっている
+                    可能性があります（その場合ステータスは変わらないまま残ります）。
+                    再実行すると、キャッシュ済みの素材は再利用され、未完了の工程だけが
+                    やり直されます。
+                  </>
+                )}
               </p>
               <RekickGenerationButton orderId={order.id} stage={stalledStage} />
             </section>

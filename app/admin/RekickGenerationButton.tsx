@@ -4,28 +4,39 @@ import { useState, useTransition } from "react";
 import { rekickGenerationAction } from "./actions";
 
 /**
- * 生成中のまま止まった注文（IMAGE_GENERATING / VIDEO_GENERATING）の再キック。
+ * 生成中のまま止まった注文（IMAGE_GENERATING / VIDEO_GENERATING /
+ * TREATMENT_GENERATING）の再キック。
  *
- * 生成タスクがクラッシュで強制終了すると onFailure が走らず、注文は生成中の
- * ステータスのまま取り残される（FAILED にならないので RetryFilmButton では
- * 拾えない）。顧客側も待ち画面のまま進めないため、ここから救う。
+ * stills/film: 生成タスクがクラッシュで強制終了すると onFailure が走らず、
+ * 注文は生成中のステータスのまま取り残される（FAILED にならないので
+ * RetryFilmButton では拾えない）。顧客側も待ち画面のまま進めないため、
+ * ここから救う。
  *
- * ステータスは変わらない＝このボタンは押した後も消えないので、押したことが
- * 分かるように結果を出す。
+ * treatment: 別の原因（submit-photos がインラインで呼ぶ generateTreatment
+ * が、compensating revert の前に関数ごと強制終了された場合）で同じ症状に
+ * なる、Director's Cut Gate 0 専用のケース。既に treatmentText がある注文
+ * （revise-treatment の再生成中）ではサーバー側が拒否する — 詳細は
+ * app/admin/actions.ts#rekickGenerationAction 参照。
+ *
+ * ステータスは変わらないとは限らない（treatment は成功時に
+ * AWAITING_TREATMENT_APPROVAL へ進む）が、このボタンは押した後も消えないので、
+ * 押したことが分かるように結果を出す。
  */
 export function RekickGenerationButton({
   orderId,
   stage,
 }: {
   orderId: string;
-  stage: "stills" | "film";
+  stage: "stills" | "film" | "treatment";
 }) {
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const [isPending, startTransition] = useTransition();
 
-  const label = stage === "stills" ? "絵コンテ生成" : "動画生成";
-  const nextStatus = stage === "stills" ? "絵コンテ待ち" : "管理者確認待ち";
+  const label =
+    stage === "stills" ? "絵コンテ生成" : stage === "film" ? "動画生成" : "トリートメント生成";
+  const nextStatus =
+    stage === "stills" ? "絵コンテ待ち" : stage === "film" ? "管理者確認待ち" : "トリートメント承認待ち";
 
   function fire() {
     setError(null);

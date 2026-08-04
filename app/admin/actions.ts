@@ -7,6 +7,7 @@ import { transitionOrder, TransitionError } from "@/lib/orders";
 import { approveVideo } from "@/lib/approvals";
 import { REFUND_AMOUNT_USD } from "@/lib/safety-net";
 import { kickFilmGeneration, kickShotRerender } from "@/lib/film-pipeline";
+import { runTreatmentGeneration } from "@/lib/treatment";
 import {
   NUM_CUTS,
   TAKES_PER_CUT,
@@ -311,6 +312,21 @@ export type RekickGenerationResult = { ok: true } | { ok: false; error: string }
  *     （LORA-STORYBOARD-SPEC.md §2.7 — kickLoraTraining 経由なので、
  *     学習タスク自体で止まっていた注文もこの一本の呼び出しで再開できる）
  *   - 動画: filmArtifacts のクリップ・音楽を再利用し、未完了の工程だけやり直す
+ *
+ * TREATMENT_GENERATING (Director's Cut Gate 0) is a different hazard, not a
+ * crashed background task: app/api/orders/submit-photos/route.ts runs
+ * generateTreatment() INLINE in the request handler with only a compensating
+ * revert-on-throw, so a killed serverless function (double-submit + abort,
+ * timeout, mid-flight deploy) skips that revert entirely and stalls the order
+ * here with the customer's photos + brief already saved but no treatment.
+ * Recovered by re-running runTreatmentGeneration() (lib/treatment.ts, shared
+ * with submit-photos) from the ALREADY-STORED customBrief/petName — the
+ * customer never re-uploads anything. Guarded below: refuses if treatmentText
+ * is already set, since that means this order isn't actually stalled (it's a
+ * revise-treatment re-generation in flight, which keeps the prior treatment
+ * populated until a NEW one replaces it) — re-running here would risk
+ * clobbering something already usable, and this path has no way to recover
+ * the original revisionInstruction anyway.
  */
 export async function rekickGenerationAction(
   orderId: string
@@ -336,6 +352,42 @@ export async function rekickGenerationAction(
       await kickLoraTraining(order);
     } else if (order.status === OrderStatus.VIDEO_GENERATING) {
       await kickFilmGeneration(order);
+    } else if (order.status === OrderStatus.TREATMENT_GENERATING) {
+      // 上のdocコメント参照: すでに treatmentText があるなら、この注文は
+      // クラッシュで止まっているのではなく revise-treatment の生成中 —
+      // 上書き防止のため再実行しない。
+      if (order.treatmentText) {
+        return {
+          ok: false,
+          error:
+            "この注文にはすでにトリートメントがあります（改訂の再生成中の可能性）。上書きを避けるため、この操作では再実行できません。",
+        };
+      }
+      if (!order.customBrief) {
+        // 起こらないはず（submit-photos がこの遷移の直前に必ず保存する）が、
+        // 念のための防御。
+        return { ok: false, error: "この注文にはブリーフが保存されていません。" };
+      }
+
+      const result = await runTreatmentGeneration(
+        order.id,
+        { brief: order.customBrief, petName: order.petName ?? "Your Star" },
+        {
+          actor: "admin",
+          successNote: "admin re-kick: treatment drafted, awaiting customer approval",
+          revertNote: "admin re-kick: treatment generation failed — reverted for retry",
+        }
+      );
+      if (result.status === "rejected") {
+        return { ok: false, error: `トリートメントが却下されました: ${result.reason}` };
+      }
+      if (result.status === "error") {
+        return {
+          ok: false,
+          error: "トリートメント生成に失敗しました。もう一度お試しください。",
+        };
+      }
+      // status === "ok" -> 下の共通の revalidate + {ok:true} へ続く。
     } else {
       return {
         ok: false,
@@ -343,6 +395,12 @@ export async function rekickGenerationAction(
       };
     }
   } catch (err) {
+    if (err instanceof TransitionError) {
+      return {
+        ok: false,
+        error: "この注文はすでに処理が進んでいる可能性があります。ページを更新してください。",
+      };
+    }
     console.error("[rekickGenerationAction]", err);
     return { ok: false, error: "サーバー側でエラーが発生しました。もう一度お試しください。" };
   }

@@ -3,7 +3,7 @@ import { OrderStatus } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { transitionOrder, TransitionError } from "@/lib/orders";
 import { kickLoraTraining } from "@/lib/stills-pipeline";
-import { generateTreatment } from "@/lib/claude-script";
+import { runTreatmentGeneration } from "@/lib/treatment";
 import { recordEvidence } from "@/lib/evidence";
 
 /**
@@ -26,19 +26,28 @@ import { recordEvidence } from "@/lib/evidence";
  * pipeline. On kick failure, compensating revert to UPLOADING.
  *
  * custom (Director's Cut "Gate 0"): UPLOADING -> TREATMENT_GENERATING, then
- * generateTreatment() runs INLINE (seconds, no Trigger.dev needed for B1):
+ * runTreatmentGeneration() (lib/treatment.ts) runs generateTreatment() INLINE
+ * (seconds, no Trigger.dev needed for B1) and handles the transition out:
  *   - "rejected"     -> revert to UPLOADING, 422 with the friendly reason so
  *                       the guided brief form can show it and let them reword.
  *   - "ok"            -> persist generatedScript + treatmentText, then
  *                       TREATMENT_GENERATING -> AWAITING_TREATMENT_APPROVAL.
  *   - thrown error    -> revert to UPLOADING, 503 (mirrors the stills-kick
  *                       revert pattern below).
+ * That helper is shared with the admin re-kick path (app/admin/actions.ts#
+ * rekickGenerationAction) that recovers an order stranded by the hazard the
+ * next comment describes — see there for why that path exists and its
+ * treatmentText guard.
  */
 
 // Custom orders run an inline Claude call (generateTreatment) in this handler.
 // Give the function headroom so a slow model response can't be killed
-// mid-flight — a killed process skips the compensating revert below and would
-// strand the order in TREATMENT_GENERATING with no recovery path.
+// mid-flight — a killed process skips the compensating revert below (it never
+// runs at all) and strands the order in TREATMENT_GENERATING. maxDuration
+// alone doesn't make that impossible (a double-submit-and-abort, a timeout, a
+// deploy can still kill the function mid-call), so it's a mitigation, not a
+// guarantee — the admin re-kick path above is the actual recovery mechanism
+// for when this headroom isn't enough.
 export const maxDuration = 60;
 
 // LORA-STORYBOARD-SPEC.md §5 (owner-approved) — must match
@@ -200,45 +209,26 @@ export async function POST(req: Request) {
         `photos submitted (${photoUrls.length}), custom brief received`
       );
 
-      try {
-        const result = await generateTreatment({ brief: customBrief, petName });
-
-        if (result.status === "rejected") {
-          await transitionOrder(
-            order.id,
-            OrderStatus.TREATMENT_GENERATING,
-            OrderStatus.UPLOADING,
-            "system",
-            {},
-            `treatment rejected: ${result.reason}`
-          );
-          return NextResponse.json({ ok: false, error: result.reason }, { status: 422 });
+      const result = await runTreatmentGeneration(
+        order.id,
+        { brief: customBrief, petName },
+        {
+          actor: "system",
+          successNote: "treatment drafted, awaiting customer approval",
+          revertNote: "treatment generation failed — reverted for retry",
         }
+      );
 
-        const approved = await transitionOrder(
-          order.id,
-          OrderStatus.TREATMENT_GENERATING,
-          OrderStatus.AWAITING_TREATMENT_APPROVAL,
-          "system",
-          { generatedScript: result.bundle, treatmentText: result.treatmentText },
-          "treatment drafted, awaiting customer approval"
-        );
-        return NextResponse.json({ ok: true, status: approved.status });
-      } catch (treatmentErr) {
-        console.error(`[submit-photos] treatment generation failed, reverting order=${order.id}`, treatmentErr);
-        await transitionOrder(
-          order.id,
-          OrderStatus.TREATMENT_GENERATING,
-          OrderStatus.UPLOADING,
-          "system",
-          {},
-          "treatment generation failed — reverted for retry"
-        );
+      if (result.status === "rejected") {
+        return NextResponse.json({ ok: false, error: result.reason }, { status: 422 });
+      }
+      if (result.status === "error") {
         return NextResponse.json(
           { ok: false, error: "We couldn't draft your treatment just now. Please try again in a moment." },
           { status: 503 }
         );
       }
+      return NextResponse.json({ ok: true, status: result.order.status });
     }
 
     // preset — unchanged.
