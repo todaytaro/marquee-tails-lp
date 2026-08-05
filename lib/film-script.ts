@@ -717,6 +717,43 @@ export function fillPetName(text: string, petName: string | null | undefined): s
   return text.replace(/\{name\}/g, name);
 }
 
+/**
+ * Drop a leading "<PET NAME>:" from a tagline.
+ *
+ * WHY: the `finale` title card renders the pet's name on its own line and the
+ * tagline underneath it (cardLinesFor in lib/film-pipeline.ts). Every PRESET
+ * tagline is written to fit that — "CASE CLOSED", "THE LONG WAY HOME", "A TAIL
+ * OF VALOR", none of them name the pet, because the card already did. That
+ * convention lived only in the data, never in Claude's instructions, so the
+ * first Director's Cut order to reach delivery produced
+ * `CAMYU: INTO THE TRENCH` and the finished film's last card read:
+ *
+ *     CAMYU
+ *     CAMYU: INTO THE TRENCH
+ *
+ * The schema description now tells Claude not to include the name, but a
+ * softly-worded instruction is not a guarantee — this codebase spent today
+ * watching the model write tool-call scaffolding into prose it had been asked
+ * not to. So the render path enforces it too, and doing it here rather than at
+ * parse time fixes orders that are ALREADY stored.
+ *
+ * Deliberately narrow: only a name at the very START, followed by a separator.
+ * A name doing real work mid-sentence ("THE WORLD ACCORDING TO CAMYU") is left
+ * alone. If stripping would leave nothing — a tagline that is only the name —
+ * the original is kept, because a blank final card is worse than a repeated
+ * one.
+ */
+export function stripLeadingPetName(tagline: string, petName: string | null | undefined): string {
+  const name = (petName ?? "").trim();
+  if (!name) return tagline;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // Separators seen in practice plus the dashes a model reaches for: colon,
+  // hyphen, en dash, em dash. Case-insensitive because the loglines are
+  // upper-cased by fillPetName while `petName` is whatever the customer typed.
+  const stripped = tagline.replace(new RegExp(`^\\s*${escaped}\\s*[:\\-–—]\\s*`, "i"), "").trim();
+  return stripped || tagline;
+}
+
 export function getLoglines(world: string, personality: string | null, petName?: string): Required<Loglines> {
   const w = LOGLINES[world] ?? LOGLINES.deepspace;
   const l = w[(personality as Personality) ?? "easygoing"] ?? w.easygoing;

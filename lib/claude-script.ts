@@ -156,7 +156,8 @@ const TREATMENT_TOOL: Anthropic.Tool = {
           },
           tagline: {
             type: "string",
-            description: "The title punch, shown on the title card together with the pet's name. e.g. \"CASE CLOSED\"",
+            description:
+              "The title punch. NEVER include the pet's name or {name} in this field: the title card renders the pet's name on its own line directly ABOVE this text, so a tagline like \"REX: INTO THE TRENCH\" makes the name appear twice on the film's final card. Write only the part that follows the name. e.g. \"CASE CLOSED\", \"INTO THE TRENCH\", \"THE LONG WAY HOME\".",
           },
           stinger: {
             type: "string",

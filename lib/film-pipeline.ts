@@ -12,7 +12,7 @@ import { FAL_AUDIO_CAP_MS, FAL_IMAGE_CAP_MS, FAL_POLL_CAP_MS, falDeadline } from
 import { OrderStatus, type Order } from "@/generated/prisma/client";
 import { prisma } from "./db";
 import { transitionOrder } from "./orders";
-import { TITLE_CARDS, resolveWorld, getShotMotion, type Loglines } from "./film-script";
+import { TITLE_CARDS, resolveWorld, getShotMotion, stripLeadingPetName, type Loglines } from "./film-script";
 import { publicUrl, scoreFrame, scoreIdentity } from "./identity";
 import {
   reshootCutStill,
@@ -786,11 +786,16 @@ function cardLinesFor(card: CardId, petName: string, loglines: Loglines): CardLi
       return [
         { text: loglines.rise, size: fitFontSize(loglines.rise, FONT_DISPLAY, 68), y: "(h-text_h)/2", font: FONT_DISPLAY },
       ];
-    case "finale":
+    case "finale": {
+      // The name is already on the line above, so a tagline that leads with it
+      // renders it twice — see stripLeadingPetName (lib/film-script.ts) for the
+      // order this actually shipped on.
+      const tagline = stripLeadingPetName(loglines.tagline, petName);
       return [
         { text: petName, size: fitFontSize(petName, FONT_NAME, 156), y: "h/2-160", font: FONT_NAME },
-        { text: loglines.tagline, size: fitFontSize(loglines.tagline, FONT_DISPLAY, 84), y: "h/2+30", font: FONT_DISPLAY },
+        { text: tagline, size: fitFontSize(tagline, FONT_DISPLAY, 84), y: "h/2+30", font: FONT_DISPLAY },
       ];
+    }
     case "stinger": {
       const text = loglines.stinger ?? "";
       const font = asciiName ? FONT_DISPLAY : FONT_NAME;
