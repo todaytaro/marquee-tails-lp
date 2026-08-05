@@ -10,7 +10,7 @@
  *
  * Asserts:
  *   1. master (16:9) duration is 60.0s ±1 frame
- *   2. social (9:16) duration is 60.0s ±1 frame
+ *      (there is no 9:16 social cut any more — see assembleToFiles)
  *   3. beat count matches buildEdl() for the with-inserts/without-inserts x
  *      six-card/legacy-four-card EDLs (4 combinations)
  *   4. removing the insert inputs still yields exactly 60.0s (graceful
@@ -22,16 +22,16 @@
  *   6. (FILM-QUALITY-V3 §7 item 4) the punch-in filter string carries the
  *      upward y-bias + lanczos scaling, and the grade filter chain contains
  *      no centre-crop matte (crop=/pad=)
- *   7. (FILM-QUALITY-V3 §7 item 5) master/social file sizes are printed AND
+ *   7. (FILM-QUALITY-V3 §7 item 5) the master file size is printed AND
  *      asserted larger than the pre-CRF-fix baseline captured from the same
  *      fixtures against the OLD (unset-CRF, preset veryfast) encode settings
  *      — evidence the CRF change actually raised delivered quality/bitrate
  *   8. (TRAILER-STORY-SPEC §6 item 1) a SIX-card EDL (premise+stinger present)
- *      assembles to exactly 60.0000s master AND social
+ *      assembles to exactly 60.0000s
  *   9. (TRAILER-STORY-SPEC §6 item 2 — THE backward-compat assertion) a
  *      FOUR-card/legacy EDL (premise/stinger absent, simulating an order
  *      whose generatedScript predates this feature) ALSO assembles to
- *      exactly 60.0000s master AND social
+ *      exactly 60.0000s
  *  10. (TRAILER-STORY-SPEC §6 item 5) card order: `premise` is the first
  *      card, `stinger` immediately follows `finale`, and `open`/`comingSoon`
  *      never appear in the six-card EDL (and vice versa for the legacy EDL)
@@ -75,7 +75,7 @@ import { getLoglines, resolveWorld, PERSONALITIES, type Loglines } from "../lib/
 
 const FFMPEG_BIN = process.env.FFMPEG_PATH ?? (ffmpegPath as string);
 const TRAILER_SECONDS = 60.0;
-// Master/social are encoded at FILM_FPS (lib/film-pipeline.ts normaliseClip/
+// The master is encoded at FILM_FPS (lib/film-pipeline.ts normaliseClip/
 // titleCard/renderClipBeat/renderInsertBeat all share this one constant, spec
 // §2.2(d)) — "±1 frame" per spec §8 means ±1/FILM_FPS at that output rate.
 // FILM_FPS (30) not coincidentally matches the EDL's own FRAME_UNIT_SECONDS
@@ -92,7 +92,6 @@ const FRAME_TOLERANCE_SECONDS = 1 / FILM_FPS;
 // so this test could show the encode-quality fix actually raised bitrate
 // (spec §7 item 5) instead of asserting against a made-up number.
 const PRE_CRF_BASELINE_MASTER_BYTES = 1_645_959;
-const PRE_CRF_BASELINE_SOCIAL_BYTES = 1_737_147;
 
 function ffmpeg(args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -408,7 +407,7 @@ async function main() {
     // No insert CLIPS on this run (insertClipPaths=[]) — the existing
     // still-only (Ken Burns) insert path, unchanged by this task's change #2.
     // Real insert-clip fixtures are exercised separately below.
-    const { masterPath, socialPath } = await assembleForTest(
+    const { masterPath } = await assembleForTest(
       await ensureDir(runDir1),
       "Test Pet",
       clips,
@@ -418,9 +417,7 @@ async function main() {
       LOGLINES_WITH_STORY
     );
     const masterDur = await probeDurationSeconds(masterPath);
-    const socialDur = await probeDurationSeconds(socialPath);
     assertClose("master (16:9) duration", masterDur, TRAILER_SECONDS, FRAME_TOLERANCE_SECONDS);
-    assertClose("social (9:16) duration", socialDur, TRAILER_SECONDS, FRAME_TOLERANCE_SECONDS);
 
     console.log("\n=== slow-motion punch-in: RENDERED segment still fills its exact on-screen duration (this task, change #1) ===");
     // assembleToFiles writes one "wide-NN.mp4" intermediate per EDL beat into
@@ -465,26 +462,18 @@ async function main() {
       !grade.includes("crop=") && !grade.includes("pad=")
     );
 
-    // Item 5: master/social must be larger than the pre-CRF-fix baseline
+    // Item 5: the master must be larger than the pre-CRF-fix baseline
     // captured from the identical fixtures (see PRE_CRF_BASELINE_* above) —
     // direct evidence the explicit CRF (was implicit ~23, now 14/17) raised
     // delivered bitrate rather than a duration-only check that can't see it.
     const masterBytes = (await stat(masterPath)).size;
-    const socialBytes = (await stat(socialPath)).size;
     console.log(
       `master.mp4: ${masterBytes} bytes (was ${PRE_CRF_BASELINE_MASTER_BYTES} bytes pre-CRF-fix, ${(
         (masterBytes / PRE_CRF_BASELINE_MASTER_BYTES - 1) *
         100
       ).toFixed(1)}% change)`
     );
-    console.log(
-      `social.mp4: ${socialBytes} bytes (was ${PRE_CRF_BASELINE_SOCIAL_BYTES} bytes pre-CRF-fix, ${(
-        (socialBytes / PRE_CRF_BASELINE_SOCIAL_BYTES - 1) *
-        100
-      ).toFixed(1)}% change)`
-    );
     assertTrue("master.mp4 is larger than the pre-CRF-fix baseline", masterBytes > PRE_CRF_BASELINE_MASTER_BYTES);
-    assertTrue("social.mp4 is larger than the pre-CRF-fix baseline", socialBytes > PRE_CRF_BASELINE_SOCIAL_BYTES);
 
     console.log("\n=== assemble WITHOUT inserts (graceful degradation, spec §4.3/§4.4) ===");
     const runDir2 = path.join(dir, "run2");
@@ -520,9 +509,7 @@ async function main() {
       LOGLINES_LEGACY
     );
     const masterDurLegacy = await probeDurationSeconds(legacyRun.masterPath);
-    const socialDurLegacy = await probeDurationSeconds(legacyRun.socialPath);
     assertClose("LEGACY master (16:9) duration", masterDurLegacy, TRAILER_SECONDS, FRAME_TOLERANCE_SECONDS);
-    assertClose("LEGACY social (9:16) duration", socialDurLegacy, TRAILER_SECONDS, FRAME_TOLERANCE_SECONDS);
 
     console.log(
       "\n=== full assemble WITH REAL INSERT CLIPS (this task, change #2 — all 3 inserts animated, not Ken Burns) ==="
@@ -538,9 +525,7 @@ async function main() {
       LOGLINES_WITH_STORY
     );
     const masterDurInsertClips = await probeDurationSeconds(withInsertClips.masterPath);
-    const socialDurInsertClips = await probeDurationSeconds(withInsertClips.socialPath);
     assertClose("master duration with insert CLIPS present", masterDurInsertClips, TRAILER_SECONDS, FRAME_TOLERANCE_SECONDS);
-    assertClose("social duration with insert CLIPS present", socialDurInsertClips, TRAILER_SECONDS, FRAME_TOLERANCE_SECONDS);
 
     console.log(
       "\n=== full assemble with MIXED insert clips (this task, change #2 — per-insert Ken Burns fallback) ==="

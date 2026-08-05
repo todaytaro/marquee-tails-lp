@@ -47,6 +47,9 @@ const CUSTOMER_EVIDENCE_KINDS = new Set([
   "reroll.requested",
   "refund.requested",
   "download.film",
+  // Retired kind, kept deliberately: nothing writes it any more (the 9:16 cut
+  // is gone — lib/evidence.ts), but rows recorded before that are still in the
+  // table and still need to render as customer actions rather than system ones.
   "download.social",
   "download.poster",
   "download.take",

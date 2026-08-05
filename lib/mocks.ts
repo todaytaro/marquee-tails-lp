@@ -169,7 +169,6 @@ export async function sendDeliveryEmail(order: Order): Promise<void> {
       world: order.world,
       approve_url: link,
       video_url: order.finalVideoUrl,
-      social_video_url: order.socialVideoUrl,
     });
     return;
   }

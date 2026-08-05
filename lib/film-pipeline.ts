@@ -1834,7 +1834,7 @@ export async function runFilmGeneration(order: Order): Promise<void> {
   console.log(`[film] clip identity scores order=${order.id}: [${clipScores.join(", ")}] (lowest ${lowest})`);
 
   console.log(`[film] assembling order=${order.id}`);
-  const [masterUrl, socialUrl] = await assemble(
+  const masterUrl = await assemble(
     order.id,
     petName,
     clipUrls,
@@ -1851,7 +1851,7 @@ export async function runFilmGeneration(order: Order): Promise<void> {
     data: { shotClipUrls: clipUrls, shotIdentityScores: clipScores.map((s) => Math.round(s)) },
   });
 
-  await completeFilmGeneration(order.id, masterUrl, socialUrl);
+  await completeFilmGeneration(order.id, masterUrl);
 }
 
 /**
@@ -1881,7 +1881,7 @@ async function assembleToFiles(
   insertClipSources: (string | null)[],
   scoreSource: string,
   loglines: Loglines
-): Promise<{ masterPath: string; socialPath: string }> {
+): Promise<{ masterPath: string }> {
   const hasInserts = insertStillSources.length >= 3;
   // Backward compat (TRAILER-STORY-SPEC.md §1.2): the six-card EDL only
   // applies when BOTH new fields are present. An order whose generatedScript
@@ -1973,33 +1973,27 @@ async function assembleToFiles(
   const gradedMaster = path.join(dir, "graded-master.mp4");
   await applyGrade(rawMaster, gradedMaster, gradeFilterChain());
 
-  // --- 9:16 social: same EDL (spec §3.1) — cards are re-rendered natively
-  // vertical, clip/insert beats are DERIVED from the widescreen render via a
-  // center crop ("中心クロップは現行踏襲" — the same crop the pre-EDL pipeline
-  // applied to its finished master). gradeFilterChain has no aspect-dependent
-  // branch any more (the matte was the only one), so master and social share
-  // the exact same grade call now.
-  const vertSegments: string[] = [];
-  for (let i = 0; i < edl.length; i++) {
-    const beat = edl[i];
-    const seconds = framesToSeconds(beat.frames);
-    const out = path.join(dir, `vert-${String(i).padStart(2, "0")}.mp4`);
-    if (beat.kind === "card") {
-      await titleCard(out, seconds, cardLinesFor(beat.card, petName, loglines), 1080, 1920);
-    } else {
-      await ffmpeg([
-        "-i", wideSegments[i],
-        "-vf", "crop=ih*9/16:ih,scale=1080:1920",
-        "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", PRESET_INTERMEDIATE, "-crf", String(CRF_INTERMEDIATE),
-        out,
-      ]);
-    }
-    vertSegments.push(out);
-  }
-  const rawSocial = path.join(dir, "raw-social.mp4");
-  await concatSegments(dir, vertSegments, rawSocial);
-  const gradedSocial = path.join(dir, "graded-social.mp4");
-  await applyGrade(rawSocial, gradedSocial, gradeFilterChain());
+  // NO 9:16 SOCIAL CUT. There used to be one here, derived from the widescreen
+  // render by `crop=ih*9/16:ih,scale=1080:1920` — a 607px-wide centre strip of
+  // a 1920px frame (68% of the width thrown away) upscaled 1.78x. The code
+  // comment justifying it said only "中心クロップは現行踏襲": nobody designed
+  // it, it was inherited from the pre-EDL pipeline and carried forward.
+  //
+  // Every cut in this product is composed wide on purpose — the pet prominent
+  // with its world readable behind it — so a centre crop discards the shot.
+  // What the customer got was strictly WORSE than posting the 16:9 master to
+  // TikTok themselves, which the platform letterboxes cleanly and without
+  // throwing away two thirds of the frame.
+  //
+  // Nothing promised it: no LP copy, no email, no pricing spec, no terms —
+  // only a button on the delivery page, removed with it. Deleting it also
+  // removes a second full concat + grade + mux pass, roughly half this
+  // function's ffmpeg work, from the pipeline whose runtime caused the
+  // 2026-08-04 MAX_DURATION_EXCEEDED incident.
+  //
+  // If a vertical comes back, it should be a per-shot reframe that follows the
+  // pet, not a crop and not a blurred letterbox (which only reproduces what
+  // TikTok already does automatically).
 
   // --- Audio: one mix shared by both cuts (same EDL -> identical timing, SFX
   // and duck windows regardless of aspect ratio).
@@ -2012,15 +2006,7 @@ async function assembleToFiles(
     "-c:v", "copy", "-c:a", "aac", "-shortest",
     masterPath,
   ]);
-  const socialPath = path.join(dir, "social.mp4");
-  await ffmpeg([
-    "-i", gradedSocial, "-i", mixedAudio,
-    "-map", "0:v", "-map", "1:a",
-    "-c:v", "copy", "-c:a", "aac", "-shortest",
-    socialPath,
-  ]);
-
-  return { masterPath, socialPath };
+  return { masterPath };
 }
 
 /**
@@ -2036,7 +2022,7 @@ export function assembleForTest(
   insertClipPaths: (string | null)[],
   scorePath: string,
   loglines: Loglines
-): Promise<{ masterPath: string; socialPath: string }> {
+): Promise<{ masterPath: string }> {
   return assembleToFiles(dir, petName, clipPaths, insertStillPaths, insertClipPaths, scorePath, loglines);
 }
 
@@ -2048,10 +2034,10 @@ async function assemble(
   insertClipUrls: (string | null)[],
   scoreUrl: string,
   loglines: Loglines
-): Promise<[string, string]> {
+): Promise<string> {
   const dir = await mkdtemp(path.join(tmpdir(), `mt-film-${orderId}-`));
   try {
-    const { masterPath, socialPath } = await assembleToFiles(
+    const { masterPath } = await assembleToFiles(
       dir,
       petName,
       clipUrls,
@@ -2060,11 +2046,9 @@ async function assemble(
       scoreUrl,
       loglines
     );
-    // Upload both. Filename is ASCII-slugged (fal storage mangles non-ASCII).
+    // Filename is ASCII-slugged (fal storage mangles non-ASCII).
     const slug = petName.replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase() || "film";
-    const masterUrl = await uploadFile(masterPath, `${slug}-marquee-tails.mp4`);
-    const socialUrl = await uploadFile(socialPath, `${slug}-marquee-tails-social.mp4`);
-    return [masterUrl, socialUrl];
+    return uploadFile(masterPath, `${slug}-marquee-tails.mp4`);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -2078,15 +2062,14 @@ async function uploadFile(filePath: string, name: string): Promise<string> {
 
 export async function completeFilmGeneration(
   orderId: string,
-  masterUrl: string,
-  socialUrl: string
+  masterUrl: string
 ): Promise<void> {
   await transitionOrder(
     orderId,
     OrderStatus.VIDEO_GENERATING,
     OrderStatus.AWAITING_ADMIN_APPROVAL,
     "system",
-    { finalVideoUrl: masterUrl, socialVideoUrl: socialUrl },
+    { finalVideoUrl: masterUrl },
     "film assembled (beat EDL, 60s trailer)"
   );
   // Keep filmArtifacts (clips + inserts + music): the admin's single-shot
@@ -2198,7 +2181,7 @@ export async function runShotRerender(
   await saveArtifacts(order.id, { clipUrls, clipScores, scoreUrl, endFrameUrls });
 
   console.log(`[film] assembling (shot ${shotIndex} fixed) order=${order.id}`);
-  const [masterUrl, socialUrl] = await assemble(
+  const masterUrl = await assemble(
     order.id,
     petName,
     clipUrls,
@@ -2213,7 +2196,7 @@ export async function runShotRerender(
     data: { shotClipUrls: clipUrls, shotIdentityScores: clipScores.map((s) => Math.round(s)) },
   });
 
-  await completeFilmGeneration(order.id, masterUrl, socialUrl);
+  await completeFilmGeneration(order.id, masterUrl);
 }
 
 /**

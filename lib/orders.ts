@@ -97,7 +97,6 @@ export async function transitionOrder(
       Order,
       | "selectedImageUrl"
       | "finalVideoUrl"
-      | "socialVideoUrl"
       | "adminNote"
       | "chosenStills"
       | "posterCutIndex"

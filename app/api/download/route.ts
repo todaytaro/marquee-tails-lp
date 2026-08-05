@@ -30,8 +30,15 @@ import { recordEvidence } from "@/lib/evidence";
 
 export const dynamic = "force-dynamic";
 
-/** Asset kinds a caller may ask for, mapped to how each is resolved. */
-type Kind = "film" | "social" | "poster" | "take";
+/**
+  * Asset kinds a caller may ask for, mapped to how each is resolved.
+  *
+  * "social" (the 9:16 vertical cut) was retired — the pipeline no longer
+  * builds one, see lib/film-pipeline.ts#assembleToFiles. Orders delivered
+  * before that still carry a socialVideoUrl, but their delivery page no
+  * longer offers it, so nothing can ask for it and this route answers 400.
+  */
+type Kind = "film" | "poster" | "take";
 
 function bad(status: number, message: string) {
   return NextResponse.json({ ok: false, error: message }, { status });
@@ -49,7 +56,6 @@ export async function GET(req: NextRequest) {
       id: true,
       petName: true,
       finalVideoUrl: true,
-      socialVideoUrl: true,
       posterPrintUrl: true,
       storyboardOptions: true,
     },
@@ -65,10 +71,6 @@ export async function GET(req: NextRequest) {
     case "film":
       url = order.finalVideoUrl;
       filename = `${slug}-marquee-tails.mp4`;
-      break;
-    case "social":
-      url = order.socialVideoUrl;
-      filename = `${slug}-marquee-tails-vertical.mp4`;
       break;
     case "poster":
       // posterPrintUrl, not posterUrl — see PremiereView's comment: posterUrl

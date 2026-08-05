@@ -37,12 +37,12 @@ enum OrderStatus {
 }
 
 model Order {
-  id               String      @id @default(cuid())
-  stripeSessionId  String      @unique
-  customerEmail    String
-  status           OrderStatus @default(UPLOADING)
-  tier             String? // "digital" | "feature" | "collector" — Stripe決済完了時に確定
-  amountPaidCents  Int? // 監査用: 実際にStripeで決済された金額（session.amount_total）
+  id              String      @id @default(cuid())
+  stripeSessionId String      @unique
+  customerEmail   String
+  status          OrderStatus @default(UPLOADING)
+  tier            String? // "digital" | "feature" | "collector" — Stripe決済完了時に確定
+  amountPaidCents Int? // 監査用: 実際にStripeで決済された金額（session.amount_total）
 
   // intake
   petName           String?
@@ -53,7 +53,7 @@ model Order {
   // storyboardOptions: [{ scene, options: [url,url,url] }] in cut order; the
   // wizard shows one page per cut. conceptImageUrls keeps the FLAT list of all
   // 18 takes (approval-API whitelist + backwards compatibility).
-  storyboardOptions Json?    // [{ scene: string; options: string[] }] — the 6-cut picker
+  storyboardOptions Json? // [{ scene: string; options: string[] }] — the 6-cut picker
   chosenStills      String[] @default([]) // the 6 approved takes, one per cut, in cut order
   conceptImageUrls  String[] @default([]) // flat list of every generated take (whitelist)
   selectedImageUrl  String? // cut 1's approved take (poster for filming/QC views)
@@ -68,11 +68,17 @@ model Order {
   posterPrintUrl String? // flattened print-ready PNG of posterUrl (title block baked in via satori), rendered at Gate 2 approval — this is what ships to POD
 
   // Gate 2 artifacts
-  finalVideoUrl String? // 16:9 master, set by the film pipeline, held until admin approval
-  socialVideoUrl String? // 9:16 social cut, delivered alongside the master
-  adminNote     String?
-  falRequestId  String? // fal.ai queue request id (debugging / reconciliation)
-  failureReason String? // set when status=FAILED; cleared on retry
+  finalVideoUrl  String? // 16:9 master, set by the film pipeline, held until admin approval
+  // DEPRECATED — no longer written. The 9:16 cut was a centre crop of the
+  // master (68% of the frame width discarded) and shipped a worse video than
+  // the customer would get by posting the 16:9 to TikTok themselves, so the
+  // pipeline stopped producing one (lib/film-pipeline.ts#assembleToFiles).
+  // The COLUMN stays: orders delivered before that have real URLs here and
+  // dropping it would destroy delivered work for no benefit. Read-only now.
+  socialVideoUrl String?
+  adminNote      String?
+  falRequestId   String? // fal.ai queue request id (debugging / reconciliation)
+  failureReason  String? // set when status=FAILED; cleared on retry
 
   // Per-shot identity audit (film pipeline) — the video identity gate scores
   // each animated clip against the identity portrait so drift ("this cut isn't
@@ -125,9 +131,9 @@ model Order {
   // One physical add-on per order in this pass. Shipping is collected at the
   // add-on Checkout and lands in the existing shipping* columns; the Printify
   // order id/status reuse the existing podOrderId/podStatus columns.
-  addonType            String?   // "poster" | "canvas"
+  addonType            String? // "poster" | "canvas"
   addonStripeSessionId String?   @unique // the 2nd Checkout session — idempotency key
-  addonPaidCents       Int?      // audit: session.amount_total of the add-on
+  addonPaidCents       Int? // audit: session.amount_total of the add-on
   addonPurchasedAt     DateTime?
 
   // --- Director's Cut (custom) — B1 ---
@@ -135,7 +141,7 @@ model Order {
   // this into a "world bundle" (generatedScript) equivalent to a static entry
   // in lib/film-script.ts, plus a human-readable treatment shown for approval.
   customBrief            String? // guided brief (setting/mood/highlight/ending)
-  generatedScript        Json?   // Claude's structured world bundle (see lib/claude-script.ts WorldBundle)
+  generatedScript        Json? // Claude's structured world bundle (see lib/claude-script.ts WorldBundle)
   treatmentText          String? // human-readable treatment shown at the approval gate
   treatmentRevisionCount Int     @default(0) // internal abuse cap only (NOT a customer-facing limit)
   // world/personality stay nullable and are simply unused for custom orders.
@@ -165,8 +171,8 @@ model Order {
   adminRerollCount Int @default(0)
 
   // --- 納品評価（DELIVERY-RATING-SPEC.md）---
-  ratingStars   Int?      // 1-5。null = まだ評価していない
-  ratingComment String?   // 任意の自由記述（最大2000字、空文字はnullで保存）
+  ratingStars   Int? // 1-5。null = まだ評価していない
+  ratingComment String? // 任意の自由記述（最大2000字、空文字はnullで保存）
   ratedAt       DateTime? // 最終送信時刻。顧客は星を変更できるので「最初」ではない
 
   // customer-facing approval links authenticate with this token, not a login
@@ -206,9 +212,9 @@ model StatusEvent {
 // writer (never throws — a failed insert must not break the flow it's
 // attached to).
 model EvidenceEvent {
-  id        String   @id @default(cuid())
+  id        String  @id @default(cuid())
   orderId   String
-  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   kind      String // see lib/evidence.ts's EvidenceKind for the closed set of values
   detail    Json? // kind-specific structured data (chosen storyboard URLs, consent text shown, etc.)
   ip        String? // first hop of x-forwarded-for, customer-operated kinds only (never set for webhook/system kinds)

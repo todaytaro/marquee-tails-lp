@@ -61,7 +61,6 @@ async function main() {
   console.log(`=== DONE in ${Math.round((Date.now() - t0) / 1000)}s ===`);
   console.log("status:", done.status);
   console.log("master (16:9):", done.finalVideoUrl);
-  console.log("social (9:16):", done.socialVideoUrl);
   console.log("admin: http://localhost:3100/admin/" + done.id);
 }
 

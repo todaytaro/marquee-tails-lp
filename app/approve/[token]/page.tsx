@@ -582,14 +582,6 @@ function PremiereView({ order, petName }: { order: Order; petName: string }) {
             >
               Download {petName}&apos;s film
             </a>
-            {order.socialVideoUrl && (
-              <a
-                href={`/api/download?token=${order.approveToken}&kind=social`}
-                className="inline-flex items-center rounded-[var(--radius-chip)] border border-gold/50 px-6 py-3 text-base text-gold transition-colors hover:bg-gold/10"
-              >
-                Vertical cut for TikTok / Reels
-              </a>
-            )}
             {/*
               The digital poster is a promised deliverable of BOTH plans
               (PRICING-PRODUCT-V2-SPEC.md §2: 無料同梱, granted at delivery) and

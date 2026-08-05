@@ -38,7 +38,6 @@ async function main() {
   console.log("status:", done.status);
   console.log("shotIdentityScores:", JSON.stringify(done.shotIdentityScores));
   console.log("master (16:9):", done.finalVideoUrl);
-  console.log("social (9:16):", done.socialVideoUrl);
 }
 
 main()

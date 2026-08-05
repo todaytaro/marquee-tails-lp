@@ -19,7 +19,11 @@ export type EvidenceKind =
   | "reroll.requested"
   | "refund.requested"
   | "download.film"
-  | "download.social"
+  // NOTE: "download.social" is retired, not renamed. The 9:16 vertical cut no
+  // longer exists (lib/film-pipeline.ts#assembleToFiles), so nothing may write
+  // this kind again — but EvidenceEvent is append-only and rows recorded
+  // before that still hold the string. Leave this note here so a future reader
+  // finding one in the table knows what it was.
   | "download.poster"
   | "download.take"
   | "email.sent"
