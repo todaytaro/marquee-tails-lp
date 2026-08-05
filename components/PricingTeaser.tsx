@@ -250,12 +250,6 @@ export default function PricingTeaser() {
         <p className="mt-6 text-center text-sm text-red-400">{error}</p>
       )}
 
-      <p className="mx-auto mt-10 max-w-md text-center text-sm text-ivory">
-        Not recognizably your pet? We remake it free.
-      </p>
-      <p className="mt-2 text-center text-sm text-muted">
-        Secure checkout powered by Stripe. Every order is made to order.
-      </p>
     </section>
   );
 }
