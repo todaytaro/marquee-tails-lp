@@ -4,7 +4,7 @@ import satori from "satori";
 import { Resvg } from "@resvg/resvg-js";
 import { fal } from "@fal-ai/client";
 import { publicUrl } from "./identity";
-import { TITLE_CARDS } from "./film-script";
+import { TITLE_CARDS, stripLeadingPetName } from "./film-script";
 import { buildBillingBlock } from "@/components/MoviePosterOverlay";
 
 /**
@@ -83,12 +83,25 @@ function notoFontsFor(text: string): {
 
 /* ------------------------------------------------------------------ */
 
-async function artDataUri(artUrl: string): Promise<string> {
+/**
+ * Native pixel width of a PNG, from its IHDR header (bytes 16..20). Returns
+ * null for anything that isn't a PNG — the poster pipeline asks for
+ * `output_format: "png"`, so a non-PNG means an assumption broke and the
+ * caller should fall back rather than guess a size from a mis-parsed header.
+ */
+function pngWidth(buf: Buffer): number | null {
+  const PNG_MAGIC = "89504e470d0a1a0a";
+  if (buf.length < 24 || buf.subarray(0, 8).toString("hex") !== PNG_MAGIC) return null;
+  const w = buf.readUInt32BE(16);
+  return w > 0 && w < 100_000 ? w : null;
+}
+
+async function fetchArt(artUrl: string): Promise<{ dataUri: string; nativeWidth: number | null }> {
   const res = await fetch(publicUrl(artUrl));
   if (!res.ok) throw new Error(`poster art fetch failed ${res.status}`);
   const type = res.headers.get("content-type") ?? "image/png";
-  const b64 = Buffer.from(await res.arrayBuffer()).toString("base64");
-  return `data:${type};base64,${b64}`;
+  const buf = Buffer.from(await res.arrayBuffer());
+  return { dataUri: `data:${type};base64,${buf.toString("base64")}`, nativeWidth: pngWidth(buf) };
 }
 
 type PosterText = {
@@ -100,23 +113,53 @@ type PosterText = {
 };
 
 /**
- * Render the poster to a print-ready PNG and upload it. Default 1800×2700
- * (2:3, ~150dpi at 12×18in — the standard POD one-sheet).
+ * Render the poster to a print-ready PNG and upload it.
+ *
+ * The default width is the ART'S OWN native width, not a fixed number. It used
+ * to be a hardcoded 1800, which quietly threw away most of what we had already
+ * paid to generate: the key art comes out of the poster pipeline at 4K 2:3 —
+ * measured at 3392×5056 — and was being downsampled to 1800×2700 on the way to
+ * the print file. That is 53% of the linear resolution and 28% of the pixels.
+ *
+ * It matters at the size actually being sold. The Printify product is a 16×24
+ * inch poster (2:3, so the art needs no cropping):
+ *
+ *     1800px wide  ->  112 dpi   — visibly soft in the hand
+ *     3392px wide  ->  212 dpi   — sound for wall art
+ *
+ * The title block costs nothing to enlarge: satori/resvg draw it as vectors,
+ * so it stays sharp at any width. Only the background art has a ceiling, and
+ * this now uses all of it.
+ *
+ * Clamped on both sides. The floor keeps a small or non-PNG source from
+ * REGRESSING below the old behaviour; the ceiling bounds resvg's memory, which
+ * grows with W×H×4 bytes and runs inside a serverless function.
  */
 export async function renderPosterPng(
   artUrl: string,
   t: PosterText,
   opts: { width?: number; uploadName?: string } = {}
 ): Promise<string> {
-  const W = opts.width ?? 1800;
+  const { dataUri: art, nativeWidth } = await fetchArt(artUrl);
+  const MIN_PRINT_WIDTH = 1800;
+  const MAX_PRINT_WIDTH = 4500;
+  const W = opts.width ?? Math.min(Math.max(nativeWidth ?? MIN_PRINT_WIDTH, MIN_PRINT_WIDTH), MAX_PRINT_WIDTH);
   const H = Math.round((W * 3) / 2);
+  if (!nativeWidth) {
+    console.warn(`[poster-print] could not read the art's native width (not a PNG?) — falling back to ${MIN_PRINT_WIDTH}px`);
+  }
+  console.log(`[poster-print] art native ${nativeWidth ?? "?"}px -> print ${W}x${H} (${(W / 16).toFixed(0)} dpi at 16in wide)`);
 
   const name = t.petName.toUpperCase();
   const tagline = (t.tagline ?? "SOME JOURNEYS TAKE YOU BEYOND THE STARS").toUpperCase();
-  const subtitle = t.subtitle?.toUpperCase();
+  // The name is rendered on its own line directly ABOVE the subtitle here,
+  // exactly as on the film's finale card — so a tagline that leads with the
+  // pet's name prints it twice ("CAMYU" over "CAMYU: INTO THE TRENCH"). Found
+  // by looking at a rendered poster; fixing the film card alone had left the
+  // poster, which is the PHYSICAL product, still printing the duplicate.
+  const subtitle = t.subtitle ? stripLeadingPetName(t.subtitle, t.petName).toUpperCase() : undefined;
   const billing = (t.billing ?? buildBillingBlock(t.petName)).toUpperCase();
   const release = (t.releaseText ?? TITLE_CARDS.comingSoon).toUpperCase();
-  const art = await artDataUri(artUrl);
 
   const px = (cqi: number) => Math.round((cqi / 100) * W); // mirror component cqi (inline-size = width)
   const shadow = `0 ${px(0.4)}px ${px(1)}px rgba(0,0,0,0.75)`;

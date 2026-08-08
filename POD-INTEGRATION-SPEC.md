@@ -49,14 +49,14 @@ Blueprint ID・Print Provider ID・Variant IDはハードコードできる固�
 curl -H "Authorization: Bearer $PRINTIFY_API_KEY" -H "User-Agent: marquee-tails" \
   https://api.printify.com/v1/catalog/blueprints.json | jq '.[] | select(.title | test("Poster|Canvas"; "i"))'
 ```
-「Feature Film用: 縦2:3のポスター印刷（フレームなし）」「Collector's用: 16×20ギャラリーキャンバス（額なし、既存business_strategy.mdの通り額装は採用しない）」に合うblueprint_idを選び、続けて
+「Feature Film用: 縦2:3のポスター印刷（フレームなし）」「Collector's用: 16×24ギャラリーキャンバス（額なし、既存business_strategy.mdの通り額装は採用しない）」に合うblueprint_idを選び、続けて
 ```bash
 curl -H "Authorization: Bearer $PRINTIFY_API_KEY" -H "User-Agent: marquee-tails" \
   https://api.printify.com/v1/catalog/blueprints/{blueprint_id}/print_providers.json
 curl -H "Authorization: Bearer $PRINTIFY_API_KEY" -H "User-Agent: marquee-tails" \
   https://api.printify.com/v1/catalog/blueprints/{blueprint_id}/print_providers/{print_provider_id}/variants.json
 ```
-でprint_provider_idとvariant_id（サイズが16×20 / ポスターの2:3比率に一致するもの）を確定する。**この調査はオーナーのPrintifyアカウントに実際のPRINTIFY_API_KEYが入ってから行う**（鍵が無ければこのステップはスキップし、env変数名の配線だけ済ませて後回しにしてよい — §3参照）。
+でprint_provider_idとvariant_id（サイズが16×24 / ポスターの2:3比率に一致するもの）を確定する。**この調査はオーナーのPrintifyアカウントに実際のPRINTIFY_API_KEYが入ってから行う**（鍵が無ければこのステップはスキップし、env変数名の配線だけ済ませて後回しにしてよい — §3参照）。
 
 ---
 
@@ -69,7 +69,7 @@ curl -H "Authorization: Bearer $PRINTIFY_API_KEY" -H "User-Agent: marquee-tails"
 # PRINTIFY_BLUEPRINT_POSTER="" # Feature Film 用ポスター印刷のblueprint_id
 # PRINTIFY_PROVIDER_POSTER=""
 # PRINTIFY_VARIANT_POSTER=""
-# PRINTIFY_BLUEPRINT_CANVAS="" # Collector's 用 16x20 ギャラリーキャンバスのblueprint_id
+# PRINTIFY_BLUEPRINT_CANVAS="" # Collector's 用 16x24 ギャラリーキャンバスのblueprint_id
 # PRINTIFY_PROVIDER_CANVAS=""
 # PRINTIFY_VARIANT_CANVAS=""
 ```
