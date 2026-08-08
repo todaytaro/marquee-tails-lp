@@ -53,6 +53,12 @@ const CUSTOMER_EVIDENCE_KINDS = new Set([
   "download.social",
   "download.poster",
   "download.take",
+  // Both are things the CUSTOMER does on the premiere page. rating.submitted
+  // was missing here when the rating shipped, so every rating rendered as a
+  // "system" action — which is exactly backwards for the one evidence row that
+  // is the customer's own statement about the delivered product.
+  "rating.submitted",
+  "share.consent",
 ]);
 
 function evidenceActor(kind: string): string {
@@ -83,6 +89,9 @@ function detailLine(kind: string, detail: unknown): string | null {
       return `read: "${d.consentText ?? ""}"`;
     case "download.take":
       return `cut ${typeof d.cut === "number" ? d.cut + 1 : "?"}, take ${typeof d.take === "number" ? d.take + 1 : "?"}`;
+    case "share.consent":
+      // Reads as a state, not an event: "may post the film, not the photos".
+      return `film ${d.film ? "yes" : "no"} / photos ${d.photos ? "yes" : "no"}`;
     case "download.film":
     case "download.social":
     case "download.poster":

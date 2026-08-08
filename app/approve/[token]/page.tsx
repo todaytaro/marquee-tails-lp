@@ -19,6 +19,7 @@ import ProductionProgress from "@/components/ProductionProgress";
 import AddonUpsell from "@/components/AddonUpsell";
 import TreatmentApproval from "@/components/TreatmentApproval";
 import DeliveryRating from "@/components/DeliveryRating";
+import ShareConsent from "@/components/ShareConsent";
 
 /**
  * Customer approval page (Gate 1) — opened from the email link.
@@ -614,13 +615,24 @@ function PremiereView({ order, petName }: { order: Order; petName: string }) {
           revenue off screen. videoUrl-gated like the block above: no film,
           nothing to rate yet. */}
       {videoUrl && (
-        <DeliveryRating
-          orderId={order.id}
-          approveToken={order.approveToken}
-          petName={petName}
-          initialStars={order.ratingStars}
-          initialComment={order.ratingComment}
-        />
+        <>
+          <DeliveryRating
+            orderId={order.id}
+            approveToken={order.approveToken}
+            petName={petName}
+            initialStars={order.ratingStars}
+            initialComment={order.ratingComment}
+          />
+          {/* Permission to post this order, asked right after the rating —
+              see lib/share-consent.ts for why it has to be asked at all. */}
+          <ShareConsent
+            orderId={order.id}
+            approveToken={order.approveToken}
+            petName={petName}
+            initialFilm={order.shareFilmConsent}
+            initialPhotos={order.sharePhotosConsent}
+          />
+        </>
       )}
       {order.posterPrintUrl && (
         <AddonUpsell

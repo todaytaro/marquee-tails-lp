@@ -175,6 +175,14 @@ model Order {
   ratingComment String? // 任意の自由記述（最大2000字、空文字はnullで保存）
   ratedAt       DateTime? // 最終送信時刻。顧客は星を変更できるので「最初」ではない
 
+  // --- SNS掲載の許諾（lib/share-consent.ts）---
+  // /terms §4 は写真の利用を「作品の制作のためだけ」に限り、それ以外は
+  // 「without your consent」と明記している。つまり宣伝利用は、顧客が個別に
+  // 開けるまで規約自身が閉じている。既定 false 以外にありえない。
+  // 映画の掲載と、顧客が撮った写真の掲載は別の許諾なので列も分ける。
+  shareFilmConsent   Boolean @default(false) // 完成した映画・ポスターをSNSに載せてよい
+  sharePhotosConsent Boolean @default(false) // 顧客が送った写真も並べてよい（before/after）。film が false のとき true にはならない
+
   // customer-facing approval links authenticate with this token, not a login
   approveToken String @unique @default(cuid())
 

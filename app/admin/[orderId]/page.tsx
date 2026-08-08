@@ -867,6 +867,33 @@ export default async function AdminOrderReviewPage({
                 )}
               </div>
             )}
+
+            {/*
+              SNS掲載の許諾。ここに置くのは、実際にこの作品を投稿してよいか
+              判断する人がこの画面を見るから — 許諾が見えない場所にあると、
+              「たぶん大丈夫だろう」で投稿されることになる。
+              /terms §4 は同意なき利用を明示的に禁じているので、既定は不許可。
+              lib/share-consent.ts 参照。
+            */}
+            <div className="mt-4 border-t border-hairline pt-4 text-sm">
+              <p className="mb-2 text-xs uppercase tracking-wider text-muted">
+                SNS掲載の許諾
+              </p>
+              {order.shareFilmConsent ? (
+                <>
+                  <p className="text-gold">✓ 完成した映画・ポスターを掲載してよい</p>
+                  <p className={order.sharePhotosConsent ? "text-gold" : "text-muted"}>
+                    {order.sharePhotosConsent
+                      ? "✓ 顧客が送った写真も並べてよい（before/after 可）"
+                      : "✗ 顧客の写真は不可 — 映画のみ"}
+                  </p>
+                </>
+              ) : (
+                <p className="text-muted">
+                  未許諾 — <span className="text-ivory">この注文は掲載できません。</span>
+                </p>
+              )}
+            </div>
           </section>
 
           {/*

@@ -27,7 +27,12 @@ export type EvidenceKind =
   | "download.poster"
   | "download.take"
   | "email.sent"
-  | "rating.submitted";
+  | "rating.submitted"
+  // Social-sharing permission (lib/share-consent.ts). Recorded on every change,
+  // including a WITHDRAWAL — /terms §4 calls the licence revocable, so the row
+  // that proves we were allowed to post something has to be matched by the row
+  // that proves we were later told to stop.
+  | "share.consent";
 
 /** First hop of x-forwarded-for — the customer's own IP, not a proxy hop. */
 function extractIp(req: Request | undefined): string | null {
