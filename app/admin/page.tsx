@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { normalizeStoryboard, NUM_CUTS, TAKES_PER_CUT } from "@/lib/stills-pipeline";
 import { RetryFilmButton } from "./RetryFilmButton";
 import { AdminSearch } from "./AdminSearch";
+import { GiftOrderForm } from "./GiftOrderForm";
 
 export const dynamic = "force-dynamic";
 
@@ -108,6 +109,23 @@ function hasFullStoryboard(order: Order): boolean {
  * single message that can be missed, and this list is where the day's work is
  * actually read.
  */
+/**
+ * 無償枠の印。決済を通っていない注文は checkout.consent の証拠行を持たない
+ * ので、有料注文と見分けが付かないと「同意記録を失った有料注文」に見える。
+ * 一覧の時点で分かるようにしておく（prisma/schema.prisma の giftedTo 参照）。
+ */
+function giftBadge(order: Order) {
+  if (!order.giftedTo) return null;
+  return (
+    <span
+      title={`無償枠 — ${order.giftedTo}`}
+      className="rounded-[var(--radius-chip)] border border-gold/40 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-gold/90"
+    >
+      無償 {order.giftedTo}
+    </span>
+  );
+}
+
 function statusLabel(order: Order): string {
   if (order.status === OrderStatus.IMAGE_GENERATING && hasFullStoryboard(order)) {
     return "絵コンテ確認待ち（あなた）";
@@ -134,6 +152,7 @@ function StatusOrderRow({ order, now }: { order: Order; now: number }) {
           {statusLabel(order)}
         </span>
         <span className="min-w-48 text-muted">{order.customerEmail}</span>
+        {giftBadge(order)}
         <span className="ml-auto flex items-center gap-2">
           {stallBadge(order.status, order.updatedAt, now)}
           <span className="text-xs text-muted">
@@ -368,6 +387,10 @@ export default async function AdminDashboardPage({
         <Suspense fallback={null}>
           <AdminSearch />
         </Suspense>
+      </div>
+
+      <div className="mb-8">
+        <GiftOrderForm />
       </div>
 
       <div className="space-y-8">

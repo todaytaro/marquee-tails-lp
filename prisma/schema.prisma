@@ -180,6 +180,13 @@ model Order {
   // 「without your consent」と明記している。つまり宣伝利用は、顧客が個別に
   // 開けるまで規約自身が閉じている。既定 false 以外にありえない。
   // 映画の掲載と、顧客が撮った写真の掲載は別の許諾なので列も分ける。
+  // --- 無償枠（クリエイター向けシーディング）---
+  // クリエイター名/ハンドル。**非nullなら無償枠**で、決済を通っていない。
+  // boolean のフラグを別に持たないのは、名前とフラグが食い違う余地を作らない
+  // ため。無償枠は Stripe を通らないので `checkout.consent` の証拠行が無く、
+  // この列が無いと「同意記録を失った有料注文」と区別できない。
+  giftedTo String?
+
   shareFilmConsent   Boolean @default(false) // 完成した映画・ポスターをSNSに載せてよい
   sharePhotosConsent Boolean @default(false) // 顧客が送った写真も並べてよい（before/after）。film が false のとき true にはならない
 

@@ -918,6 +918,18 @@ export default async function AdminOrderReviewPage({
               <p className="mb-3 rounded-[var(--radius-chip)] border border-green-500/50 bg-green-500/10 px-3 py-2 text-xs text-green-400">
                 ✓ 決済時の同意記録あり — {timeFormat.format(consentEvent.createdAt)}
               </p>
+            ) : order.giftedTo ? (
+              /*
+                無償枠に赤い警告を出してはいけない。決済を通っていないので
+                同意記録が無いのは当たり前で、チャージバックも起こりえない。
+                ここを分けないと、配るたびに「対応が弱い注文」が積み上がって
+                見え、本当に同意記録を失った有料注文が埋もれる。
+                これが giftedTo 列を作った理由そのもの。
+              */
+              <p className="mb-3 rounded-[var(--radius-chip)] border border-gold/40 bg-gold/5 px-3 py-2 text-xs text-gold/90">
+                無償枠（{order.giftedTo}）— 決済を通っていないため同意記録はありません。
+                チャージバックの対象外です。
+              </p>
             ) : (
               <p className="mb-3 rounded-[var(--radius-chip)] border border-red-500/50 bg-red-500/10 px-3 py-2 text-xs text-red-400">
                 ⚠ 同意記録なし — この注文はチャージバック対応が弱い状態です。

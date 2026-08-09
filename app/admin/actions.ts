@@ -8,6 +8,7 @@ import { approveVideo } from "@/lib/approvals";
 import { REFUND_AMOUNT_USD } from "@/lib/safety-net";
 import { kickFilmGeneration, kickShotRerender } from "@/lib/film-pipeline";
 import { runTreatmentGeneration } from "@/lib/treatment";
+import { recordEvidence } from "@/lib/evidence";
 import {
   NUM_CUTS,
   TAKES_PER_CUT,
@@ -637,5 +638,84 @@ export async function resubmitPodOrderAction(orderId: string): Promise<ResubmitP
       ok: false,
       error: err instanceof Error ? err.message : "Printifyへの発注でエラーが発生しました。",
     };
+  }
+}
+
+export type CreateGiftOrderResult =
+  | { ok: true; orderId: string; approveUrl: string }
+  | { ok: false; error: string };
+
+/**
+ * 無償枠（クリエイター向けシーディング）を1件発行する。
+ *
+ * これがあるまで、注文を作れるのは Stripe の webhook だけだった
+ * （アプリ全体で `prisma.order.create` は1箇所）。無償で誰かに配るには
+ * 決済を通らない入口が要る。
+ *
+ * **パイプラインには一切触っていない。** 作られる注文は通常の注文と同じ
+ * `UPLOADING` から始まり、写真提出・トリートメント・絵コンテ・納品まで
+ * 完全に同じ経路を通る。分岐を作らないのが安全側で、無償枠だけ別の道を
+ * 通ると、そこだけテストされないコードになる。
+ *
+ * `stripeSessionId` は必須かつユニークなので `gift_<orderId>` を入れる。
+ * 実在する Stripe のセッションと衝突しない形にしてあり、値を見れば
+ * 決済を通っていないことが分かる。
+ *
+ * `giftedTo` は必須にしている。誰に配ったか分からない無償枠は、後から
+ * 「同意記録を失った有料注文」と見分けがつかなくなる（schema参照）。
+ */
+export async function createGiftOrderAction(input: {
+  email: string;
+  tier: "preset" | "custom";
+  giftedTo: string;
+}): Promise<CreateGiftOrderResult> {
+  const email = input.email?.trim();
+  const giftedTo = input.giftedTo?.trim();
+
+  // メールは配信先そのもの。ここが空や不正だと、生成だけ走って誰にも届かない。
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { ok: false, error: "有効なメールアドレスを入力してください。" };
+  }
+  if (!giftedTo) {
+    return { ok: false, error: "配布先（クリエイター名/ハンドル）は必須です。" };
+  }
+  if (input.tier !== "preset" && input.tier !== "custom") {
+    return { ok: false, error: "プランが不正です。" };
+  }
+
+  try {
+    const order = await prisma.order.create({
+      data: {
+        // 一意制約を満たしつつ、決済を通っていないことが値から分かる形。
+        stripeSessionId: `gift_${crypto.randomUUID()}`,
+        customerEmail: email,
+        tier: input.tier,
+        amountPaidCents: 0,
+        giftedTo,
+        status: OrderStatus.UPLOADING,
+      },
+    });
+
+    // この注文に checkout.consent が無い理由を、記録として残す。
+    // 「証拠が無い」ことが意味を持つ設計なので、無い理由も残す必要がある。
+    await recordEvidence(order.id, "order.gifted", { giftedTo, tier: input.tier });
+
+    // 有料注文とまったく同じ案内メール。無償枠だけ別の文面にすると、
+    // 相手が受け取る体験が本番と違ってしまい、検証にならない。
+    // 送信失敗で発行自体を失敗させない — リンクは下で返すので手渡しできる。
+    try {
+      const { sendWelcomeUploadEmail } = await import("@/lib/mocks");
+      await sendWelcomeUploadEmail(order);
+    } catch (err) {
+      console.error(`[gift] welcome email failed order=${order.id} (発行は成功)`, err);
+    }
+
+    const base = process.env.APP_BASE_URL ?? "http://localhost:3100";
+    console.log(`[gift] issued order=${order.id} tier=${input.tier} to=${giftedTo} <${email}>`);
+    revalidatePath("/admin");
+    return { ok: true, orderId: order.id, approveUrl: `${base}/approve/${order.approveToken}` };
+  } catch (err) {
+    console.error("[createGiftOrderAction]", err);
+    return { ok: false, error: "無償枠の発行に失敗しました。もう一度お試しください。" };
   }
 }

@@ -32,7 +32,11 @@ export type EvidenceKind =
   // including a WITHDRAWAL — /terms §4 calls the licence revocable, so the row
   // that proves we were allowed to post something has to be matched by the row
   // that proves we were later told to stop.
-  | "share.consent";
+  | "share.consent"
+  // An order created by admin with no payment (creator seeding). Recorded so
+  // the ABSENCE of checkout.consent on that order is explained rather than
+  // merely missing — see prisma/schema.prisma's giftedTo.
+  | "order.gifted";
 
 /** First hop of x-forwarded-for — the customer's own IP, not a proxy hop. */
 function extractIp(req: Request | undefined): string | null {
