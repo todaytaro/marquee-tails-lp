@@ -272,6 +272,55 @@ async function submitClip(input: Record<string, unknown>, capMs: number): Promis
   throw new Error(`kling request ${request_id} timed out`);
 }
 
+// CLIP_NEGATIVE minus every identity-lock term ("different dog", "ears
+// changing", "tail changing", "changing costume"...) — those exist to stop a
+// customer's pet drifting across 8 seconds, and in a 5-second ad teaser they
+// only fight the motion we are paying for. What stays is the quality/style
+// half, plus three terms aimed straight at the failure this replaced.
+const AD_CLIP_NEGATIVE =
+  "static image, frozen frame, no motion, blur, distort, low quality, deformed face, extra limbs, warped anatomy, cartoon, cel shading, 3d render, cgi, plastic sheen, illustration, stylized animation, text, watermark";
+
+/**
+ * Animate ONE arbitrary image into a short silent clip — no order, no LoRA,
+ * no identity gate. This is the ad-creative path (scripts/ad-clip.ts), kept
+ * here rather than in the script so it goes through the same submitClip as
+ * the product: same model, same queue deadlines, same negative prompt.
+ *
+ * NOT the product. generateShotClip below animates a still that a LoRA drew
+ * of one specific pet and that a customer approved; this animates whatever
+ * you hand it. Over five seconds the drift is small, but the pet is NOT held
+ * to being the same individual — so output from here can tease what the
+ * product does, and must never be presented as what a customer receives.
+ */
+export async function generateStandaloneClip(
+  imageUrl: string,
+  opts: { seconds?: number; motion?: string } = {}
+): Promise<string> {
+  fal.config({ credentials: process.env.FAL_KEY });
+  const seconds = opts.seconds ?? 5; // Kling's duration enum is 3-15s
+  const motion =
+    opts.motion ??
+    "Slow cinematic push-in, gentle parallax, the subject breathing and shifting weight, ambient movement in the background";
+  return submitClip(
+    {
+      start_image_url: publicUrl(imageUrl),
+      duration: String(seconds),
+      // 0.30, NOT the product path's 0.55. That value exists to hold the start
+      // frame hard, and generateShotClip's own comment names the cost: "some
+      // stiffness". For a customer's film that is the right trade — the whole
+      // job is that the dog stays the same dog. Here the job is the opposite,
+      // and the first version of this function copied 0.55 across without
+      // asking whether its purpose still applied. The result did not move at
+      // all: high cfg, plus a negative prompt built to suppress change, plus a
+      // prompt saying "no morphing" — three separate brakes and no accelerator.
+      cfg_scale: 0.3,
+      negative_prompt: AD_CLIP_NEGATIVE,
+      prompt: `${motion}. Photorealistic live-action, filmic depth of field, clearly visible continuous motion throughout the shot. The camera moves and the scene is alive — this must not look like a still photograph.`,
+    },
+    15 * 60 * 1000
+  );
+}
+
 /**
  * Animate a chosen still into a SHOT_SECONDS silent clip with a per-shot
  * camera move. This is now raw MATERIAL for the EDL, not a finished shot —
