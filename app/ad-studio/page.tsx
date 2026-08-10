@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { generateAdAction } from "./actions";
+import { generateAdAction, uploadAdImageAction } from "./actions";
 import type { AdAssets } from "@/lib/ad-studio";
 
 /**
@@ -31,22 +31,57 @@ export default function AdStudioPage() {
   const [motion, setMotion] = useState("");
   const [seconds, setSeconds] = useState(5);
   const [posterOnly, setPosterOnly] = useState(true);
+  const [mode, setMode] = useState<"concept" | "image">("concept");
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [subtitle, setSubtitle] = useState("");
+  const [uploading, setUploading] = useState(false);
   const [runs, setRuns] = useState<Run[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  /**
+   * 長辺2048pxに縮めてから送る。サーバーアクションのbody上限が既定1MBで、
+   * スマホの写真はそのままだと通らない。上限を上げると本番のアクションにも
+   * 効いてしまうので、ローカル専用の機能のために本番の受け口は広げない。
+   * 2048pxあれば広告用（画面表示）には十分。
+   */
+  async function pickImage(file: File) {
+    setError(null);
+    setUploading(true);
+    try {
+      const bitmap = await createImageBitmap(file);
+      const scale = Math.min(1, 2048 / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(bitmap.width * scale);
+      canvas.height = Math.round(bitmap.height * scale);
+      canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+      const r = await uploadAdImageAction(dataUrl);
+      if (r.ok) setImageUrl(r.url);
+      else setError(r.error);
+    } catch {
+      setError("画像を読み込めませんでした。");
+    } finally {
+      setUploading(false);
+    }
+  }
 
   function go() {
     setError(null);
     startTransition(async () => {
       const r = await generateAdAction({
         title,
-        concept,
+        concept: mode === "concept" ? concept : undefined,
+        imageUrl: mode === "image" ? imageUrl ?? undefined : undefined,
+        subtitle: subtitle || undefined,
         motion: motion || undefined,
         seconds,
         posterOnly,
       });
-      if (r.ok) setRuns((prev) => [{ id: Date.now(), title, concept, assets: r.assets }, ...prev]);
-      else setError(r.error);
+      if (r.ok) {
+        const label = mode === "concept" ? concept : "アップした画像";
+        setRuns((prev) => [{ id: Date.now(), title, concept: label, assets: r.assets }, ...prev]);
+      } else setError(r.error);
     });
   }
 
@@ -80,27 +115,77 @@ export default function AdStudioPage() {
           </label>
         </div>
 
-        <label className="mt-4 block text-xs text-muted">
-          コンセプト
-          <textarea
-            value={concept}
-            onChange={(e) => setConcept(e.target.value)}
-            rows={3}
-            className="mt-1 w-full rounded-[var(--radius-chip)] border border-hairline bg-night/40 px-3 py-2 text-sm text-ivory focus:border-gold/60 focus:outline-none"
-          />
-        </label>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {EXAMPLES.map((e) => (
+        <div className="mt-4 flex gap-2">
+          {(["concept", "image"] as const).map((m) => (
             <button
-              key={e}
+              key={m}
               type="button"
-              onClick={() => setConcept(e)}
-              className="rounded-[var(--radius-chip)] border border-hairline px-2 py-1 text-[11px] text-muted hover:border-gold/50 hover:text-gold"
+              onClick={() => setMode(m)}
+              className={`rounded-[var(--radius-chip)] border px-3 py-1.5 text-xs transition-colors ${
+                mode === m ? "border-gold/70 bg-gold/10 text-gold" : "border-hairline text-muted hover:text-ivory"
+              }`}
             >
-              {e.slice(0, 34)}…
+              {m === "concept" ? "コンセプトから作る" : "画像から作る"}
             </button>
           ))}
         </div>
+
+        {mode === "image" && (
+          <div className="mt-4">
+            <label className="text-xs text-muted">
+              画像
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) void pickImage(f); }}
+                className="mt-1 block w-full text-xs text-muted file:mr-3 file:rounded-[var(--radius-chip)] file:border file:border-gold/50 file:bg-transparent file:px-3 file:py-1.5 file:text-xs file:text-gold"
+              />
+            </label>
+            {uploading && <p className="mt-2 text-xs text-muted">アップロード中…</p>}
+            {imageUrl && !uploading && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={imageUrl} alt="選んだ画像" className="mt-2 h-28 rounded-md" />
+            )}
+            <label className="mt-3 block text-xs text-muted">
+              名前の下の一行（任意）
+              <input
+                value={subtitle}
+                onChange={(e) => setSubtitle(e.target.value)}
+                placeholder="THE LONG WAY HOME"
+                className="mt-1 w-full rounded-[var(--radius-chip)] border border-hairline bg-night/40 px-3 py-2 text-sm text-ivory placeholder:text-muted/60 focus:border-gold/60 focus:outline-none"
+              />
+            </label>
+            <p className="mt-2 text-xs text-muted/80">
+              長辺2048pxに縮小して送ります。広告（画面表示）には十分ですが、印刷用ではありません。
+            </p>
+          </div>
+        )}
+
+        {mode === "concept" && (
+          <>
+            <label className="mt-4 block text-xs text-muted">
+              コンセプト
+              <textarea
+                value={concept}
+                onChange={(e) => setConcept(e.target.value)}
+                rows={3}
+                className="mt-1 w-full rounded-[var(--radius-chip)] border border-hairline bg-night/40 px-3 py-2 text-sm text-ivory focus:border-gold/60 focus:outline-none"
+              />
+            </label>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {EXAMPLES.map((e) => (
+                <button
+                  key={e}
+                  type="button"
+                  onClick={() => setConcept(e)}
+                  className="rounded-[var(--radius-chip)] border border-hairline px-2 py-1 text-[11px] text-muted hover:border-gold/50 hover:text-gold"
+                >
+                  {e.slice(0, 34)}…
+                </button>
+              ))}
+            </div>
+          </>
+        )}
 
         <div className="mt-4 flex flex-wrap items-center gap-5">
           <label className="flex items-center gap-2 text-sm text-muted">
