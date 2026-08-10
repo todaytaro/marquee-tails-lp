@@ -1,3 +1,5 @@
+import { writeFile, mkdir } from "node:fs/promises";
+import path from "node:path";
 import { fal } from "@fal-ai/client";
 import { generateStandaloneClip } from "@/lib/film-pipeline";
 import { renderPosterPng } from "@/lib/poster-print";
@@ -213,4 +215,43 @@ export async function generateAdAssets(input: AdInput): Promise<AdAssets> {
 
   const clipUrl = await generateStandaloneClip(imageUrl, { seconds, motion: input.motion });
   return { posterUrl, stillUrl: script ? imageUrl : undefined, clipUrl, script };
+}
+
+/**
+ * 生成物をディスクに落とす。**CLIと画面の両方がこれを呼ぶ。**
+ *
+ * 画面版を作ったとき、ここを付け忘れた。CLIはファイルに書くのに画面は
+ * ブラウザのstateに持つだけで、リロードした瞬間に4分と$0.42が消えた。
+ * fal のURLは返り値にしか無く、サーバーログにも残らない（ログに出るのは
+ * 引数だけ）ので、取り戻す方法が無かった。
+ *
+ * 便利な入口を足すときは、既にある入口が持っている性質も一緒に持たせる —
+ * でないと「速いが失う」入口を増やしただけになる。
+ */
+export async function saveAdAssets(
+  assets: AdAssets,
+  meta: { title: string; concept?: string; dir?: string }
+): Promise<string> {
+  const slug = meta.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "ad";
+  const dir =
+    meta.dir ??
+    path.join(process.env.HOME ?? ".", "Downloads", "marquee-tails-ads", `${new Date().toISOString().slice(0, 10)}-${slug}-${Date.now().toString(36).slice(-4)}`);
+  await mkdir(dir, { recursive: true });
+
+  const grab = async (url: string, name: string) => {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`保存に失敗 ${r.status} ${name}`);
+    await writeFile(path.join(dir, name), Buffer.from(await r.arrayBuffer()));
+  };
+
+  await grab(assets.posterUrl, "poster.png");
+  if (assets.stillUrl) await grab(assets.stillUrl, "still.png");
+  if (assets.clipUrl) await grab(assets.clipUrl, "clip.mp4");
+  if (assets.script) {
+    await writeFile(
+      path.join(dir, "concept.txt"),
+      `name: ${meta.title}\nconcept: ${meta.concept ?? ""}\n\ncostume: ${assets.script.costume}\n\ncut 1: ${assets.script.scene}\n\ntagline: ${assets.script.tagline}\nintro: ${assets.script.intro}\n`
+    );
+  }
+  return dir;
 }

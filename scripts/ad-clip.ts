@@ -32,10 +32,10 @@
  * コスト: 動画 $0.084/秒（5秒 = $0.42）。ポスターは生成を伴わないので $0。
  * コンセプトモードは Claude 1回＋静止画1枚（数セント）が追加。
  */
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fal } from "@fal-ai/client";
-import { generateAdAssets, AD_PER_SECOND_USD } from "@/lib/ad-studio";
+import { generateAdAssets, saveAdAssets, AD_PER_SECOND_USD } from "@/lib/ad-studio";
 
 /**
  * `--name` の値を返す。**次の `--flag` までのトークンを全部つなぐ。**
@@ -57,13 +57,6 @@ function arg(name: string): string | undefined {
 }
 const has = (name: string) => process.argv.includes(`--${name}`);
 
-async function download(url: string, dest: string): Promise<number> {
-  const r = await fetch(url);
-  if (!r.ok) throw new Error(`download failed ${r.status} ${url.slice(0, 60)}`);
-  const b = Buffer.from(await r.arrayBuffer());
-  await writeFile(dest, b);
-  return b.length;
-}
 const mb = (n: number) => `${(n / 1024 / 1024).toFixed(1)}MB`;
 
 async function main() {
@@ -85,9 +78,6 @@ async function main() {
   const seconds = Number(arg("seconds") ?? 5);
   const base = imagePath ? path.basename(imagePath).replace(/\.[^.]+$/, "") : (arg("name") ?? "star");
   const title = arg("title") ?? arg("name") ?? base;
-  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "ad";
-  const out = arg("out") ?? path.join(process.env.HOME ?? ".", "Downloads", "marquee-tails-ads", `${new Date().toISOString().slice(0, 10)}-${slug}`);
-  await mkdir(out, { recursive: true });
 
   // Klingもポスターも URL を要求するので、ローカル画像は先に上げる。
   let imageUrl: string | undefined;
@@ -123,19 +113,10 @@ async function main() {
     console.log(`  衣装:  ${r.script.costume.slice(0, 80)}…`);
     console.log(`  cut 1: ${r.script.scene.slice(0, 80)}…`);
     console.log(`  題:    ${r.script.tagline}`);
-    await writeFile(
-      path.join(out, "concept.txt"),
-      `name: ${title}\nconcept: ${concept}\n\ncostume: ${r.script.costume}\n\ncut 1: ${r.script.scene}\n\ntagline: ${r.script.tagline}\nintro: ${r.script.intro}\n`
-    );
   }
-  if (r.stillUrl) {
-    await download(r.stillUrl, path.join(out, "still.png"));
-    console.log(`  still.png`);
-  }
-  console.log(`  poster.png  ${mb(await download(r.posterUrl, path.join(out, "poster.png")))}`);
-  if (r.clipUrl) {
-    console.log(`  clip.mp4    ${mb(await download(r.clipUrl, path.join(out, "clip.mp4")))}`);
-  }
+  // 保存は画面版と同じ saveAdAssets に任せる。自前で書き出していた頃は、
+  // ここと app/ad-studio に2つの保存処理があった。
+  const out = await saveAdAssets(r, { title, concept, dir: arg("out") });
 
   console.log(`\n${out}`);
   console.log(

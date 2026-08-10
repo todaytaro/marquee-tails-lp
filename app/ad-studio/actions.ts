@@ -1,6 +1,6 @@
 "use server";
 
-import { generateAdAssets, type AdAssets, type AdInput } from "@/lib/ad-studio";
+import { generateAdAssets, saveAdAssets, type AdAssets, type AdInput } from "@/lib/ad-studio";
 
 /**
  * 広告スタジオのサーバーアクション。**開発時のみ動く。**
@@ -14,7 +14,7 @@ import { generateAdAssets, type AdAssets, type AdInput } from "@/lib/ad-studio";
  */
 export async function generateAdAction(
   input: AdInput
-): Promise<{ ok: true; assets: AdAssets } | { ok: false; error: string }> {
+): Promise<{ ok: true; assets: AdAssets; savedTo: string } | { ok: false; error: string }> {
   if (process.env.NODE_ENV !== "development") {
     return { ok: false, error: "この画面はローカル（npm run dev）でのみ使えます。" };
   }
@@ -24,7 +24,11 @@ export async function generateAdAction(
   }
   try {
     const assets = await generateAdAssets({ ...input, title: input.title.trim() });
-    return { ok: true, assets };
+    // 返り値にしか無いURLを、返す前にディスクへ。ブラウザ側で何が起きても
+    // 生成物は残る（この関数が落ちたら生成物ごと失うので、ここは握り潰さない）。
+    const savedTo = await saveAdAssets(assets, { title: input.title.trim(), concept: input.concept });
+    console.log(`[ad-studio] saved -> ${savedTo}`);
+    return { ok: true, assets, savedTo };
   } catch (err) {
     console.error("[ad-studio]", err);
     return { ok: false, error: err instanceof Error ? err.message : "生成に失敗しました。" };
@@ -62,5 +66,35 @@ export async function uploadAdImageAction(
   } catch (err) {
     console.error("[ad-studio:upload]", err);
     return { ok: false, error: err instanceof Error ? err.message : "アップロードに失敗しました。" };
+  }
+}
+
+/**
+ * 保存先のフォルダを Finder で開く。
+ *
+ * 「まとめて保存」ボタンにしなかった理由: ブラウザの `download` 属性は
+ * **クロスオリジンでは無視される**。生成物は fal のドメインにあるので、
+ * リンクを押しても保存されずタブで開くだけ — 顧客の納品ページで同じ罠を
+ * 踏んで、同一オリジンのプロキシを作って直したのと全く同じ問題。
+ *
+ * ここではその必要が無い。生成した時点で saveAdAssets が**すでに全部
+ * ディスクに書いている**ので、残る仕事は「そこへ連れて行く」ことだけ。
+ * ポスターも静止画も動画もコンセプトも、1クリックで目の前に出る。
+ */
+export async function revealAdFolderAction(dir: string): Promise<{ ok: boolean; error?: string }> {
+  if (process.env.NODE_ENV !== "development") {
+    return { ok: false, error: "ローカルでのみ使えます。" };
+  }
+  // 生成物の保存先以外は開かない。パスは画面から往復してくるので、
+  // 素通しにすると任意のディレクトリを開かせる入口になる。
+  const root = `${process.env.HOME ?? ""}/Downloads/marquee-tails-ads`;
+  if (!dir.startsWith(root)) return { ok: false, error: "想定外の場所です。" };
+  try {
+    const { spawn } = await import("node:child_process");
+    spawn("open", [dir], { detached: true, stdio: "ignore" }).unref();
+    return { ok: true };
+  } catch (err) {
+    console.error("[ad-studio:reveal]", err);
+    return { ok: false, error: "フォルダを開けませんでした。" };
   }
 }

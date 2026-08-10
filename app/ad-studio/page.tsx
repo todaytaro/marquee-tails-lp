@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { generateAdAction, uploadAdImageAction } from "./actions";
+import { generateAdAction, uploadAdImageAction, revealAdFolderAction } from "./actions";
 import type { AdAssets } from "@/lib/ad-studio";
 
 /**
@@ -16,7 +16,7 @@ import type { AdAssets } from "@/lib/ad-studio";
  * 進むのが、この作業で一番お金を無駄にしない順番。
  */
 
-type Run = { id: number; title: string; concept: string; assets: AdAssets };
+type Run = { id: number; title: string; concept: string; assets: AdAssets; savedTo: string };
 
 const EXAMPLES = [
   "a deep-sea submarine exploring a trench nobody has mapped",
@@ -79,7 +79,7 @@ export default function AdStudioPage() {
       });
       if (r.ok) {
         const label = concept.trim() ? (imageUrl ? `${concept}（写真から）` : concept) : "アップした画像";
-        setRuns((prev) => [{ id: Date.now(), title, concept: label, assets: r.assets }, ...prev]);
+        setRuns((prev) => [{ id: Date.now(), title, concept: label, assets: r.assets, savedTo: r.savedTo }, ...prev]);
       } else setError(r.error);
     });
   }
@@ -241,11 +241,16 @@ intro:   ${run.assets.script.intro}`}
               </pre>
             </details>
           )}
-          <p className="mt-3 flex gap-4 text-xs">
-            <a href={run.assets.posterUrl} download className="text-gold underline">ポスターを保存</a>
-            {run.assets.stillUrl && <a href={run.assets.stillUrl} download className="text-gold underline">静止画を保存</a>}
-            {run.assets.clipUrl && <a href={run.assets.clipUrl} download className="text-gold underline">動画を保存</a>}
-          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => void revealAdFolderAction(run.savedTo)}
+              className="rounded-[var(--radius-chip)] border border-gold/50 px-3 py-1.5 text-xs font-semibold text-gold transition-colors hover:bg-gold/10"
+            >
+              📁 保存先を開く（ポスター・動画・脚本ぜんぶ）
+            </button>
+            <span className="break-all text-[11px] text-muted">{run.savedTo}</span>
+          </div>
         </section>
       ))}
     </main>
