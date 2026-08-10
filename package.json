@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "ad": "tsx --env-file=.env scripts/ad-clip.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
