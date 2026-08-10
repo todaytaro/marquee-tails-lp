@@ -9,9 +9,15 @@
  * **これは製品ではない。** LoRAを使わないので、犬が「その個体のまま」で
  * ある保証は無い。フックまで。納品品質を見せたいときは完成済みの映画を使う。
  *
+ * 入力の組み合わせで挙動が変わる:
+ *   画像のみ            … その画をそのまま動かす
+ *   コンセプトのみ       … その世界の見本を一から描く（犬は不特定）
+ *   画像 ＋ コンセプト   … **その犬をその世界に入れる**（本命）
+ *
  * 使い方:
  *   npm run ad -- <画像> [オプション]
  *   npm run ad -- --name MILO --concept "a deep-sea submarine..."
+ *   npm run ad -- ~/Desktop/dog.jpg --name MILO --concept "a deep-sea submarine..."
  *
  *   --title    ポスターの大見出し（既定: ファイル名 / --name）
  *   --name     コンセプトモードのペット名
@@ -31,9 +37,23 @@ import path from "node:path";
 import { fal } from "@fal-ai/client";
 import { generateAdAssets, AD_PER_SECOND_USD } from "@/lib/ad-studio";
 
+/**
+ * `--name` の値を返す。**次の `--flag` までのトークンを全部つなぐ。**
+ *
+ * `process.argv[i + 1]` だけを見ていると、`npm run ad -- --concept "a deep-sea
+ * submarine"` が `"a"` になる。npm がラッパー越しに引数を渡すときに引用符が
+ * 落ちることがあり、複数語の値は静かに切り捨てられる — しかも「コンセプトが
+ * 短すぎる」という形でしか症状が出ないので気づきにくい。
+ */
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
-  return i >= 0 ? process.argv[i + 1] : undefined;
+  if (i < 0) return undefined;
+  const parts: string[] = [];
+  for (let j = i + 1; j < process.argv.length; j++) {
+    if (process.argv[j].startsWith("--")) break;
+    parts.push(process.argv[j]);
+  }
+  return parts.length ? parts.join(" ") : undefined;
 }
 const has = (name: string) => process.argv.includes(`--${name}`);
 
@@ -48,8 +68,11 @@ const mb = (n: number) => `${(n / 1024 / 1024).toFixed(1)}MB`;
 
 async function main() {
   const concept = arg("concept");
-  const imagePath = concept ? undefined : process.argv[2];
-  if (!concept && (!imagePath || imagePath.startsWith("--"))) {
+  // 画像とコンセプトは**併用できる** — 併用すると「この犬をこの世界に入れる」に
+  // なる。以前は concept があると画像を無視していた（片方しか使えなかった）。
+  const first = process.argv[2];
+  const imagePath = first && !first.startsWith("--") ? first : undefined;
+  if (!concept && !imagePath) {
     console.error(
       "画像か、--name と --concept を指定してください。\n" +
         "  npm run ad -- <画像> [--title ...]\n" +
@@ -69,14 +92,20 @@ async function main() {
   // Klingもポスターも URL を要求するので、ローカル画像は先に上げる。
   let imageUrl: string | undefined;
   if (imagePath) {
+    // 併用時はここで上げた画が「着せ替えの元」になる。
     fal.config({ credentials: process.env.FAL_KEY });
     const buf = await readFile(imagePath);
     const ext = path.extname(imagePath).toLowerCase();
     const mime = ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : "image/jpeg";
     imageUrl = await fal.storage.upload(new File([new Uint8Array(buf)], path.basename(imagePath), { type: mime }));
     console.log(`元画像をアップロード (${mb(buf.length)})`);
-  } else {
-    console.log(`脚本と静止画を生成中… (製品と同じ generateTreatment)`);
+  }
+  if (concept) {
+    console.log(
+      imagePath
+        ? `脚本を書いて、その世界に着せ替え中… (製品と同じ generateTreatment)`
+        : `脚本と静止画を生成中… (製品と同じ generateTreatment)`
+    );
   }
 
   const r = await generateAdAssets({

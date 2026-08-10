@@ -31,7 +31,6 @@ export default function AdStudioPage() {
   const [motion, setMotion] = useState("");
   const [seconds, setSeconds] = useState(5);
   const [posterOnly, setPosterOnly] = useState(true);
-  const [mode, setMode] = useState<"concept" | "image">("concept");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [subtitle, setSubtitle] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -71,15 +70,15 @@ export default function AdStudioPage() {
     startTransition(async () => {
       const r = await generateAdAction({
         title,
-        concept: mode === "concept" ? concept : undefined,
-        imageUrl: mode === "image" ? imageUrl ?? undefined : undefined,
+        concept: concept.trim() || undefined,
+        imageUrl: imageUrl ?? undefined,
         subtitle: subtitle || undefined,
         motion: motion || undefined,
         seconds,
         posterOnly,
       });
       if (r.ok) {
-        const label = mode === "concept" ? concept : "アップした画像";
+        const label = concept.trim() ? (imageUrl ? `${concept}（写真から）` : concept) : "アップした画像";
         setRuns((prev) => [{ id: Date.now(), title, concept: label, assets: r.assets }, ...prev]);
       } else setError(r.error);
     });
@@ -115,25 +114,10 @@ export default function AdStudioPage() {
           </label>
         </div>
 
-        <div className="mt-4 flex gap-2">
-          {(["concept", "image"] as const).map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => setMode(m)}
-              className={`rounded-[var(--radius-chip)] border px-3 py-1.5 text-xs transition-colors ${
-                mode === m ? "border-gold/70 bg-gold/10 text-gold" : "border-hairline text-muted hover:text-ivory"
-              }`}
-            >
-              {m === "concept" ? "コンセプトから作る" : "画像から作る"}
-            </button>
-          ))}
-        </div>
-
-        {mode === "image" && (
-          <div className="mt-4">
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div>
             <label className="text-xs text-muted">
-              画像
+              画像（任意）
               <input
                 type="file"
                 accept="image/*"
@@ -143,49 +127,59 @@ export default function AdStudioPage() {
             </label>
             {uploading && <p className="mt-2 text-xs text-muted">アップロード中…</p>}
             {imageUrl && !uploading && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={imageUrl} alt="選んだ画像" className="mt-2 h-28 rounded-md" />
-            )}
-            <label className="mt-3 block text-xs text-muted">
-              名前の下の一行（任意）
-              <input
-                value={subtitle}
-                onChange={(e) => setSubtitle(e.target.value)}
-                placeholder="THE LONG WAY HOME"
-                className="mt-1 w-full rounded-[var(--radius-chip)] border border-hairline bg-night/40 px-3 py-2 text-sm text-ivory placeholder:text-muted/60 focus:border-gold/60 focus:outline-none"
-              />
-            </label>
-            <p className="mt-2 text-xs text-muted/80">
-              長辺2048pxに縮小して送ります。広告（画面表示）には十分ですが、印刷用ではありません。
-            </p>
-          </div>
-        )}
-
-        {mode === "concept" && (
-          <>
-            <label className="mt-4 block text-xs text-muted">
-              コンセプト
-              <textarea
-                value={concept}
-                onChange={(e) => setConcept(e.target.value)}
-                rows={3}
-                className="mt-1 w-full rounded-[var(--radius-chip)] border border-hairline bg-night/40 px-3 py-2 text-sm text-ivory focus:border-gold/60 focus:outline-none"
-              />
-            </label>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {EXAMPLES.map((e) => (
-                <button
-                  key={e}
-                  type="button"
-                  onClick={() => setConcept(e)}
-                  className="rounded-[var(--radius-chip)] border border-hairline px-2 py-1 text-[11px] text-muted hover:border-gold/50 hover:text-gold"
-                >
-                  {e.slice(0, 34)}…
+              <div className="mt-2 flex items-center gap-3">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={imageUrl} alt="選んだ画像" className="h-24 rounded-md" />
+                <button type="button" onClick={() => setImageUrl(null)} className="text-xs text-muted underline hover:text-ivory">
+                  外す
                 </button>
-              ))}
-            </div>
-          </>
-        )}
+              </div>
+            )}
+          </div>
+          <label className="text-xs text-muted">
+            名前の下の一行（任意）
+            <input
+              value={subtitle}
+              onChange={(e) => setSubtitle(e.target.value)}
+              placeholder="THE LONG WAY HOME"
+              className="mt-1 w-full rounded-[var(--radius-chip)] border border-hairline bg-night/40 px-3 py-2 text-sm text-ivory placeholder:text-muted/60 focus:border-gold/60 focus:outline-none"
+            />
+          </label>
+        </div>
+
+        <label className="mt-4 block text-xs text-muted">
+          コンセプト（任意）
+          <textarea
+            value={concept}
+            onChange={(e) => setConcept(e.target.value)}
+            rows={3}
+            className="mt-1 w-full rounded-[var(--radius-chip)] border border-hairline bg-night/40 px-3 py-2 text-sm text-ivory focus:border-gold/60 focus:outline-none"
+          />
+        </label>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {EXAMPLES.map((e) => (
+            <button
+              key={e}
+              type="button"
+              onClick={() => setConcept(e)}
+              className="rounded-[var(--radius-chip)] border border-hairline px-2 py-1 text-[11px] text-muted hover:border-gold/50 hover:text-gold"
+            >
+              {e.slice(0, 34)}…
+            </button>
+          ))}
+        </div>
+
+        {/* 何が起きるかを、入っているものから逆算して見せる。
+            3通りあって挙動が全く違うので、押す前に分かる必要がある。 */}
+        <p className="mt-3 rounded-[var(--radius-chip)] border border-hairline bg-night/40 px-3 py-2 text-xs text-muted">
+          {imageUrl && concept.trim()
+            ? "→ アップした写真の犬を、そのコンセプトの世界に入れます（一番おすすめ）"
+            : imageUrl
+              ? "→ アップした写真をそのまま動かします（衣装も世界も付きません）"
+              : concept.trim()
+                ? "→ その世界の見本を一から描きます（特定の犬ではありません）"
+                : "画像かコンセプト、どちらかは入れてください"}
+        </p>
 
         <div className="mt-4 flex flex-wrap items-center gap-5">
           <label className="flex items-center gap-2 text-sm text-muted">
