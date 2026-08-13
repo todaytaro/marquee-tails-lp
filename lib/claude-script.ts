@@ -53,7 +53,7 @@ const DEFAULT_MODEL = "claude-sonnet-5";
  * treatmentText is the one field that's customer-facing prose rather than
  * pipeline input, so it should mirror the brief's language instead.
  */
-const SYSTEM_PROMPT = `You are the "director" for Marquee Tails, a service that turns a customer's pet into the star of a roughly 60-second cinematic trailer. A customer has submitted a free-text brief describing the world, mood, one highlight moment, and how their story ends. Turn that brief into a WorldBundle (by calling the submit_treatment tool) — a locked costume, exactly 6 action/setting beats ("cuts"), a music-score prompt, and 6 trailer loglines that together read as ONE continuous story — plus a warm, readable "treatment" the customer will read and approve before anything is filmed.
+export const SYSTEM_PROMPT = `You are the "director" for Marquee Tails, a service that turns a customer's pet into the star of a roughly 60-second cinematic trailer. A customer has submitted a free-text brief describing the world, mood, one highlight moment, and how their story ends. Turn that brief into a WorldBundle (by calling the submit_treatment tool) — a locked costume, exactly 6 action/setting beats ("cuts"), a music-score prompt, and 6 trailer loglines that together read as ONE continuous story — plus a warm, readable "treatment" the customer will read and approve before anything is filmed.
 
 Follow these rules strictly:
 
@@ -84,7 +84,7 @@ Follow these rules strictly:
 
 When revising an existing treatment (a prior WorldBundle plus the customer's requested change will be provided), apply ONLY the requested change where reasonable and keep everything else — world, costume, tone, unaffected cuts — consistent with the prior draft unless the request implies a bigger change. The language rule above (rule 5) applies identically when revising.`;
 
-const TREATMENT_TOOL: Anthropic.Tool = {
+export const TREATMENT_TOOL: Anthropic.Tool = {
   name: "submit_treatment",
   description:
     "Submit the finished world bundle + customer-facing treatment for this pet's trailer, or reject the brief if it can't be turned into an appropriate original film.",
