@@ -103,6 +103,107 @@ protections.
     with the pet asleep in that chair. If the ending as written seems to
     undercut the drama, that is the customer's call and it stands.`;
 
+/**
+ * C群で追加する条項。**枚数ではなく中身の問題**への対処。
+ *
+ * オーナーの指摘: 「字幕の枚数は多くない、むしろもっと文章が欲しい。動画だけでは
+ * 何の映像か分からない」。実際 LALA の6枚を読むと、4枚が「船は大きい/犬は小さい」の
+ * 言い換えで、脅威の正体・目的・失敗した場合の代償が一度も書かれていない。
+ * 情報がゼロの文が6枚並ぶから、読んでも何も分からない。
+ */
+const CARD_RULES = `
+
+---
+
+9. THE SIX TITLE CARDS MUST CARRY INFORMATION, NOT ONLY MOOD.
+
+A viewer has no source of story except these six lines and six shots of a pet
+in a beautiful place. The cards have to do the telling. The failure to avoid
+is six lines of pure atmosphere and scale — "THE BRIDGE IS VAST. THE THREAT IS
+BIGGER STILL." — which sounds like a trailer while saying nothing: afterwards
+a viewer cannot name the threat, the goal, or the cost of failing.
+
+EACH OF THE SIX HAS A DIFFERENT JOB. Do not write six variations of the
+premise.
+
+  premise  THE SITUATION AND THE THREAT, NAMED CONCRETELY. What is wrong and
+           what specifically is causing it. Not "danger closes in" — the hull
+           is breaching, the flood has taken the lower deck, the fire has the
+           stairs.
+  intro    WHO THE HERO IS, and why it is moving or absurd that this falls to
+           them. This is where the pet's smallness or ordinariness earns its
+           place — ONCE, not four times.
+  turn     WHAT GOES WRONG, or what raises the price. Something must HAPPEN in
+           this line; it is an event, not an observation.
+  rise     WHAT THE HERO DECIDES TO DO ABOUT IT. A choice or an action.
+  tagline  The title line. This is the ONLY one that may be pure poetry.
+  stinger  The closing joke.
+
+CONCRETE BEATS ABSTRACT. Prefer a named thing, a number, a deadline or a
+consequence over an adjective. "SIXTY SECONDS OF AIR LEFT" outranks "TIME IS
+RUNNING OUT". AT MOST ONE of the six lines may be built on a size or scale
+comparison — that device lands once and grates twice.
+
+LENGTH. These may run longer than one short clause: up to roughly 90
+characters, and a line may be two sentences. A card that carries real
+information earns its screen time; a card that carries only a mood does not.
+Still ALL-CAPS, still English.`;
+
+/**
+ * D群で追加する条項。**「次はどうなる？」が出ない**ことへの対処。
+ *
+ * C まで来ても、6カットが「危機 → 行動 → 解決 → 後日談 → 就寝」で並び、
+ * 45秒あたりで話が完結してしまう。残りは解決済みの犬。自分で問いを立てて
+ * 自分で答えているので、気になりようがない。
+ *
+ * 予告編は答えを見せない。行動の頂点で黒に落とし、タイトルを出す。
+ * 顧客の結末はそこで消えるのではなく、**タイトル後のオチ**に移る —
+ * 「助かったのか」の答えとして、位置はむしろ良くなる。
+ */
+const WITHHOLD_RULES = `
+
+---
+
+10. DO NOT ANSWER YOUR OWN QUESTION. THE TRAILER STOPS AT THE PEAK.
+
+A trailer's whole job is to leave a viewer wanting the film. That is destroyed
+by showing how it turns out. The failure to avoid: crisis, action, the danger
+resolved, the aftermath, the hero at rest — a complete story told in sixty
+seconds, after which there is nothing left to wonder about.
+
+Structure the six cuts like this instead:
+
+  cuts 0-4  THE BODY. A rising line: the situation, the thing going wrong, it
+            getting worse, the hero committing to act. CUT 4 IS THE PEAK OF
+            THE ACTION AND THE OUTCOME IS WITHHELD — the paw is on the switch,
+            the lever is halfway down, the shoulder is against the door. Never
+            show it working. No cut in 0-4 may show the danger resolved, the
+            fire out, the water stopped, the alarm calmed, or any aftermath.
+            The viewer must reach cut 4 not knowing whether it worked.
+
+  cut 5     THE ENDING, PLAYED AFTER THE TITLE CARD. This is the customer's
+            stated ending from the brief (rule 8h — still non-negotiable), and
+            it now doubles as the answer the body withheld: the viewer sees the
+            pet safe, asleep, home, victorious, and only then understands it
+            worked. Write it as the quiet beat AFTER the story, not as a sixth
+            step of the story.
+
+BEFORE YOU SUBMIT, CHECK CUT 4 SPECIFICALLY. The strong pull of storytelling
+is to finish the job, and this rule is broken in exactly one predictable way:
+cut 3 is written as the peak ("the lever caught halfway down") and then cut 4
+completes it ("the lever fully down and locked, the alarm switched to steady
+blue"). That is the aftermath, one cut early, and it is exactly what must not
+appear. If cut 4 shows the lever locked, the alarm calmed, the fire out, the
+crack sealed, the light gone from red to blue, or the pet sitting up satisfied
+— rewrite it. Cut 4 must be a body physically mid-effort with the result still
+unknown: straining, holding, reaching, weight thrown into it.
+
+This also changes what the LAST card before the title must do. "rise" is the
+final thing read before the cut to black, so it must sharpen the question, not
+settle it — a commitment, a cost, a countdown ("ONE PAW. ONE SWITCH. THE WHOLE
+SHIP RIDES ON IT."), never a reassurance. Nothing in premise/intro/turn/rise
+may reveal that the hero succeeds.`;
+
 /** 現行のツール定義から、Klingの微動時代の一文だけ差し替えた版を作る。 */
 function storyTool(): Anthropic.Tool {
   const tool = JSON.parse(JSON.stringify(TREATMENT_TOOL)) as Anthropic.Tool;
@@ -170,13 +271,15 @@ async function main() {
   // A/B で同一であることだけが条件。
   const userMessage = `Pet name: ${o.petName}\n\nCustomer brief:\n${o.customBrief}`;
 
-  const [a, b] = await Promise.all([
+  const [a, c, d] = await Promise.all([
     run(client, "A", SYSTEM_PROMPT, TREATMENT_TOOL, userMessage),
-    run(client, "B", SYSTEM_PROMPT + STORY_RULES, storyTool(), userMessage),
+    run(client, "C", SYSTEM_PROMPT + STORY_RULES + CARD_RULES, storyTool(), userMessage),
+    run(client, "D", SYSTEM_PROMPT + STORY_RULES + CARD_RULES + WITHHOLD_RULES, storyTool(), userMessage),
   ]);
 
   show("A — 現行のルール（対照群）", a);
-  show("B — STORY_RULES 追加", b);
+  show("C — 絵に出来事を + 文字に情報を", c);
+  show("D — C + 答えを見せない（cut 5 はタイトル後のオチ）", d);
 }
 
 main().then(() => process.exit(0));
