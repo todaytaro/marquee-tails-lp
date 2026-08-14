@@ -272,7 +272,7 @@ export function adminRerollSeedBase(cutIndex: number, adminRerollCount: number):
 const CLOSED_MOUTH_DIRECTIVE = "mouth closed, no lolling tongue, composed expression";
 
 /** Per FILM-QUALITY-V3-SPEC.md §4.2 — see CLOSED_MOUTH_DIRECTIVE above. */
-function expressionDirective(personality: string | null): string {
+export function expressionDirective(personality: string | null): string {
   return personality === "playful" ? "" : CLOSED_MOUTH_DIRECTIVE;
 }
 
@@ -778,7 +778,7 @@ async function generateHeroSheet(refs: string[], description: string, costume: s
  * (IDENTITY-FIDELITY-SPEC.md §2.2 — see generateGatedTake's callers), so the
  * prompt's role directive matches what's actually in position 0.
  */
-async function generateTakeOnce(
+export async function generateTakeOnce(
   refs: string[],
   hasRealPhotoFirst: boolean,
   description: string,

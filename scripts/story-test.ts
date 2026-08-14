@@ -89,10 +89,19 @@ protections.
     atmospheric fragment that would fit equally well in any story of this
     world is wasted screen time; the trailer only has three of these.
 
-(g) THE ENDING MUST BE EARNED ON SCREEN. If the story resolves, the thing
-    that was wrong must be visibly resolved or visibly survived in a cut —
-    never resolved only in the loglines while the pictures show the pet
-    somewhere calm.`;
+(g) THE RESOLUTION MUST BE EARNED ON SCREEN — IN AN EARLIER CUT, NOT THE LAST
+    ONE. If the story resolves, some cut must visibly show the thing that was
+    wrong being fixed, sealed, held, or survived; it must not be resolved only
+    in the loglines. Put that beat at cut 4 or 5 of 6.
+
+(h) THE FINAL CUT IS THE CUSTOMER'S ENDING, AND IT IS NOT NEGOTIABLE. The
+    brief states how the story ends. Write that ending, in the customer's own
+    terms, as the last cut — even when it is quiet, still, sleeping, or
+    otherwise "undramatic". Rule (g) is satisfied by the resolution beat that
+    comes BEFORE it, never by replacing the ending with something more
+    conclusive-looking. A brief that ends with the pet asleep in a chair ends
+    with the pet asleep in that chair. If the ending as written seems to
+    undercut the drama, that is the customer's call and it stands.`;
 
 /** 現行のツール定義から、Klingの微動時代の一文だけ差し替えた版を作る。 */
 function storyTool(): Anthropic.Tool {
