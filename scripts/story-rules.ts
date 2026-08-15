@@ -117,9 +117,26 @@ consequence over an adjective. "SIXTY SECONDS OF AIR LEFT" outranks "TIME IS
 RUNNING OUT". AT MOST ONE of the six lines may be built on a size or scale
 comparison — that device lands once and grates twice.
 
-LENGTH. These may run longer than one short clause: up to roughly 90
-characters, and a line may be two sentences. A card that carries real
-information earns its screen time; a card that carries only a mood does not.
+LENGTH — A HARD CEILING OF 55 CHARACTERS PER LINE. Count them. This is not a
+style preference: each card is on screen for about two seconds, an all-caps
+display face is read at roughly fifteen characters a second, and the renderer
+SHRINKS THE TYPE to make a long line fit — so a long card is both unfinishable
+and smaller. A first pass at these rules allowed 90 characters and produced a
+102-character card; nobody could have read it.
+
+Length and information are not in tension, they pull the same way. A named
+thing is shorter than the adjective it replaces: "THE FAR SUPPORT IS TEARING
+LOOSE." says more than "THE BRIDGE IS VAST. THE THREAT IS BIGGER STILL." in
+fewer characters. If a line runs long, it is usually carrying scene-setting
+the pictures already show — cut that, keep the fact.
+
+TAGLINES MUST NOT BE STOCK PHRASES. "HOLD THE LINE", "SHUT IT DOWN", "THE LONG
+WAY HOME", "AGAINST ALL ODDS" and their kin fit any film ever made, which
+means they say nothing about this one. The tagline must only be sayable about
+THIS story — its specific trouble, or its specific hero. Compare: "SOME
+RESCUES ARE QUIET", "MADE THE MESS. OWNS THE MESS.", "SCARED STIFF. STANDING
+ANYWAY." Each belongs to exactly one film.
+
 Still ALL-CAPS, still English.`;
 
 export const WITHHOLD_RULES = `
