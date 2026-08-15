@@ -124,15 +124,37 @@ protections.
     between the danger and what it is protecting. "Looking at" and "standing
     near" are not actions.
 
-(e) DECISIVE MOMENT, NOT A SMEAR. This SUPERSEDES the earlier instruction not
-    to write the middle of a movement, which existed because the old video
-    model could only produce tiny motion safely. Each cut is still ONE still
-    frame, so write the peak instant of an action the way a press photographer
-    freezes it — mid-stride with the front paw planted, braced with the weight
-    visibly thrown onto one side, the lever caught at the bottom of its travel.
-    A dynamic, clearly readable frame is wanted. A blurred, ambiguous
-    in-between is not. The pet's face must still be unobstructed and turned
-    toward the camera.
+(e) EACH "scene" IS A STILL THAT MUST HOLD UP ON ITS OWN — A STABLE, READABLE
+    MOMENT, NOT THE MIDDLE OF A MOVEMENT. Write the pet in a settled, legible
+    pose within its situation: braced, standing, crouched, reaching and holding.
+    Do NOT write a body mid-leap, mid-stride, mid-fall or mid-twist. An earlier
+    version of this rule asked for "the decisive instant" and the images came
+    back with stretched torsos and impossible joints — a single frame drawn of a
+    body in flight has no correct answer, so the generator invents one. The
+    customer approves these images and one of them becomes the poster; they have
+    to be good pictures first.
+
+    A STABLE POSE IS NOT THE SAME AS A RESTED ONE — WRITE A LOADED ONE. The
+    still must be safe to draw, but it must also leave somewhere big to go: the
+    pet crouched and gathered before it springs, braced at the START of a pull
+    with the lever still up, standing at the near end of a corridor it has not
+    crossed yet, one paw lifted at the edge of a jump. All of those are settled,
+    legible poses a still image can hold — and all of them have a large movement
+    waiting in them.
+
+    A pet already sitting comfortably, already arrived, already finished, caps
+    what can follow it: the only movement physically available from a resting
+    pose is a small one, and the clip then looks like a photograph with a moving
+    camera. This was measured — scenes written as "sits braced beside the
+    console" produced actions like "lowers its head briefly then lifts it
+    again". The scene, not the action field, is what set that ceiling.
+
+    THE MOVEMENT GOES IN "action", NOT HERE. Every cut carries a separate
+    one-sentence "action" (see the field's own description) which is handed to
+    the video model and never to the image model. That is where "pulls the lever
+    down" belongs. Keeping them apart is what lets the still be safe and the
+    clip be alive; putting motion in "scene" gets a broken picture, and leaving
+    "action" vague gets a clip that barely moves.
 
 (f) THE THREE INSERTS CARRY PLOT, NOT DECORATION. They must show the
     situation worsening, or the evidence it left — the alarm panel going red,
@@ -264,8 +286,27 @@ export const TREATMENT_TOOL: Anthropic.Tool = {
           "NO OTHER ANIMAL may share the frame with the pet. The pet is drawn by a model trained to make one specific animal THE animal in the picture; a pigeon, a cat or a bird beside it gives that model two candidates for the role and it blends them into one creature. If a scene wants another animal, put it far away, outside a window, or make it imagined (a parade the pet is leading in its own head) — never next to the pet.",
         items: {
           type: "object",
-          properties: { scene: { type: "string" } },
-          required: ["scene"],
+          properties: {
+            scene: { type: "string" },
+            action: {
+              type: "string",
+              description:
+                "ONE thing that happens immediately after this frame, in one short sentence — the movement the video model will perform. " +
+                "This never affects the still image; it is handed only to the video model. " +
+                "NAME THE THING BEING ACTED ON, and where it is: \"pulls the brass lever on the console all the way down with both front paws\", " +
+                "\"runs the length of the catwalk toward the camera and skids to a stop\", \"shoves its shoulder into the buckling door until it gives\". " +
+                "A generic instruction produces almost no movement — this was measured: a prompt naming the actual furniture moved a clip dramatically where an abstract one left it nearly still. " +
+                "EXACTLY ONE MOVEMENT. Do not chain two (no \"runs over AND pulls the lever\"): two instructions in one shot make the model invent a journey between them, and the animal turns away from camera and comes back, which breaks its likeness. " +
+                "It must be physically possible from the pose in `scene`, and it must leave the pet facing the camera at the end. " +
+                "Never describe the camera here — camera moves are fixed by the pipeline. " +
+                "IT MUST BE A BIG MOVEMENT. The body either travels a real distance, or the whole animal visibly strains against something. " +
+                "This is the field's most common failure: everything else in these instructions is about protecting the pet's likeness, so with nothing pulling the other way the model writes something tiny and safe and the finished clip looks like a photograph with a moving camera. " +
+                "A first pass produced \"turns its head toward the viewport and holds perfectly still\" and \"lowers its head briefly then lifts it again\" — four of six cuts were micro-movements. " +
+                "BANNED as the whole action: holding still, staying, remaining, waiting, watching, blinking, breathing, or any head-only movement. " +
+                "The ONE exception is the final cut when the customer's ending is a quiet one — a pet asleep stays asleep, and a small settling movement is the correct answer there.",
+            },
+          },
+          required: ["scene", "action"],
         },
         minItems: 6,
         maxItems: 6,
@@ -482,7 +523,7 @@ export function parseToolInput(raw: unknown): TreatmentResult {
     !Array.isArray(cuts) ||
     cuts.length !== 6 ||
     !cuts.every(
-      (c): c is { scene: string } =>
+      (c): c is { scene: string; action?: string } =>
         !!c && typeof (c as { scene?: unknown }).scene === "string" && (c as { scene: string }).scene.trim().length > 0
     )
   ) {
@@ -562,7 +603,15 @@ export function parseToolInput(raw: unknown): TreatmentResult {
   const bundle: WorldBundle = {
     costume: costume.trim(),
     score: score.trim(),
-    cuts: cuts.map((c) => ({ scene: c.scene.trim() })),
+    // action も持ち越す。ここで落とすと、スキーマで required にしていても
+    // 下流には届かない — 実際 2026-08-15 にそれで一本無駄にした。`action` は
+    // 動画モデルにだけ渡る「その絵の直後に起きること」（film-script.ts の
+    // WorldBundle 参照）。空文字は undefined に潰して、持たない旧レコードと
+    // 同じ「無い」として扱わせる。
+    cuts: cuts.map((c) => ({
+      scene: c.scene.trim(),
+      ...(typeof c.action === "string" && c.action.trim() ? { action: c.action.trim() } : {}),
+    })),
     loglines: {
       ...(premise ? { premise } : {}),
       intro: l.intro.trim(),

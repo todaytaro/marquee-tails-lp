@@ -12,7 +12,8 @@ import { FAL_AUDIO_CAP_MS, FAL_IMAGE_CAP_MS, FAL_POLL_CAP_MS, falDeadline } from
 import { OrderStatus, type Order } from "@/generated/prisma/client";
 import { prisma } from "./db";
 import { transitionOrder } from "./orders";
-import { TITLE_CARDS, resolveWorld, getShotMotion, stripLeadingPetName, type Loglines } from "./film-script";
+import { TITLE_CARDS, resolveWorld, getShotCamera,
+  getShotMotion, stripLeadingPetName, type Loglines } from "./film-script";
 import { publicUrl, scoreFrame, scoreIdentity } from "./identity";
 import {
   reshootCutStill,
@@ -430,14 +431,38 @@ async function generateShotClip(
   orderId: string,
   durationSec: number = SHOT_SECONDS,
   directorNote?: string,
-  endFrameUrl?: string
+  endFrameUrl?: string,
+  // This cut's own storyboard text. SHOT_MOTIONS has to be generic — it is
+  // bolted onto whichever cut i of whichever arc, sight unseen — and a generic
+  // line is exactly what the video model responds to WEAKLY. Measured
+  // 2026-08-15 on one still, changing only this text: "the strain already
+  // gripping the frame reaches its peak" produced a clip that barely moved,
+  // while a prompt naming the actual furniture ("springs up from the captain's
+  // chair, leaps down to the bridge floor") moved dramatically. Seedance wants
+  // a specific, spatially-grounded action.
+  //
+  // Under v2 the still ALREADY contains one (TRAILER-STORY-V3-SPEC.md §2e asks
+  // the storyboard for the decisive instant of an action), so handing that same
+  // sentence to the video model gives it something concrete to finish — and it
+  // cannot contradict the frame, because it is what the frame was drawn from.
+  // Optional: an order predating this, or a caller without the arc to hand,
+  // falls back to SHOT_MOTIONS alone, which is the pre-v2 behaviour.
+  action?: string
 ): Promise<string> {
   // getShotMotion resolves index 5 (the climax) to one of several variants,
   // picked deterministically from orderId — see film-script.ts for why this
   // must be stable across an original run and any later single-shot re-render.
-  const camera = getShotMotion(shotIndex, orderId);
+  // action を持つ注文はカメラだけを添える（被写体が何をするかは action が決める）。
+  // 持たない注文（Preset、および action 以前の DC）は従来どおり SHOT_MOTIONS。
+  // 両方渡すと矛盾する — 2026-08-15、「開始位置から明確に移動しろ」と
+  // 「火花の下で持ち場を守っている」を同時に渡した結果、犬が一度画面外へ出て
+  // 戻る破綻クリップが出た。getShotCamera のコメントに経緯がある。
+  const camera = action?.trim() ? getShotCamera(shotIndex, orderId) : getShotMotion(shotIndex, orderId);
   const atmosphere = WORLD_ATMOSPHERE[world] ?? "";
   const note = directorNote?.trim() ? ` Director's note, follow it strictly: ${directorNote.trim()}.` : "";
+  const actionNote = action?.trim()
+    ? ` What happens in this shot, and the only thing that happens: ${action.trim()}. Perform it fully and at full size, as one continuous movement.`
+    : "";
   // §5.1: when an end frame is supplied AND USE_END_FRAMES is on, the model's
   // only job is to fill the gap between two already-approved stills — say so
   // explicitly so it doesn't treat the camera/atmosphere text above as
@@ -458,7 +483,7 @@ async function generateShotClip(
     // CLIP_NEGATIVE comment for why. Shape constraints ("wrong tail length",
     // "wrong ear shape") stay, phrased positively below ("correct tail
     // length", "correct ear shape").
-    prompt: `${camera}, ${atmosphere}.${note} The pet must stay exactly the same individual throughout this clip — identical face, mouth/tongue color, coat markings and costume, correct tail length, correct ear shape — lively and moving (a wagging tail and moving ears are expected here, not a flaw) but never morphing into a different dog and never changing costume. Photorealistic live-action footage only: no deformed face, extra limbs, or warped anatomy; no cartoon, cel shading, 3D render, CGI, illustration, or stylized animation; no on-screen text or watermark.${interpolationNote}`,
+    prompt: `${camera}, ${atmosphere}.${actionNote}${note} This is live-action footage, not a photograph with a moving camera: the animal is in continuous visible motion from the first frame to the last, and its body travels within the frame. The pet must stay exactly the same individual throughout this clip — identical face, mouth/tongue color, coat markings, costume and tail length — lively and moving, but never morphing into a different dog and never changing costume. A wagging tail and ears that move with the body are expected here, not a flaw. The ears do, however, keep exactly the set and shape they have in the reference frame for the whole clip: folded ears stay folded, drop ears stay dropped. They may swing and flick with the motion, but must never prick up, stand erect, rotate upright, or change shape — a change of ear carriage reads as a different dog even when everything else holds. Photorealistic live-action footage only: no deformed face, extra limbs, or warped anatomy; no cartoon, cel shading, 3D render, CGI, illustration, or stylized animation; no on-screen text or watermark.${interpolationNote}`,
   };
   if (USE_END_FRAMES && endFrameUrl) input.end_image_url = publicUrl(endFrameUrl);
   return submitClip(SEEDANCE_MODEL, input, 15 * 60 * 1000);
@@ -551,11 +576,12 @@ async function generateGatedClip(
   orderId: string,
   identityRefUrl?: string,
   directorNote?: string,
-  endFrameUrl?: string
+  endFrameUrl?: string,
+  action?: string // this cut's one action — see generateShotClip's `action`
 ): Promise<{ url: string; score: number }> {
   let best = { url: "", score: -1 };
   for (let attempt = 0; attempt <= MAX_CLIP_REROLLS; attempt++) {
-    const url = await generateShotClip(stillUrl, world, shotIndex, orderId, SHOT_SECONDS, directorNote, endFrameUrl);
+    const url = await generateShotClip(stillUrl, world, shotIndex, orderId, SHOT_SECONDS, directorNote, endFrameUrl, action);
     const score = identityRefUrl ? await scoreClip(url, identityRefUrl) : 100;
     console.log(`[film] shot ${shotIndex} clip attempt ${attempt}: identity ${score}`);
     if (score > best.score) best = { url, score };
@@ -1928,9 +1954,10 @@ export function generateShotClipForTest(
   shotIndex: number,
   orderId: string,
   durationSec: number,
-  endFrameUrl?: string
+  endFrameUrl?: string,
+  action?: string
 ): Promise<string> {
-  return generateShotClip(stillUrl, world, shotIndex, orderId, durationSec, undefined, endFrameUrl);
+  return generateShotClip(stillUrl, world, shotIndex, orderId, durationSec, undefined, endFrameUrl, action);
 }
 
 /**
@@ -2083,7 +2110,7 @@ export async function runFilmGeneration(order: Order): Promise<void> {
     const endFrameUrls = art.endFrameUrls ?? [];
     const gated = await Promise.all(
       shotStillUrls.map((s, i) =>
-        generateGatedClip(s, world, i, order.id, identityGateRef, undefined, endFrameUrls[i] ?? undefined)
+        generateGatedClip(s, world, i, order.id, identityGateRef, undefined, endFrameUrls[i] ?? undefined, resolved.actions[i] ?? undefined)
       )
     );
     art = await saveArtifacts(order.id, {

@@ -460,11 +460,11 @@ export const LOGLINES: WorldMap<Required<Loglines>> = {
  * isn't the same template.
  */
 export const SHOT_MOTIONS: string[] = [
-  "whatever the still has already set in motion breaks free of its held instant, the pet committing to it fully with its weight following all the way through; slow cinematic push-in",
-  "the pet's weight checks for a beat and then drives forward through whatever brace or pause the frame has caught it in, committing harder the second time; camera drifts slowly forward",
-  "whatever ground the pet is already covering keeps unwinding at full speed, the motion carrying through until its legs find solid footing again; slow steady push-in",
-  "the strain already gripping the frame reaches its peak and breaks through, muscle and weight transferring fully into whatever is being pushed, pulled, or held; slow cinematic rise",
-  "the pet pushes on past the hardest point of whatever the frame already has it doing, weight and strain still transferring through with the outcome not yet decided; gentle push-in toward the face",
+  "the pet drives its whole body forward and covers real ground toward the lens, legs reaching and pushing off, shoulders and chest working, coat and whiskers lifting with the speed; slow cinematic push-in",
+  "the pet moves fast and decisively, its whole body travelling a clear distance across the frame, paws leaving the ground and striking it again, loose fur thrown by the motion, then planting hard; camera drifts slowly forward",
+  "the pet throws its weight into the effort, forelegs extending and the body shifting a real distance under the strain, muscles visibly working, breath and coat moving the whole time; slow steady push-in",
+  "the pet surges into full motion, body rising and reaching, paws working hard against the ground or the surface in front of it, the whole animal clearly displaced from where it started; slow cinematic rise",
+  "the pet drives the movement through to its finish, limbs extending fully and the body carried well past where it began, fur streaming and whiskers swept back, chest heaving as it lands; gentle push-in toward the face",
 ];
 
 /**
@@ -488,9 +488,9 @@ export const SHOT_MOTIONS: string[] = [
  * "unresolved energy" counterpart rather than being stretched to cover it.
  */
 export const SHOT_MOTIONS_FINALE_POOL: string[] = [
-  "whatever repose the frame has already settled into deepens further, its breathing slowing and its weight sinking fully into the surface beneath it as the last tension leaves its body; slow upward crane",
-  "the pet allows one small contented movement to finish — a tail giving a single unhurried thump, or a paw curling a fraction tighter — before settling fully still; slow push-in to a hero close-up",
-  "whatever alertness is still left in the frame eases out of the pet's body, ears and whiskers relaxing as it lets go of the last of the scene's tension; camera eases back to reveal the scene",
+  "the pet lowers its whole body down and settles, weight sinking, limbs folding under it, coat shifting as it turns once and resettles, chest visibly rising and falling; slow upward crane",
+  "the pet makes one full movement — stretching a leg right out, turning its body, tail sweeping a clear arc — before easing down into stillness, breathing plainly visible; slow push-in to a hero close-up",
+  "the pet relaxes out of its pose with real movement, head lowering and shoulders dropping, one paw sliding forward across the surface, tail giving several full sweeps; camera eases back to reveal the scene",
 ];
 
 /**
@@ -518,6 +518,43 @@ export function stableHash(seed: string): number {
  * ending varies between orders but never between an order's original render
  * and any later single-shot re-render of it.
  */
+/**
+ * カメラの動きだけ。**被写体には一切触れない。**
+ *
+ * `action`（そのカット固有の動作）を動画モデルに渡せるようになった注文で、
+ * SHOT_MOTIONS の代わりに使う。理由は 2026-08-15 に実測した事故:
+ * SHOT_MOTIONS[3] が「開始位置から明確に移動していること」と要求する一方、
+ * そのカットのシーンは「火花の下で持ち場を守っている」だった。モデルは矛盾を
+ * 「一度どこかへ行って戻る」で解決し、犬が後ろを向き、体が破綻した1コマが出た。
+ *
+ * 被写体が何をするかは絵コンテ（action）が決め、カメラが何をするかはカット番号が
+ * 決める。役割が重ならないので、あの矛盾は構造的に起きない。
+ *
+ * 添字は SHOT_MOTIONS と同じ意味（0-4 が固定、5 以降はプールから安定選択）。
+ */
+export const SHOT_CAMERA: string[] = [
+  "slow cinematic push-in",
+  "camera drifts slowly forward, settling as the movement lands",
+  "slow steady push-in",
+  "slow cinematic rise",
+  "gentle push-in toward the face",
+];
+
+export const SHOT_CAMERA_FINALE_POOL: string[] = [
+  "slow upward crane",
+  "slow push-in to a hero close-up",
+  "camera eases back to reveal the scene",
+];
+
+/** getShotMotion と同じ安定選択。同じ注文は毎回同じカメラになる。 */
+export function getShotCamera(shotIndex: number, seed: string): string {
+  if (shotIndex >= 5) {
+    const pool = SHOT_CAMERA_FINALE_POOL;
+    return pool[stableHash(seed) % pool.length];
+  }
+  return SHOT_CAMERA[shotIndex] ?? SHOT_CAMERA[0];
+}
+
 export function getShotMotion(shotIndex: number, seed: string): string {
   if (shotIndex >= 5) {
     const pool = SHOT_MOTIONS_FINALE_POOL;
@@ -880,7 +917,16 @@ export function getLoglines(world: string, personality: string | null, petName?:
 export type WorldBundle = {
   costume: string; // ONE locked costume, worn in every shot (no costume words in scenes)
   score: string; // music prompt for the original score
-  cuts: { scene: string }[]; // EXACTLY 6 action/setting beats — NO costume words
+  // `scene` は**その1枚の絵**。安定して読める一瞬を描く（動作の途中ではない）。
+  // `action` は**その絵の直後に起きること**を1つだけ書いたもので、静止画には
+  // 一切影響せず、動画モデルにだけ渡る。2026-08-15 の実測で分かれた役割:
+  //   ・静止画に動作の途中を書かせると解剖が壊れる（胴が伸びる、姿勢が破綻する）
+  //   ・動画モデルは「場所と対象が特定された動作」でのみ大きく動く
+  // つまり元の「動きの途中を書くな」は静止画としては正しく、足りなかったのは
+  // 動きを供給する担当だった。`action` がその担当。
+  // OPTIONAL: これ以前の generatedScript は持たない。無ければ SHOT_MOTIONS
+  // だけで動く（v2 以前と同じ挙動）。
+  cuts: { scene: string; action?: string }[];
   // Trailer text beats; {name} allowed. premise/stinger are OPTIONAL (see
   // Loglines doc) — absent on older generatedScript records, or when Claude's
   // output omits them despite the system prompt asking firmly for both
@@ -927,6 +973,9 @@ export type WorldBundle = {
 export type ResolvedWorld = {
   costume: string;
   arc: string[];
+  // arc と添字が一致する、カットごとの動作。DC は Claude が書く。Preset は
+  // まだ持たない（全 null）ので SHOT_MOTIONS のフォールバックで動く。
+  actions: (string | null)[];
   score: string;
   // Same premise/stinger-optional shape as WorldBundle.loglines above — the
   // film pipeline is the single place that decides what "absent" means for
@@ -969,6 +1018,7 @@ export function resolveWorld(order: Order): ResolvedWorld {
     return {
       costume: bundle.costume,
       arc: bundle.cuts.map((c) => c.scene),
+      actions: bundle.cuts.map((c) => c.action?.trim() || null),
       score: bundle.score,
       loglines: {
         premise: fillOpt(bundle.loglines.premise),
@@ -995,6 +1045,9 @@ export function resolveWorld(order: Order): ResolvedWorld {
   return {
     costume: getCostume(world),
     arc: getArc(world, order.personality),
+    // Preset の 72 本はまだ書かれていない（TRAILER-STORY-V3-SPEC.md）。
+    // null は「SHOT_MOTIONS の従来動作で撮れ」の意味。
+    actions: [null, null, null, null, null, null],
     score: WORLD_SCORES[world] ?? WORLD_SCORES.deepspace,
     loglines: getLoglines(world, order.personality, order.petName ?? undefined),
     inserts: pickWorldInserts(world, order.id),
