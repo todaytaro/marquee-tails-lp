@@ -82,7 +82,146 @@ Follow these rules strictly:
    - "loglinesJa" is an INTERNAL field — a Japanese reading of the cards for the operator's own review screen. It never reaches the film or the customer, so it does not contradict the English rule above. Fill it in for every card you wrote.
    - "treatmentText" is the ONE customer-facing field, and its language MUST MIRROR THE BRIEF the customer actually wrote. An ENGLISH brief gets an ENGLISH treatmentText. A Japanese brief gets a Japanese treatmentText. A Spanish brief gets a Spanish one. Do NOT default to any particular language — read the brief and answer in the language it is written in. This is the field the customer reads and approves, so getting it wrong hands them a document they cannot read.
 
-When revising an existing treatment (a prior WorldBundle plus the customer's requested change will be provided), apply ONLY the requested change where reasonable and keep everything else — world, costume, tone, unaffected cuts — consistent with the prior draft unless the request implies a bigger change. The language rule above (rule 5) applies identically when revising.`;
+When revising an existing treatment (a prior WorldBundle plus the customer's requested change will be provided), apply ONLY the requested change where reasonable and keep everything else — world, costume, tone, unaffected cuts — consistent with the prior draft unless the request implies a bigger change. The language rule above (rule 5) applies identically when revising.
+
+---
+
+6. THE SIX CUTS MUST BE AN EVENT, NOT SIX VIEWS OF ONE PLACE.
+
+This is the single most common failure of this system, and it is why some
+finished trailers leave a viewer unable to say what the film was about. Six
+beautiful cuts are produced in which nothing happens: the pet stands
+somewhere, sits somewhere, looks up at something, and the situation in cut 6
+is indistinguishable from cut 1. The loglines then promise a story the
+pictures never deliver. A real trailer earns "I want to see this movie" from
+what is ON SCREEN, not from its captions.
+
+Rules 1-5 above are all about protecting the pet's likeness. They stay
+exactly as they are. This rule is about whether anything HAPPENS inside those
+protections.
+
+(a) SOMETHING MUST ARRIVE, BREAK, OR CLOSE IN. Across the six cuts the
+    situation must visibly change. At least TWO of the six must show the
+    CAUSE of the story in frame together with the pet — the thing going
+    wrong, the thing approaching, or the damage it has already done. Because
+    no other animal and no person may share the frame — see the "cuts" field
+    description — the antagonist must be environmental or mechanical: a hull
+    breach venting to space, a wall of water down a corridor, fire taking a
+    doorway, ice splitting underfoot, a storm front, a machine tearing itself
+    apart, a door buckling inward. Name it concretely and put it in the frame.
+
+(b) EVERY CONSECUTIVE PAIR MUST DIFFER IN SITUATION, NOT ONLY IN CAMERA
+    POSITION. Ask of cuts 1→2, 2→3, and so on: has anything changed besides
+    where the pet is standing? If the answer is no, rewrite that cut. Moving
+    the pet to a different corner of the same untouched room is not a beat.
+
+(c) AT LEAST TWO DISTINCT LOCATIONS within the world. Six cuts in a single
+    unchanged room reads as one photograph taken six times.
+
+(d) THE PET MUST ACT, NOT ONLY REACT. At least two cuts show the pet doing
+    something with physical consequence — bracing against a door, hauling a
+    lever down, running toward the thing rather than away, planting itself
+    between the danger and what it is protecting. "Looking at" and "standing
+    near" are not actions.
+
+(e) DECISIVE MOMENT, NOT A SMEAR. This SUPERSEDES the earlier instruction not
+    to write the middle of a movement, which existed because the old video
+    model could only produce tiny motion safely. Each cut is still ONE still
+    frame, so write the peak instant of an action the way a press photographer
+    freezes it — mid-stride with the front paw planted, braced with the weight
+    visibly thrown onto one side, the lever caught at the bottom of its travel.
+    A dynamic, clearly readable frame is wanted. A blurred, ambiguous
+    in-between is not. The pet's face must still be unobstructed and turned
+    toward the camera.
+
+(f) THE THREE INSERTS CARRY PLOT, NOT DECORATION. They must show the
+    situation worsening, or the evidence it left — the alarm panel going red,
+    water climbing a stairwell, a countdown, torn wreckage. A pretty
+    atmospheric fragment that would fit equally well in any story of this
+    world is wasted screen time; the trailer only has three of these.
+
+(g) THE RESOLUTION MUST BE EARNED ON SCREEN — IN AN EARLIER CUT, NOT THE LAST
+    ONE. If the story resolves, some cut must visibly show the thing that was
+    wrong being fixed, sealed, held, or survived; it must not be resolved only
+    in the loglines. Put that beat at cut 4 or 5 of 6.
+
+(h) THE FINAL CUT IS THE CUSTOMER'S ENDING, AND IT IS NOT NEGOTIABLE. The
+    brief states how the story ends. Write that ending, in the customer's own
+    terms, as the last cut — even when it is quiet, still, sleeping, or
+    otherwise "undramatic". Rule (g) is satisfied by the resolution beat that
+    comes BEFORE it, never by replacing the ending with something more
+    conclusive-looking. A brief that ends with the pet asleep in a chair ends
+    with the pet asleep in that chair. If the ending as written seems to
+    undercut the drama, that is the customer's call and it stands.
+
+---
+
+7. THE SIX TITLE CARDS MUST CARRY INFORMATION, NOT ONLY MOOD.
+
+A viewer has no source of story except these six lines and six shots of a pet
+in a beautiful place. The cards have to do the telling. The failure to avoid
+is six lines of pure atmosphere and scale — "THE BRIDGE IS VAST. THE THREAT IS
+BIGGER STILL." — which sounds like a trailer while saying nothing: afterwards
+a viewer cannot name the threat, the goal, or the cost of failing.
+
+EACH OF THE SIX HAS A DIFFERENT JOB. Do not write six variations of the
+premise.
+
+  premise  THE SITUATION AND THE THREAT, NAMED CONCRETELY. What is wrong and
+           what specifically is causing it. Not "danger closes in" — the hull
+           is breaching, the flood has taken the lower deck, the fire has the
+           stairs.
+  intro    WHO THE HERO IS, and why it is moving or absurd that this falls to
+           them. This is where the pet's smallness or ordinariness earns its
+           place — ONCE, not four times.
+  turn     WHAT GOES WRONG, or what raises the price. Something must HAPPEN in
+           this line; it is an event, not an observation.
+  rise     WHAT THE HERO DECIDES TO DO ABOUT IT. A choice or an action.
+  tagline  The title line. This is the ONLY one that may be pure poetry.
+  stinger  The closing joke.
+
+NEVER NAME THE SPECIES OR BREED. No "cat", "dog", "puppy", "kitten", "pup",
+"hound", "terrier", or any breed name may appear in any of the six lines. The
+species is never supplied to you — you are given only the pet's name and the
+customer's brief — so a wrong guess prints the wrong animal over the
+customer's own pet, on a card they paid for. Refer to the star by "{name}",
+by role or stature ("THE SMALLEST OFFICER", "THE ONLY ONE STILL AT THE
+HELM"), or by a body part the picture already shows ("PAWS").
+
+CONCRETE BEATS ABSTRACT. Prefer a named thing, a number, a deadline or a
+consequence over an adjective. "SIXTY SECONDS OF AIR LEFT" outranks "TIME IS
+RUNNING OUT". AT MOST ONE of the six lines may be built on a size or scale
+comparison — that device lands once and grates twice.
+
+LENGTH — A HARD CEILING OF 55 CHARACTERS PER LINE. Count them. This is not a
+style preference: each card is on screen for about two seconds, an all-caps
+display face is read at roughly fifteen characters a second, and the renderer
+SHRINKS THE TYPE to make a long line fit — so a long card is both unfinishable
+and smaller. A first pass at these rules allowed 90 characters and produced a
+102-character card; nobody could have read it.
+
+Length and information are not in tension, they pull the same way. A named
+thing is shorter than the adjective it replaces: "THE FAR SUPPORT IS TEARING
+LOOSE." says more than "THE BRIDGE IS VAST. THE THREAT IS BIGGER STILL." in
+fewer characters. If a line runs long, it is usually carrying scene-setting
+the pictures already show — cut that, keep the fact.
+
+TAGLINES MUST NOT BE STOCK PHRASES. "HOLD THE LINE", "SHUT IT DOWN", "THE LONG
+WAY HOME", "AGAINST ALL ODDS" and their kin fit any film ever made, which
+means they say nothing about this one. The tagline must only be sayable about
+THIS story — its specific trouble, or its specific hero. Compare: "SOME
+RESCUES ARE QUIET", "MADE THE MESS. OWNS THE MESS.", "SCARED STIFF. STANDING
+ANYWAY." Each belongs to exactly one film.
+
+Still ALL-CAPS, still English.`;
+// NOT INCLUDED: a "withhold the outcome / stop at the peak" rule (WITHHOLD_RULES
+// in scripts/story-rules.ts, formerly drafted as rule 10). Tried twice in
+// scripts/story-test.ts — both times the model wrote cut 3 as the peak and cut 4
+// as the resolution anyway, even when that exact failure was named and forbidden.
+// The pull to finish the story is stronger than this prompt can override, so the
+// withhold is now enforced deterministically by reordering the trailer EDL
+// instead (lib/film-pipeline.ts) rather than left here as a rule that doesn't work.
+// See TRAILER-STORY-V3-SPEC.md §4 for the full writeup.
 
 export const TREATMENT_TOOL: Anthropic.Tool = {
   name: "submit_treatment",
@@ -118,7 +257,7 @@ export const TREATMENT_TOOL: Anthropic.Tool = {
         type: "array",
         description:
           "EXACTLY 6 action/setting beats, in story order. No costume words. " +
-          "Each beat becomes a SINGLE STILL FRAME, which a video model then animates — so do NOT write the middle of a movement. " +
+          "Each beat becomes a SINGLE STILL FRAME, which a video model then animates — so write the DECISIVE instant of an action (see system rule 6e) — the peak of a movement, clearly readable as a single frame, never a blurred in-between. " +
           "\"Mid-pounce\", \"sliding across\", \"spinning\", \"running full tilt\", \"in a blur\" ask an image model for a body caught between poses, which is where it produces contorted, unreadable anatomy, and they ask the one stage that cannot animate anything. " +
           "Write the readable instant just before or after instead: not \"sliding across the street after a rolling ball\" but \"one paw on the ball it has finally cornered\". The energy survives, and the video stage still has somewhere to go. " +
           "NOTHING may come between the camera and the pet's face — no blinds, bars, mesh, glass, smoke, or fabric draped over it. Anything crossing the face costs the fur texture and eye shape the customer is paying to recognize. A scene that wants blinds opens them; a scene that wants an oversized coat lets it pool on the floor rather than swallow the animal. " +
@@ -182,7 +321,7 @@ export const TREATMENT_TOOL: Anthropic.Tool = {
       },
       inserts: {
         type: "array",
-        description: "OPTIONAL: exactly 3 atmospheric scene-only fragments for silent B-roll cutaways — NO animals, NO people, NO pets, ENGLISH. Omit this field entirely if nothing fits naturally; never invent weak filler just to populate it.",
+        description: "OPTIONAL: exactly 3 atmospheric scene-only fragments for silent B-roll cutaways — NO animals, NO people, NO pets, ENGLISH. Omit this field entirely if nothing fits naturally; never invent weak filler just to populate it. These must advance or evidence the story (system rule 6f) — the alarm, the flooding, the wreckage — not generic pretty scenery.",
         items: { type: "string" },
         minItems: 3,
         maxItems: 3,

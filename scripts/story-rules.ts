@@ -84,6 +84,13 @@ protections.
     with the pet asleep in that chair. If the ending as written seems to
     undercut the drama, that is the customer's call and it stands.`;
 
+// Numbering below (7/9/10) is correct in this file's own standalone context
+// (this constant is read on its own by story-test.ts/preset-story.ts/
+// preset-cards.ts). The copy folded into lib/claude-script.ts's SYSTEM_PROMPT
+// is renumbered to follow that file's existing rules 1-5 (STORY_RULES -> 6,
+// CARD_RULES -> 7) — see the numbering note in TRAILER-STORY-V3-SPEC.md /
+// the production file itself. Keep the RULE TEXT identical between the two;
+// only the numerals and internal "system rule Ne/Nf" cross-references differ.
 export const CARD_RULES = `
 
 ---
@@ -111,6 +118,14 @@ premise.
   rise     WHAT THE HERO DECIDES TO DO ABOUT IT. A choice or an action.
   tagline  The title line. This is the ONLY one that may be pure poetry.
   stinger  The closing joke.
+
+NEVER NAME THE SPECIES OR BREED. No "cat", "dog", "puppy", "kitten", "pup",
+"hound", "terrier", or any breed name may appear in any of the six lines. The
+species is never supplied to you — you are given only the pet's name and the
+customer's brief — so a wrong guess prints the wrong animal over the
+customer's own pet, on a card they paid for. Refer to the star by "{name}",
+by role or stature ("THE SMALLEST OFFICER", "THE ONLY ONE STILL AT THE
+HELM"), or by a body part the picture already shows ("PAWS").
 
 CONCRETE BEATS ABSTRACT. Prefer a named thing, a number, a deadline or a
 consequence over an adjective. "SIXTY SECONDS OF AIR LEFT" outranks "TIME IS
@@ -200,9 +215,14 @@ export function storyTool(): Anthropic.Tool {
     );
   }
   const inserts = props?.inserts;
-  if (inserts?.description) {
-    inserts.description +=
-      " These must advance or evidence the story (system rule 7f) — the alarm, the flooding, the wreckage — not generic pretty scenery.";
+  const insertsAddendum =
+    " These must advance or evidence the story (system rule 7f) — the alarm, the flooding, the wreckage — not generic pretty scenery.";
+  // Idempotent: once lib/claude-script.ts's TREATMENT_TOOL carries these edits
+  // directly (TRAILER-STORY-V3-SPEC.md), the .replace() above becomes a no-op
+  // (the old string is gone) but this += would otherwise double the sentence
+  // on every call, since it starts from the already-edited production literal.
+  if (inserts?.description && !inserts.description.includes(insertsAddendum.trim())) {
+    inserts.description += insertsAddendum;
   }
   return tool;
 }

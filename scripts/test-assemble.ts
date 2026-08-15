@@ -361,8 +361,17 @@ async function main() {
     console.log("\n=== {name} substitution in premise/stinger (TRAILER-STORY-SPEC §6 item 6) ===");
     // Preset path: getLoglines fills ALL 12 static sets, including the two new
     // fields (film-script.ts's getLoglines).
-    const presetFilled = getLoglines("noir", "brave", "Rex");
-    assertTrue("preset stinger substitutes {name}", presetFilled.stinger === "REX STILL CAN'T REACH THE DOORKNOB.");
+    // noir/TIMID, not noir/brave. What is under test is that getLoglines
+    // substitutes {name} in the two NEW logline fields for a preset order —
+    // so the fixture has to be a set whose stinger actually contains the
+    // token. The v3 rewrite (TRAILER-STORY-V3-SPEC.md §3) left only 4 of the
+    // 12 stingers using {name} at all: the old set opened eleven of twelve
+    // with "{name} STILL ...", which read as one joke in twelve costumes, and
+    // the replacements deliberately vary their shape instead. Moving the
+    // fixture keeps the assertion exactly as strong; pinning it to whichever
+    // set happens to be first is what made it brittle.
+    const presetFilled = getLoglines("noir", "timid", "Rex");
+    assertTrue("preset stinger substitutes {name}", presetFilled.stinger === "THE WATER LOST. REX STILL AVOIDS THE BATHTUB.");
     assertTrue("preset premise has no leftover {name} token", !presetFilled.premise.includes("{name}"));
     // Custom/Director's Cut path: resolveWorld's fill() must reach premise AND
     // stinger on a WorldBundle, same as it already does for intro/turn/rise/tagline.

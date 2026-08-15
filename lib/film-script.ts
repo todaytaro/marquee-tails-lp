@@ -70,15 +70,25 @@ type WorldMap<T> = Record<string, Record<Personality, T>>;
  *
  * THREE RULES, all learned from real storyboards the owner rejected.
  *
- * 1. DON'T WRITE MOTION INTO A STILL. These beats generate a single frame;
- *    Kling adds the movement afterwards from that frame. A beat that says
- *    "mid-pounce", "sliding across", "spinning", "in a blur of paws" asks an
- *    image model for the middle of a movement, which is where diffusion
- *    models produce contorted, unreadable bodies — and it asks for it at the
- *    one stage that cannot animate anything. Write the readable instant just
- *    before or after instead: not "sliding after a rolling donut" but "one paw
- *    on the donut it has finally cornered". The energy survives; the anatomy
- *    does too, and the video stage still has somewhere to go.
+ * 1. WRITE THE DECISIVE INSTANT, NOT THE BLUR. These beats generate a single
+ *    frame; the video model animates from that frame afterwards. This rule
+ *    used to ban any hint of motion at all ("mid-pounce", "sliding across",
+ *    "spinning", "in a blur of paws") because asking an image model for the
+ *    true middle of a movement is where diffusion produces contorted,
+ *    unreadable bodies — at the one stage that cannot animate anything.
+ *    TRAILER-STORY-V3-SPEC.md §2(e) explicitly overwrites that ban: the
+ *    Director's Cut trailer this rule produced never depicted an event
+ *    happening — six shots of standing, sitting, looking, standing, standing,
+ *    sleeping — because nothing here asked for one. A beat may now name the
+ *    decisive, photojournalistic peak of an action already underway — not
+ *    "sliding after a rolling donut" but "one paw on the donut it has finally
+ *    cornered" (that example was always compliant); now also things like
+ *    "caught mid-run, front paws off the ground" or "rears up on its hind
+ *    legs, both front paws braced against the wheel's rim". What's still
+ *    banned is the blurred, transitional middle (spinning, sliding, a blur of
+ *    paws) — diffusion still can't resolve that — the peak itself must be a
+ *    held, readable pose. The energy survives; the anatomy does too, and the
+ *    video stage still has somewhere to go.
  *
  * 2. NOTHING BETWEEN THE CAMERA AND THE FACE. Same principle as
  *    WORLD_COSTUMES' no-helmet rule, applied to the scene: venetian blinds,
@@ -104,104 +114,104 @@ type WorldMap<T> = Record<string, Record<Personality, T>>;
 export const FILM_SCRIPTS: WorldMap<string[]> = {
   deepspace: {
     brave: [
-      "standing tall on the starship bridge, chin high, red alert lights pulsing along the walls",
-      "at the helm console slamming a glowing control with one paw, star-chart holograms reflecting in its eyes",
-      "bracing in the engine bay as sparks rain down, leaning into the danger",
-      "gripping the hull on a spacewalk while a storm of asteroids tumbles past in the black",
-      "planting a small flag on an alien ridge, twin suns blazing, wind rippling its fur, low heroic angle",
-      "at the great viewport as the nebula parts to reveal a new galaxy, bathed in violet light, triumphant",
+      "In the engine bay, a coolant conduit has ruptured overhead, spraying a fan of glittering frozen vapor across the room as warning lights flick on along the walls; the small dog stands frozen mid-step, ears up, staring at the spreading white cloud",
+      "In the same engine bay, the vapor has thickened into a rolling frost bank creeping across the floor plates and climbing a support strut, ice already crusting a nearby control box; the pet backs half a stride away, one paw lifted off the frosted deck",
+      "In a corridor leading from the engine bay, the frost has raced ahead along the floor seam and the console lights down the hall are flipping red one by one into the distance; the pet is caught mid-run, front paws off the ground, chasing the spreading line",
+      "Back at the engine bay's main coolant valve, its wheel half-frozen shut, the pet rears up on its hind legs with both front paws braced hard against the wheel's rim, the frost cloud still pouring out beside it, muscles bunched with effort",
+      "At that same valve, the wheel now turned a further quarter-turn under the pet's braced weight, ice cracking off in shards and the vapor jet visibly thinning to a wisp, the pet still straining with one paw pressed flat against the metal",
+      "In the now-quiet engine bay, frost melting to droplets on the walls and the lights steady, the pet lies curled and settled on a folded silver thermal blanket in the corner, eyes closed, breathing slow",
     ],
     easygoing: [
-      "drifting serenely in zero gravity inside the warm-lit cabin, fur floating softly",
-      "curled by the porthole watching moons drift past, eyes half closed and content",
-      "relaxing in the pilot seat as a snack floats by in zero-g, cozy cockpit glow",
-      "tethered and calm on a gentle spacewalk, gazing at a peaceful blue planet below",
-      "lying on the warm hull beneath rippling auroras, paws crossed, unbothered",
-      "small and calm against the vast glowing nebula through the viewport, quiet wonder",
+      "a small potted seedling in a cracked glass greenhouse dome sits on a windowsill shelf, the pet paused beside it with one paw braced on the shelf edge, frost creeping across the dome's outer pane",
+      "the pet nose to nose with the cracked dome, breath fogging faintly, a thin line of frost spreading further across the glass behind the seedling",
+      "the pet dragging a folded silver thermal blanket across the corridor floor by its corner, the greenhouse dome visible ahead through an open hatchway, frost now covering half the glass",
+      "the pet rearing up on hind legs against the shelf, both front paws pressed flat against the thermal blanket half-draped over the cracked dome, muscles set, the seedling still exposed at one corner",
+      "the pet standing back with the blanket now fully sealed edge to edge over the dome with both paws pressing the last corner down, warm amber light glowing faintly from beneath the covered shelf",
+      "the pet curled asleep on a folded jacket beside the softly glowing covered dome, the corridor lights dimmed to a warm night setting",
     ],
     playful: [
-      "front paws closed around a floating glove in the zero-gravity cabin, hind legs drifting, delighted with itself",
-      "sitting square in the captain's chair mid-swivel, ears still settling, console buttons lighting up around it",
-      "peeking upside-down into frame from the top of the airlock hatch, tongue out",
-      "landing on the alien desert after a low-gravity bounce, dust still rising around its paws",
-      "nose smudged flat against the cold porthole glass, stars reflected around a grin",
-      "riding a cargo sled down the loading ramp under the nebula sky, ears streaming back",
+      "in the ship's cargo bay, one paw batting a loose zero-gravity storage canister off its shelf clamp, the canister already tipping free in midair",
+      "the canister cracked open against a support strut, a cloud of silvery magnetic ball-bearings spilling out and bouncing across the floor in every direction",
+      "in the corridor outside cargo bay, skidding on the scattered bearings underfoot, one back leg thrown out sideways for balance as a bearing rolls into an open floor grate",
+      "sparks spitting from the floor grate where a bearing has jammed the mechanism, the pet's two front paws braced hard against the grate's edge, pressing it back down",
+      "in the corridor, both front paws pinning the grate flush to the floor, chest pressed low to the deck, sparks reduced to a last few dying flickers beside its face",
+      "curled up triumphantly atop the now-sealed floor grate, one silvery bearing clutched between both front paws like a trophy, tail relaxed and eyes bright",
     ],
     timid: [
-      "peeking around a dim corridor corner, ears low, eyes huge in the emergency light",
-      "hiding behind the pilot seat with only eyes and ears showing over the backrest",
-      "taking one careful step into the airlock, breath clouding in the cold air",
-      "clinging to the tether on a first spacewalk, wide-eyed, the planet turning below",
-      "walking across the pale grey lunar surface under harsh, neutral sunlight, small footprints trailing in the dust behind it, ears lifting with quiet new resolve, Earth hanging small and blue in the black sky above — no fantasy color, no sunset, true photographic moon-mission lighting",
-      "standing tall at the viewport facing the great nebula head-on, no longer afraid",
+      "in the ship's cramped comms closet, the pet frozen still, ears low, as a wall-mounted speaker grille sparks and crackles with a garbled distress signal looping over and over",
+      "backed against a supply locker in a narrow corridor, one paw lifted off the floor, staring at a service hatch across from it where the metal is bowing inward with a slow groaning dent",
+      "in the engine bay, the pet pressed flat behind a support strut as a loose overhead cable whips sparks across the floor in front of the open path forward",
+      "close on the pet's paw pressed flat against a recessed wall panel, the comms hatch beside it sealed shut and its warning strip switched from red to steady amber",
+      "in the corridor, the pet mid-step over the bowed and now-buckled hatch threshold, one front paw planted past it on the far side, body leaning forward into the dark beyond",
+      "curled on the pilot's seat cushion on the bridge, eyes closed, the viewport beyond showing calm stars, the ship's console lights glowing soft and steady",
     ],
   },
   storybook: {
     brave: [
-      "drawing a tiny sword from a stone in the castle courtyard, banners flying at dawn",
-      "planted at the crest of a stone bridge over a river gorge, one front paw forward, wind in its coat",
-      "standing guard on the castle wall at dusk, silhouetted against the watch-fires",
-      "facing the dark mouth of an ancient forest cave, standing its ground as fireflies scatter",
-      "standing firm in the deep woods as autumn leaves whirl past, god-rays breaking through",
-      "on the castle balcony as fireworks bloom over the kingdom, head held high, triumphant",
+      "on the stone bridge over the river gorge, one plank already split and hanging, front paws planted at the very edge as the far support post leans outward over the mist",
+      "the bridge's rope line snapping loose in a spray of frayed fiber, the whole span tilting a visible degree further, the pet's weight thrown backward bracing against a stone post",
+      "in the wildflower meadow at the gorge's near end, teeth closed around a thick coil of spare rope pulled taut from a supply cart, hind legs dug into the dirt",
+      "back on the tilting bridge, the rope now looped hard around a jutting rock, the pet's whole body leaning against the strain with the broken plank half-lifted back into place",
+      "shoulder driven into the last loose plank, front paws braced flat against the stone rail, the gap beneath it nearly closed but the post still leaning, outcome unresolved",
+      "curled asleep on a cushion of banners in the castle courtyard at dusk, the mended bridge visible small in the distance, eyes closed, breathing slow",
     ],
     easygoing: [
-      "dozing on a velvet cushion in the royal library, a storybook open beneath one paw",
-      "wandering a sunlit wildflower meadow below the castle, petals drifting",
-      "sitting at the edge of the royal pond among the lily pads, watching its own reflection, golden afternoon",
-      "settled on a picnic blanket in the orchard with a tray of tiny cakes, one paw hovering over its choice",
-      "riding a slow wooden cart along a country lane, chin on the rail",
-      "watching the sunset gild the whole kingdom from the castle balcony, serene",
+      "the pet trotting along a wildflower meadow path at golden late afternoon, a paper lantern balloon on a long ribbon bobbing above the flowers, one paw lifted mid-stride toward it",
+      "the pet's head tipped back watching the lantern balloon's ribbon slip free of a leaning wooden stake and lift away on the wind, storm-grey clouds massing beyond the treeline",
+      "the pet bounding uphill through tall grass on a meadow slope, ears flattened by the wind, the lantern balloon now small and drifting toward the ancient forest tree line",
+      "the pet reared up on hind legs against the trunk of an old oak at the forest edge, one forepaw stretched high, catching the trailing ribbon just above the grass",
+      "the pet planted firmly with all four paws braced in the grass, the ribbon clamped in its teeth, the balloon straining sideways as the first raindrops begin to streak past",
+      "the pet curled up asleep on a cushioned window seat in the royal library, the paper lantern balloon tied safely to the bedpost beside it, candlelight glowing warm over its closed eyes",
     ],
     playful: [
-      "up on a mossy log in the enchanted forest, head lifted toward the light through the canopy",
-      "standing on a fallen courtyard banner with one corner draped over its back, pleased with the mess",
-      "standing in the shallow royal fountain, water beading on its coat, droplets catching the light around it",
-      "caught mid-tiptoe stealing a tart from the kitchen window, crumbs on its beard",
-      "sitting up at the foot of a grassy hill below the castle, coat full of leaves from the way down",
-      "marching across the drawbridge at the head of an imagined parade, chest out, delighted with itself",
+      "in the royal library, front paws braced on a low shelf as a tall stack of leather-bound books teeters at the very top, one paw already knocking the corner volume loose",
+      "in the castle courtyard, standing frozen with ears back as a cascade of scrolls and books tumbles past a startled row of ceremonial banner poles, one pole tipping sharply",
+      "on the stone bridge over the river gorge, watching a runaway wooden cart loaded with the fallen books rolling toward the low bridge rail, wheels caught mid-turn",
+      "sprinting along the bridge rail with front legs stretched full length, one paw reaching to hook the cart's trailing rope before it clears the edge",
+      "braced low with all four paws dug in and the rope clenched, body weight thrown backward, the cart's front wheel stopped just short of the bridge's broken edge",
+      "curled up asleep on a pile of rescued books in a sunlit meadow clearing, cart resting harmlessly on its side nearby, wildflowers nodding overhead",
     ],
     timid: [
-      "peeking out from under a library table between hanging tapestries",
-      "tiptoeing across the great hall at night, tall armor shadows on the walls",
-      "hesitating at the forest edge where the god-rays end and the dark begins, one paw raised",
-      "startled by its own reflection in the royal pond, fur puffed",
-      "lifting a tiny glowing lantern in the dark woods, ears rising with courage",
-      "standing brave at the forest gate at dawn as the kingdom wakes, triumphant",
+      "in the royal library at dusk, ears back, staring at a tall iron candelabra as its flame gutters and throws a huge shifting shadow across the shelves",
+      "backing away between two bookcases, tail tucked low, as loose parchment pages skitter across the floor in a draft from a cracked window",
+      "at the library's arched doorway, one paw lifted mid-retreat, eyes wide on the smoke now curling along the ceiling beams from a toppled candle",
+      "crouched low at the edge of a thick rug, front paws braced, hauling one corner of it across the floor toward the small spreading flame",
+      "standing with both front paws planted firmly on the now-smothered rug, chest heaving, smoke thinning around it, the fire beneath fully out",
+      "curled proudly on the windowsill beside the same candelabra, now unlit, moonlight and calm fireflies drifting past the glass outside, eyes closed",
     ],
   },
   noir: {
     brave: [
-      "standing in the open doorway of the frosted-glass office, warm light behind it, the room waiting",
-      "leaning over a case file under a desk lamp, smoke curling through the light",
-      "striding down a rain-slicked alley toward a distant silhouette, unflinching",
-      "facing a shadowy figure across a foggy midnight pier, streetlamp halo overhead",
-      "chasing a fleeing shadow across wet rooftops, leaping a gap, neon glowing below",
-      "standing over the solved case at dawn, first light through the blinds, satisfied",
+      "on a rain-slicked rooftop ledge, the pet frozen mid-step as a rooftop water tower's support strut snaps and the wooden tank lurches sideways above the street below",
+      "on the fire escape one level down, the pet braced with both front paws planted on the rusted railing as a spray of water bursts from the tank's split seam overhead, already sheeting down the building face",
+      "in the narrow alley below, the pet running full stride along a growing river of runoff, a shop awning collapsing under the weight of falling water just behind it",
+      "at a service alley junction, the pet with its shoulder driven hard against a rusted valve wheel on a drainage main, muscles bunched, the wheel caught only halfway turned",
+      "at the same valve station, the pet still straining with both front paws now hauling the wheel the last of the way, water noticeably slowing to a trickle down the wall beside it",
+      "back on the rooftop at first grey light, the pet sitting calmly beside the now-drained, tilted water tower, looking out over the quiet, dripping skyline",
     ],
     easygoing: [
-      "leaning back in the desk chair, paws behind head, rain drumming the window",
-      "at the counter of a late-night diner, neon buzzing warm outside",
-      "strolling unhurried through the drizzle under a streetlamp, puddles mirroring the lights",
-      "listening to a record spin in the dim office, one ear twitching, smoke curling",
-      "stretched out alone on a fire escape, chin on the railing, watching the wet street below",
-      "watching rain wash the neon city from the office window, calm",
+      "a small dog sits at a rooftop ledge above the city, one paw resting on a wilting potted flower box, petals scattering in a rising wind",
+      "the pet trots along a fire escape past a newsstand awning as the vendor's paper city map is torn loose and sails off into the dark",
+      "the pet stretches one paw up a drainpipe toward a single lit window across the gap, the last dry patch of ledge narrowing as rain starts to fall",
+      "soaked and bracing against the wind on a narrow ledge, the pet has both front paws clamped down on the corner of the torn map pinned under a loose brick",
+      "the pet hauls the flattened map through a cracked window into a warm office, water sheeting off its coat onto the floorboards",
+      "curled on a leather armchair beside a crackling radiator, the recovered map spread flat and drying on the desk under lamplight, eyes drifting shut",
     ],
     playful: [
-      "sitting upright in a trench coat cut far too big, one empty sleeve pooled on the floor beside it, face bright and unbothered",
-      "caught in the act with its own coat belt in its mouth, case papers scattered across the office floor",
-      "both front paws planted on the typewriter keys, ribbon unspooled in loops across the desk",
-      "at the window with the venetian blinds pulled fully open, staring down with exaggerated suspicion at the empty street below, one small pigeon far off on a lamppost outside",
-      "one paw on a donut it has finally cornered on the rain-wet street, neon reflected all around it",
-      "grinning under the streetlamp with the recovered prize, case closed",
+      "the small dog nudges a stack of evidence boxes in a cluttered records room, one box already sliding off the top of the pile",
+      "the toppled box has burst open on the floor, loose case files fanned everywhere and a single overturned inkwell rolling toward a heating vent",
+      "the rolling inkwell tips into the vent and black smoke begins curling up through the grate behind the pet",
+      "the pet drags a fire bucket by its handle across the office floor, muscles braced, the bucket lip scraping sparks off the floorboards",
+      "the pet plants both front paws on the bucket's rim, body weight thrown forward, water arcing toward the smoking vent, the outcome still hanging",
+      "the pet slumped happily across the now-empty bucket in a puddle of soapy water, case files stacked neatly and dry beside it, streetlight through the blinds striping the floor",
     ],
     timid: [
-      "peering over the desk edge, only hat and eyes showing above the glowing case file",
-      "flinching from a thunderclap, wrapped in the coat behind the coat rack",
-      "creeping along the alley wall, hugging the shadows, wide reflecting eyes",
-      "hesitating where the pier lamplight ends, breath visible in the cold",
-      "finding a glinting locket in a puddle, ears lifting as fear turns to resolve",
-      "walking tall out of the fog under the streetlamp, collar up, new confidence",
+      "the small dog frozen at the mouth of a narrow alley, ears pinned back, as a cracked water main sends a black flood surging over broken cobblestones toward a storm drain",
+      "the pet backed against a brick wall, one paw lifted off the ground, staring at the rising water now lapping at a stack of sandbags leaning half-collapsed against a basement door",
+      "the pet crouched low behind a toppled trash can as the flood pushes it scraping across the wet pavement, the basement door beyond it bowing inward under the pressure",
+      "the pet's paws planted wide in the shallow water, head down, shoulder braced hard against the buckling basement door with the flood swirling around its legs",
+      "the pet standing upright with both front paws pressed flat against the now-sealed door, the water behind it visibly settled and calm around a jammed wooden brace",
+      "the pet curled on a folded newspaper in the dry doorway, eyes closed, chin resting on its own paws as steam rises faintly off the quiet street beyond",
     ],
   },
 };
@@ -237,8 +247,13 @@ export type Loglines = {
 };
 
 // {name} is filled with the pet's name at render time (see getLoglines) — woven
-// into "turn" (and sometimes "stinger") so the trailer names the star
-// mid-story, not only on the cards. Authored in caps (the display font is
+// into "intro" (every one of the 12 sets) and usually "rise" too, so the
+// trailer names the star early and again as it acts, not only on the cards.
+// "turn" and "stinger" name the pet only occasionally now — CARD_RULES
+// (TRAILER-STORY-V3-SPEC.md §3) reassigned "turn" to state what got worse
+// (an event, often nobody's fault yet) rather than what the pet did about it,
+// so the name naturally lands where the pet is introduced or acts, not where
+// the situation itself is deteriorating. Authored in caps (the display font is
 // uppercase-only) and kept punchy; taglines stay name-free (the closing card
 // shows the name right above them).
 //
@@ -252,175 +267,230 @@ export type Loglines = {
 // Keep the stingers structurally VARIED, not just textually different: an
 // earlier pass had eleven of the twelve opening on "{name} STILL ...", which
 // is one joke wearing twelve costumes (and two of them landed on the same
-// sleeps-with-the-light-on gag in different worlds). The shapes in use now —
-// the ironic "STILL", a deadpan report ("THE PRETZELS WERE NEVER RECOVERED."),
-// an imperative ("CHECK THE CROWN FOR CRUMBS."), a flat concession ("BRAVE
-// ENOUGH. BY DAYLIGHT.") — should stay mixed when any of these are edited.
+// sleeps-with-the-light-on gag in different worlds). The current set (the
+// TRAILER-STORY-V3-SPEC.md draft, hand-deduped per preset-story-draft.ts's own
+// header) leans a different direction and needs watching for a different kind
+// of sameness: 7 of the 12 are now a two-clause deadpan report ("CREW OF ONE.
+// NAP EARNED.", "FILES DRY. DETECTIVE SOAKED. INK: UNSOLVED."). The other
+// shapes in the mix — an imperative/label ("MISSION: KEEP ONE LANTERN OUT OF
+// THE RAIN."), a parallel repetition ("{name} DOESN'T READ. {name} REACTS."),
+// a concession trailing off a resolved beat ("THE WATER LOST. {name} STILL
+// AVOIDS THE BATHTUB.") — keep the deadpan-report majority from being all 12.
+// {name} itself is no longer a fixture of the stinger either: only 4 of the 12
+// use it at all (vs. every "turn" in the old data), so whether the pet is
+// named here is now a per-line choice, not a structural habit to preserve.
 export const LOGLINES: WorldMap<Required<Loglines>> = {
   deepspace: {
     brave: {
-      premise: "THE LAST OUTPOST HAS GONE DARK.",
-      intro: "THE GALAXY CRIED OUT FOR A HERO.",
-      turn: "IT NEVER EXPECTED {name}.",
-      rise: "COURAGE NEVER ASKED YOUR SIZE.",
-      tagline: "TO THE STARS AND BACK",
-      stinger: "THE COCKPIT CAME WITH A BOOSTER SEAT.",
+      premise: "A RUPTURED COOLANT LINE IS FLOODING THE SHIP WITH FROST.",
+      intro: "NO ENGINEER ABOARD. JUST {name}, ON PATROL.",
+      turn: "THE FROST OUTRUNS {name}, RACING DOWN THE HALL.",
+      rise: "{name} PLANTS BOTH PAWS ON THE FROZEN VALVE WHEEL.",
+      tagline: "SMALL PAWS. LAST VALVE. WHOLE SHIP.",
+      stinger: "CREW OF ONE. NAP EARNED.",
     },
     easygoing: {
-      premise: "THE ENTIRE FLEET IS RACING FOR THE FRONTIER.",
-      intro: "OUT PAST THE LAST STAR...",
-      turn: "...{name} FOUND THE SLOW LANE.",
-      rise: "THE VIEW IS BETTER SLOW.",
-      tagline: "NO RUSH OUT HERE",
-      stinger: "ARRIVAL TIME: EVENTUALLY.",
+      premise: "A CRACKED DOME. ONE SEEDLING. THE FROST IS SPREADING.",
+      intro: "{name} WAS NEVER MEANT TO KEEP ANYTHING ALIVE OUT HERE.",
+      turn: "THE FROST TAKES HALF THE GLASS BEFORE HELP ARRIVES.",
+      rise: "{name} DRAGS THE LAST WARM BLANKET DOWN THE CORRIDOR.",
+      tagline: "SOME RESCUES ARE QUIET",
+      stinger: "GREENHOUSE: SAVED. NAP: MANDATORY.",
     },
     playful: {
-      premise: "THE SPACE STATION'S SUPPLIES KEEP DISAPPEARING.",
-      intro: "ZERO GRAVITY. ZERO RULES.",
-      turn: "THEN {name} FLOATED IN.",
-      rise: "NO SNACK IN ORBIT IS SAFE.",
-      tagline: "TROUBLE IN ORBIT",
-      stinger: "THE PRETZELS WERE NEVER RECOVERED.",
+      premise: "MAGNETIC BEARINGS FLOOD THE CARGO BAY FLOOR.",
+      intro: "{name} JUST WANTED ONE CANISTER OFF THE SHELF.",
+      turn: "A BEARING DROPS INTO THE DECK GRATE — SPARKS FLY.",
+      rise: "{name} THROWS ALL FOUR PAWS AT THE JAMMED GRATE.",
+      tagline: "MADE THE MESS. OWNS THE MESS.",
+      stinger: "SOUVENIR SECURED. LESSON: NOT LEARNED.",
     },
     timid: {
-      premise: "A LITTLE SHIP DRIFTED OFF COURSE, ALONE.",
-      intro: "SPACE IS VERY, VERY BIG.",
-      turn: "AND {name} IS VERY SMALL.",
-      rise: "BUT COURAGE FINDS THE QUIET ONES.",
-      tagline: "THE LONG WAY HOME",
-      stinger: "THE CABIN LIGHT STAYS ON. NON-NEGOTIABLE.",
+      premise: "A LOOPING SIGNAL. A HATCH BENDING IN. NO CREW LEFT.",
+      intro: "{name} WAS NEVER MEANT TO ANSWER A DISTRESS CALL.",
+      turn: "A LOOSE CABLE WHIPS SPARKS ACROSS THE ONLY WAY OUT.",
+      rise: "ONE PAW ON THE PANEL. SEAL IT, OR CROSS?",
+      tagline: "SMALL, SCARED, AND STILL MOVING",
+      stinger: "SIGNAL SILENCED. NAP SCHEDULE RESUMED.",
     },
   },
   storybook: {
     brave: {
-      premise: "A DRAGON HAS TAKEN THE HIGH TOWER.",
-      intro: "A KINGDOM THAT FORGOT ITS COURAGE...",
-      turn: "...UNTIL {name} STOOD UP.",
-      rise: "LEGENDS COME IN EVERY SIZE.",
-      tagline: "A TAIL OF VALOR",
-      stinger: "THE KINGDOM WOULD LIKE ITS SLIPPER BACK.",
+      premise: "THE GORGE BRIDGE IS FAILING. ITS FAR SUPPORT LEANS.",
+      intro: "NO KNIGHT STANDS HERE. ONLY {name}, PAWS AT THE EDGE.",
+      turn: "THE ROPE LINE SNAPS. THE WHOLE SPAN TILTS FURTHER.",
+      rise: "{name} HAULS THE SPARE ROPE. WILL IT HOLD?",
+      tagline: "HELD TOGETHER BY TEETH AND WILL",
+      stinger: "THE BRIDGE MENDED. {name} SLEEPS ON THE BANNERS.",
     },
     easygoing: {
-      premise: "THE KING HAS CALLED FOR ONE LAST GREAT QUEST.",
-      intro: "IN A KINGDOM OF ENDLESS QUESTS...",
-      turn: "...{name} CHOSE THE SCENIC ROUTE.",
-      rise: "EVERY REALM NEEDS A REST.",
-      tagline: "THE GENTLE REIGN",
-      stinger: "THE QUEST CAN WAIT UNTIL AFTER THE NAP.",
+      premise: "A LANTERN SLIPS ITS STAKE, BOUND FOR THE STORM.",
+      intro: "{name} WAS ONLY OUT FOR AN EVENING STROLL.",
+      turn: "THE WIND TAKES IT TOWARD THE OLD FOREST.",
+      rise: "{name} CHASES THE RIBBON UPHILL, PAWS AND ALL.",
+      tagline: "WHAT THE WIND TAKES, {name} GOES AND GETS",
+      stinger: "MISSION: KEEP ONE LANTERN OUT OF THE RAIN.",
     },
     playful: {
-      premise: "THE ROYAL TARTS KEEP VANISHING BEFORE EVERY FEAST.",
-      intro: "EVERY KINGDOM NEEDS A LEGEND.",
-      turn: "THIS ONE GOT {name}.",
-      rise: "LOCK UP THE ROYAL TARTS.",
-      tagline: "ROYAL MISCHIEF",
-      stinger: "CHECK THE CROWN FOR CRUMBS.",
+      premise: "THE LIBRARY'S TALLEST STACK IS ABOUT TO FALL.",
+      intro: "{name} JUST WANTED TO SEE THE TOP SHELF.",
+      turn: "BOOKS, SCROLLS AND A RUNAWAY CART HEAD FOR THE GORGE.",
+      rise: "ONE ROPE. ONE JUMP. NO SECOND CHANCE ON THAT RAIL.",
+      tagline: "KNOCKED IT LOOSE. CHASING IT DOWN.",
+      stinger: "{name} DOESN'T READ. {name} REACTS.",
     },
     timid: {
-      premise: "SOMETHING HAS BEEN WATCHING THE CASTLE GATES AT NIGHT.",
-      intro: "THE FOREST WAS DARK AND DEEP...",
-      turn: "...BUT NOT {name}.",
-      rise: "THE SMALLEST STEP IS STILL A STEP.",
-      tagline: "INTO THE WOODS",
-      stinger: "BRAVE ENOUGH. BY DAYLIGHT.",
+      premise: "A TOPPLED CANDLE HAS SET THE LIBRARY SMOLDERING.",
+      intro: "{name}, WHO FLINCHES AT SHADOWS, IS THE ONLY ONE AWAKE.",
+      turn: "SMOKE CREEPS ALONG THE BEAMS. PAGES SCATTER.",
+      rise: "PAWS SHAKING, {name} TURNS BACK TOWARD THE FLAME.",
+      tagline: "THE BRAVEST PAWS ARE THE TREMBLING ONES",
+      stinger: "THE CANDELABRA STAYS UNLIT. {name} INSISTS.",
     },
   },
   noir: {
     brave: {
-      premise: "SOMETHING IS MISSING FROM THIS CITY.",
-      intro: "THE CITY NEVER SLEEPS.",
-      turn: "NEITHER DOES {name}.",
-      rise: "EVERY CASE MEETS ITS MATCH.",
-      tagline: "CASE CLOSED",
-      stinger: "{name} STILL CAN'T REACH THE DOORKNOB.",
+      premise: "A ROOFTOP TANK IS TEARING LOOSE ABOVE THE STREET.",
+      intro: "{name} WAS JUST CROSSING THE LEDGE.",
+      turn: "THE SEAM SPLITS. THE WHOLE BLOCK BEGINS TO FLOOD.",
+      rise: "ONE VALVE MIGHT STOP IT. IF IT TURNS IN TIME.",
+      tagline: "THE NIGHT SHIFT IS FOUR PAWS DEEP",
+      stinger: "CASE CLOSED. COLLAR SOAKED. NOT SORRY.",
     },
     easygoing: {
-      premise: "A CASE HAS GONE COLD FOR TEN YEARS.",
-      intro: "EVERY CITY HAS ITS SHADOWS...",
-      turn: "...{name} TAKES IT SLOW.",
-      rise: "THE TRUTH CAN WAIT FOR COFFEE.",
-      tagline: "AFTER HOURS",
-      stinger: "THE COFFEE OUTLASTED THE CASE.",
+      premise: "THE CITY'S ONLY MAP JUST TORE LOOSE IN THE WIND.",
+      intro: "{name} NEVER TAKES A CASE. THIS ONE FOUND THEM.",
+      turn: "RAIN HITS. THE LAST DRY LEDGE IS SHRINKING FAST.",
+      rise: "{name} PINS IT DOWN. GETTING IT HOME IS HARDER.",
+      tagline: "SOAKED THROUGH BEFORE IT'S DONE",
+      stinger: "ONE MAP RECOVERED. ONE ARMCHAIR CLAIMED.",
     },
     playful: {
-      premise: "SOMEONE HAS BEEN RANSACKING EVERY TRASH CAN IN TOWN.",
-      intro: "A CITY FULL OF MYSTERIES.",
-      turn: "AND {name}: PURE NONSENSE.",
-      rise: "THE ONLY CLUE IS CHAOS.",
-      tagline: "THE USUAL SUSPECT",
-      stinger: "NO ARRESTS. NO REMORSE.",
+      premise: "A RECORDS ROOM. A SPILLED INKWELL. A SMOKING VENT.",
+      intro: "{name} NEVER CRACKED A CASE. TONIGHT ONE OPENS.",
+      turn: "THE INKWELL HITS THE VENT. SMOKE FILLS THE ROOM.",
+      rise: "{name} GRABS THE BUCKET. THE FLOOR SPARKS.",
+      tagline: "THE PARTNER WITH NO IMPULSE CONTROL",
+      stinger: "FILES DRY. DETECTIVE SOAKED. INK: UNSOLVED.",
     },
     timid: {
-      premise: "A WITNESS WENT MISSING SOMEWHERE IN THE FOG.",
-      intro: "THE STREETS WERE COLD AND CRUEL...",
-      turn: "...UNTIL {name} STEPPED UP.",
-      rise: "BRAVERY WEARS A SMALL COAT.",
-      tagline: "OUT OF THE FOG",
-      stinger: "{name} STILL FLINCHES AT THUNDER.",
+      premise: "A CRACKED MAIN IS FLOODING THE ALLEY, DOOR BY DOOR.",
+      intro: "{name} NEVER LIKED PUDDLES. TONIGHT, NO CHOICE.",
+      turn: "THE SANDBAGS GIVE. THE BASEMENT DOOR STARTS TO BOW.",
+      rise: "{name} STOPS SHAKING LONG ENOUGH TO LEAN IN.",
+      tagline: "SCARED STIFF. STANDING ANYWAY.",
+      stinger: "THE WATER LOST. {name} STILL AVOIDS THE BATHTUB.",
     },
   },
 };
 
 /**
- * Per-shot motion = LIVELY PET BEHAVIOR + a camera move. It must feel like a
- * film, not a static GIF, so the dog actually does something alive every shot
- * (blink, ear flick, tail swish, breathing, small weight shifts). Identity is
- * held by the customer's hand-picked, identity-gated start frame — a FRONT-
- * FACING portrait is the only reference the video model ever sees, so it has
- * no idea what the pet's profile looks like and will happily invent one.
+ * Per-shot motion = CONTINUE the action the still already froze, + a camera
+ * move. MOTION-V2-SPEC.md §1/§3.2: the video model behind this is now
+ * `bytedance/seedance-2.0/image-to-video` — v1 (Kling) could only be trusted
+ * with small alive-ness cues (blink, ear flick, a breath) because it drifted
+ * off-model the moment the pet moved much, and it had three braking
+ * mechanisms working alongside this prompt text (negative_prompt, cfg_scale,
+ * an approved end frame holding where the motion had to land) to keep it
+ * there. Seedance's endpoint has none of those three — no negative_prompt or
+ * cfg_scale, and MOTION-V2 drops the end frame too — so the text below is now
+ * the only lever, and it's being asked to do far more with it.
  *
- * Root-cause postmortem (first production film): three of the original six
- * entries explicitly commanded yaw ("glancing left and right", "turns its
- * head sharply to look off-camera", "turns its head") and the pet's profile
- * came out looking like a different dog. That's not a wording problem, it's
- * a reference-coverage problem — no amount of clever phrasing fixes a yaw
- * turn when the model has never seen the side of the face. So the rule now
- * is absolute:
+ * WHY THESE DESCRIBE A CONTINUATION, NOT A NEW MOVEMENT: `generateShotClip`
+ * (lib/film-pipeline.ts) concatenates `getShotMotion(i, orderId)` into the
+ * video prompt next to the approved still — mechanically, for whichever
+ * world/personality landed on cut i, with no idea what that still shows. That
+ * was harmless when the ask was just "blink, breathe" — any still can do
+ * that. TRAILER-STORY-V3-SPEC.md §2(e) changed what the stills look like: the
+ * FILM_SCRIPTS beats now write a decisive action already underway (a pet
+ * braced against a valve wheel, mid-leap over a gap, hauling a rope taut). A
+ * fixed string that names ITS OWN new movement — "breaks into a run", "rears
+ * up and slams its paws down" — will contradict most of the twelve stills it
+ * gets bolted onto and fight the pose the model is meant to be animating
+ * from, and a fought pose is exactly where identity drift comes from. So each
+ * entry below describes a GENERIC continuation — the strain the frame is
+ * already showing breaking through, the stride already underway landing, the
+ * weight already committed transferring — never naming which specific
+ * locomotion produced it. That's what makes SHOT_MOTIONS[3], for instance,
+ * equally plausible as the next second of a pet rearing against a coolant
+ * valve (deepspace/brave), a pet hauling a rug toward a flame
+ * (storybook/timid), or a pet with its shoulder driven into a basement door
+ * (noir/timid) — three different worlds, three different personalities, same
+ * cut index, same generic prompt bolted on underneath.
  *
- *   NEVER YAW. No "left and right", no "turns its head", no "looks
- *   off-camera", no "glances away". Any motion that rotates the head (or the
- *   camera) around the vertical axis exposes geometry the identity reference
- *   never showed, and the model fills the gap by drifting off-model.
+ * THE YAW BAN, WHY IT EXISTED, AND WHY IT'S LIFTED:
+ * The identity reference the video model ever sees is the customer's
+ * hand-picked, identity-gated start frame — a single FRONT-FACING portrait.
+ * It has never seen the pet's profile. The first production film's
+ * SHOT_MOTIONS asked for yaw three times ("glancing left and right", "turns
+ * its head sharply to look off-camera", "turns its head") and got back a
+ * profile that read as a different dog. That was never a wording problem —
+ * it's a reference-coverage problem, and no amount of clever phrasing fixes a
+ * turn into geometry the reference never showed. The rule that followed was
+ * absolute: never rotate the head or camera around the vertical axis.
  *
- * Safe subject motion (all keep the face toward the lens): blink / slow
- * blink, ear flick or prick, nostril/nose twitch, breathing / chest rise,
- * whiskers and fur stirring, tail swish or wag, weight shift, one small step
- * toward camera, head TILT (roll) and head RAISE/LOWER (pitch). Roll and
- * pitch keep the face pointed at the camera the whole time — only yaw is
- * banned.
+ * MOTION-V2-SPEC.md §2/§3.2 tested exactly that failure before lifting the
+ * ban, not a softer version of it: the same approved start frame, told to
+ * leap off a chair, run at the camera, whip its head left (yaw), then bark —
+ * the specific move that broke the first film, done on purpose. Seedance
+ * held the costume and the face through it (fur color drifted slightly
+ * warmer, and the owner reviewed all three candidate models by watching the
+ * actual video, not just stills, before choosing this one). That is n=1 —
+ * one dog, one prompt, one run (scripts/motion-test.ts) — not a guarantee it
+ * holds across every breed and every cut. So yaw is allowed again below, but
+ * the backstop hasn't moved: lib/film-pipeline.ts's `scoreClip` identity gate
+ * still rejects any take that drifts off-model, same as it always has.
+ * Lifting the prompt-level ban doesn't mean the pipeline now trusts the model
+ * on faith — it means the gate, not the prompt, is what's carrying that risk.
  *
- * Camera does the cinematic work instead: push-in, pull-back, vertical
- * crane, gentle forward drift. Do NOT add an orbit, arc, or "circles around"
- * move here later — moving the camera around the subject changes the viewing
- * angle exactly the same way a head-turn does, and would reintroduce the
- * same identity drift by another route. If a future edit wants more camera
- * variety, add push/pull/crane variants, not rotation around the subject.
+ * Constraints that DID survive the rewrite:
+ *  - the pet's face must still end the shot toward the camera and
+ *    unobstructed. A head turn (yaw) mid-shot is fine; a shot that stays a
+ *    profile or a back the whole way through is not.
+ *  - camera motion is still push-in / pull-back / crane only, never an orbit
+ *    or "circles around" move — moving the camera around the subject changes
+ *    the viewing angle exactly the way a head-turn does, and would
+ *    reintroduce the same identity risk by another route. If a future edit
+ *    wants more camera variety, add push/pull/crane variants, not rotation
+ *    around the subject.
  *
  * Indices 0-4 are fixed per-cut beats (parallel to SHOT_FRAMINGS / the arc's
  * first 5 beats). Index 5 (the climax) is NOT a single string — see
  * SHOT_MOTIONS_FINALE_POOL + getShotMotion() below, so every order's ending
- * isn't the same "raises its head proudly" template.
+ * isn't the same template.
  */
 export const SHOT_MOTIONS: string[] = [
-  "the pet holds its gaze on the camera and blinks slowly, ears lifting as it breathes, fur stirring slightly; slow cinematic push-in",
-  "the pet tilts its head gently to one side, ears twitching and tail swishing behind it, face staying toward the camera; camera drifts slowly forward",
-  "the pet's ears prick up and it lifts its chin slightly, eyes widening with alertness, chest rising as it breathes; slow steady push-in",
-  "the pet's nostrils flutter as it sniffs the air and lowers its chin a little, whiskers and fur ruffling in the breeze; slow cinematic rise",
-  "the pet locks eyes with the camera, blinks once, and lowers its head with quiet determination, ears forward; gentle push-in toward the face",
+  "whatever the still has already set in motion breaks free of its held instant, the pet committing to it fully with its weight following all the way through; slow cinematic push-in",
+  "the pet's weight checks for a beat and then drives forward through whatever brace or pause the frame has caught it in, committing harder the second time; camera drifts slowly forward",
+  "whatever ground the pet is already covering keeps unwinding at full speed, the motion carrying through until its legs find solid footing again; slow steady push-in",
+  "the strain already gripping the frame reaches its peak and breaks through, muscle and weight transferring fully into whatever is being pushed, pulled, or held; slow cinematic rise",
+  "the pet pushes on past the hardest point of whatever the frame already has it doing, weight and strain still transferring through with the outcome not yet decided; gentle push-in toward the face",
 ];
 
 /**
  * Climax (shot index 5) variant pool — fixes "every film ends the same way".
  * SHOT_MOTIONS[5] used to hardcode "raises its head proudly", so every order
  * closed on an identical beat, which reads as a template and undercuts the
- * $249 bespoke Director's Cut promise. All three variants are still
- * yaw-free and face-forward (same rules as above); only the emotional beat
- * and camera move differ.
+ * $249 bespoke Director's Cut promise.
+ *
+ * Unlike indices 0-4, cut 6's actual content is NOT varied across the 12
+ * FILM_SCRIPTS arcs — TRAILER-STORY-V3-SPEC.md §2(h) makes the last cut the
+ * customer's own ending, non-negotiable, and in the current data all twelve
+ * are some form of curled up, settled, or resting (asleep on a blanket,
+ * slumped over an empty bucket, sitting calmly by a drained tank). So these
+ * three variants don't reach for big new movement the way 0-4 do — continuing
+ * INTO stillness is the correct continuation of what's actually in the frame
+ * here, not a leftover of the old blink-and-breathe era. All three still end
+ * face-forward and unobstructed (yaw mid-shot remains allowed, same rules as
+ * above, just not needed for a beat that's already settling); only the
+ * specific settling gesture and camera move differ. If a future arc ever ends
+ * on an active (not resting) climax, these three will need a matching
+ * "unresolved energy" counterpart rather than being stretched to cover it.
  */
 export const SHOT_MOTIONS_FINALE_POOL: string[] = [
-  "the pet lifts its chin high, ears up and tail raised, weight settling into a proud stance; slow upward crane",
-  "the pet holds perfectly still, staring straight down the lens as its fur moves in the wind, unblinking and resolute; slow push-in to a hero close-up",
-  "the pet's ears rise and its tail begins to wag, a small delighted shift of weight as it keeps its eyes on the camera; camera eases back to reveal the scene",
+  "whatever repose the frame has already settled into deepens further, its breathing slowing and its weight sinking fully into the surface beneath it as the last tension leaves its body; slow upward crane",
+  "the pet allows one small contented movement to finish — a tail giving a single unhurried thump, or a paw curling a fraction tighter — before settling fully still; slow push-in to a hero close-up",
+  "whatever alertness is still left in the frame eases out of the pet's body, ears and whiskers relaxing as it lets go of the last of the scene's tension; camera eases back to reveal the scene",
 ];
 
 /**
@@ -468,23 +538,46 @@ export function getShotMotion(shotIndex: number, seed: string): string {
  * path unchanged (film-pipeline.ts checks this array and skips end-frame
  * generation entirely for a null entry, spec §5.4 item c).
  *
- * SAME yaw ban as getShotMotion, same reason: the identity reference is a
- * front-facing still, so any pose delta that rotates the head/body around the
- * vertical axis exposes geometry the gate never saw and invites drift. Keep
- * each enabled entry to exactly ONE small change (a step, a stand, a chin
- * lift, a raised paw) — start and end drifting too far apart gives the video
- * model two dissimilar anchors to reconcile, and it morphs between them
+ * CURRENTLY DORMANT UNDER MOTION-V2 — READ BEFORE TOUCHING. MOTION-V2-SPEC.md
+ * §3.1 turns end frames off for v2 (`USE_END_FRAMES = false` in
+ * lib/film-pipeline.ts): Seedance supports `end_image_url` same as Kling did,
+ * but pinning the last frame is most of what was suppressing motion in the
+ * first place, and the whole point of v2 is to stop suppressing it. So this
+ * array is not consumed while that switch is off — nothing below drives any
+ * running order right now. It stays here, un-deleted, because the mechanism
+ * (identity-gated end frame -> clean interpolation) is sound and may come
+ * back for cuts where a pinned landing turns out to matter more than the
+ * extra motion; whoever flips `USE_END_FRAMES` back on needs everything below
+ * to still be correct.
+ *
+ * THE YAW RULE HERE IS NOT getShotMotion's, EVEN THOUGH IT READS THE SAME:
+ * this array predates MOTION-V2 and inherited its "never rotate the head
+ * around the vertical axis" language from the same postmortem documented
+ * above SHOT_MOTIONS (a front-facing-only identity reference invents a
+ * profile the moment something asks for one). getShotMotion lifted that ban
+ * for the video model because Seedance was tested against yaw specifically
+ * and held (see above). That test says nothing about THIS array's case: an
+ * end pose isn't a video-model instruction, it's a still-image generation
+ * target that then goes through the SAME identity gate as every other
+ * approved still — no yaw allowance was ever tested against a GATED STILL,
+ * only against a video model given a front-facing start frame. So the ban
+ * below stays in force on its own evidence, not by inertia: keep each
+ * enabled entry to exactly ONE small change (a step, a stand, a chin lift, a
+ * raised paw) that rotates neither the head nor the body around the vertical
+ * axis — start and end drifting too far apart (in pose OR in angle) gives the
+ * video model two dissimilar anchors to reconcile, and it morphs between them
  * (visibly "un-dogging" mid-clip) instead of interpolating cleanly.
  *
  * STAGED ROLLOUT (spec §5.4): only the two cuts where real action matters most
- * are enabled at launch —
+ * were enabled at launch —
  *   - cut 2 (index 1): SHOT_FRAMINGS[1] is the one framing actually composed
  *     to SHOW full-body action, so it's the best return on the extra
  *     end-frame spend.
  *   - cut 6 (index 5): the climax — the last thing the audience sees, worth
  *     spending the one extra still on.
- * Widening the rollout (or narrowing it back) is a one-line edit: flip an
- * entry between `null` and a pose string. Do NOT enable all six at once.
+ * Widening the rollout (or narrowing it back) would be a one-line edit: flip
+ * an entry between `null` and a pose string. Do NOT enable all six at once —
+ * and while `USE_END_FRAMES` is off, none of this has any effect either way.
  */
 /*
  * TUNING, honestly: there are two ways to waste this feature, and the failure

@@ -36,7 +36,8 @@ import {
  *      a short Kling clip (real motion instead of Ken Burns on a photo — this
  *      task's change #2; Ken Burns remains the fallback if that animation
  *      fails) — §4
- *   2. each chosen still (order.chosenStills) -> SHOT_SECONDS Kling clip (i2v, silent)
+ *   2. each chosen still (order.chosenStills) -> SHOT_SECONDS Seedance clip
+ *      (i2v, silent — MOTION-V2-SPEC.md; was Kling, see SEEDANCE_MODEL below)
  *   3. original score via Stable Audio 2.5
  *   4. assemble a BEAT EDL (Edit Decision List, not a 6-shot concat): each
  *      clip is trimmed to a 2-3.5s beat TWICE — once wide (the opening
@@ -52,38 +53,62 @@ import {
  * Why the rewrite (owner's live-review postmortem, see TRAILER-EDIT-SPEC.md
  * §0): a single 8s i2v shot per cut read as "a cheap GIF" because real
  * trailers cut every 1.5-3s — pace comes from editing, not from motion within
- * one shot. Kling's motion budget is also capped by the identity gate (push it
- * further and the pet drifts), so the fix lives entirely on the edit side:
- * shorter clips, harder cuts, real B-roll, cards instead of burned-in
- * captions, and an SFX bed. A LATER owner review of the finished trailer
- * found a second-order version of the same problem: a clip's wide beat and
- * its punch-in beat showed the same moment twice (same [0, seconds] window,
- * just cropped tighter) — reuse itself wasn't the issue, showing the SAME
- * moment twice was. The punch-in/slow-motion + SHOT_SECONDS=8 changes above
- * fix that without any extra Kling spend per pet shot.
+ * one shot. The shot clip model's motion budget is also capped by the
+ * identity gate (push it further and the pet drifts), so the fix lives
+ * entirely on the edit side: shorter clips, harder cuts, real B-roll, cards
+ * instead of burned-in captions, and an SFX bed. A LATER owner review of the
+ * finished trailer found a second-order version of the same problem: a
+ * clip's wide beat and its punch-in beat showed the same moment twice (same
+ * [0, seconds] window, just cropped tighter) — reuse itself wasn't the
+ * issue, showing the SAME moment twice was. The punch-in/slow-motion +
+ * SHOT_SECONDS=8 changes above fix that without any extra spend per pet shot.
  *
- * Cost ~ 6×SHOT_SECONDS×$0.084 video + ~3×$0.02 insert stills +
- * ~3×$0.25 insert CLIPS (Kling i2v at its 3s minimum — real motion instead of
- * Ken Burns on a static photo, falls back to Ken Burns per-insert if
- * generation fails) + $0.20 music (≈ $6.1 at 8s) + gate re-rolls; stills were
- * already spent at Gate 1.
+ * Cost ~ 6×SHOT_SECONDS×~$0.30/s video (Seedance 2.0 image-to-video,
+ * MOTION-V2-SPEC.md §4 — up from Kling's $0.084/s; this task's change #1) +
+ * ~3×$0.02 insert stills + ~3×$0.25 insert CLIPS (Kling i2v at its 3s
+ * minimum — insert clips stay on Kling, see generateInsertClip's own comment
+ * for why — real motion instead of Ken Burns on a static photo, falls back
+ * to Ken Burns per-insert if generation fails) + $0.20 music (≈ $17-19 at 8s
+ * per MOTION-V2-SPEC.md §4's estimate) + gate re-rolls; stills were already
+ * spent at Gate 1.
  * Dev/localhost only (heavy, long-running); on Vercel this moves behind a
  * queue/worker (n8n phase). VIDEO_PIPELINE_MOCK=1 short-circuits e2e.
  */
 
-// Env-overridable so the tier can be A/B'd or rolled back without a deploy.
-// standard -> pro: pro trades more $/s for tighter start-frame adherence,
-// which is the same direction as the cfg_scale bump below (less drift, at
-// the cost of some stiffness) — worth the spend after the profile-drift
-// production incident. NOTE: swap the KLING_MODEL env var to instantly
-// revert to standard if the pro endpoint id turns out to be wrong or the
-// tier underperforms.
-// Also the fix for FILM-QUALITY-V3-SPEC.md §2.2(f)'s upscale-double-dip
-// (standard is 720p -> scale=1920:1080 upscales it -> punch-in upscales it
-// AGAIN): pro is already 1080p native, so new generations skip the first
-// upscale entirely. Clips already shot on standard before this default
-// stays as-is — this only improves clips generated from here on.
+// --- Ad-studio model (KLING_MODEL) vs. the product's model (SEEDANCE_MODEL) -
+//
+// KLING_MODEL used to be the PRODUCT's video model too (generateShotClip
+// called it directly). MOTION-V2-SPEC.md (decided 2026-08-13) moves shot
+// clips to Seedance 2.0 (SEEDANCE_MODEL below) for real motion — yaw, jumps,
+// movement — that Kling's identity-gate-driven prompt used to forbid
+// outright. KLING_MODEL now exists for exactly ONE caller:
+// generateStandaloneClip, the local-only ad-creative path, which STAYS on
+// Kling deliberately (not an oversight) — the owner has asked twice that
+// product-side generation settings and ad-side settings never change
+// together, and that function's own cfg_scale/AD_CLIP_NEGATIVE choices are
+// documented, unrelated tuning that has nothing to do with the product's
+// video model. generateInsertClip (the other candidate "product path" this
+// task named) ALSO stays on KLING_MODEL — see that function's own comment
+// for why moving it to Seedance is currently blocked, not skipped by choice.
+// Env-overridable so the ad path can still be pointed elsewhere without a
+// deploy, same reasoning SEEDANCE_MODEL gets below.
 const KLING_MODEL = process.env.KLING_MODEL ?? "fal-ai/kling-video/v3/pro/image-to-video";
+
+// The product's shot-clip video model (MOTION-V2-SPEC.md, decided
+// 2026-08-13; this task's change #1). Verified input schema (fal docs,
+// confirmed live 2026-08-15): `image_url` (string, required — NOTE: not
+// `start_image_url`), `prompt` (string, required), `end_image_url` (string,
+// optional), `resolution` (enum 480p|720p|1080p|4k, default 720p),
+// `duration` (enum "auto"|"4".."15", default "auto", passed as a STRING —
+// 3 is NOT legal here, unlike Kling's 3-15s enum), `aspect_ratio`,
+// `generate_audio` (boolean, DEFAULT TRUE — forced false below, see
+// generateShotClip), `bitrate_mode`. There is NO `negative_prompt` and NO
+// `cfg_scale` on this endpoint — both existed on the old Kling call and both
+// are gone from generateShotClip below (kept, deliberately, on the
+// ad-studio's KLING_MODEL call above). Env-overridable in the same spirit
+// KLING_MODEL always was, so the endpoint can be reverted to Kling (or
+// pointed at a different Seedance build) without a deploy.
+const SEEDANCE_MODEL = process.env.SEEDANCE_MODEL ?? "bytedance/seedance-2.0/image-to-video";
 const MUSIC_MODEL = "fal-ai/stable-audio-25/text-to-audio";
 // Text-to-image (NOT /edit) — insert B-roll has no pet in it at all, so there
 // is nothing to anchor an edit model to (spec §4.2).
@@ -102,9 +127,12 @@ const INSERT_STILL_MODEL = "fal-ai/nano-banana-pro";
 // seconds" of a ~2-3.5s beat sat close enough together that there wasn't
 // much of a genuinely different moment to find. 8s gives real separation.
 // It also compounds with start+end interpolation (FILM-QUALITY-V3-SPEC.md
-// §5): the pose change (start_image_url -> end_image_url) plays out across
-// the WHOLE clip, so an early trim and a late trim now differ by the pose
-// itself, not just the framing. Kling duration enum is 3-15s, so 8 is legal.
+// §5, OFF in v2 — see USE_END_FRAMES): the pose change (start frame -> end
+// frame) plays out across the WHOLE clip, so an early trim and a late trim
+// now differ by the pose itself, not just the framing, when that feature is
+// on. Seedance's duration enum is "auto"|4-15s (fal docs, confirmed live
+// 2026-08-15, MOTION-V2-SPEC.md), so 8 is legal — same was true of Kling's
+// 3-15s enum before this task's model swap for shot clips.
 // Re-assembly / single-shot re-render both trim from source (using each
 // clip's own PROBED duration, never this constant directly — see
 // clampToSourceDurations), so mixed 5s/8s clips across old + new orders are
@@ -147,9 +175,12 @@ const PRESET_FINAL = "slow";
 // This file used to force `fps=24` in normaliseClip (see below) — a straight
 // frame DROP via the `fps` filter, not a real pulldown, so on Kling's native
 // 30fps output it only ever threw away 1 frame in 5 for no benefit (spec
-// §2.2(d)). Kling is the only clip source, so 30 (its native rate) is now the
-// house rate everywhere instead of down-converting to a number nothing
-// actually shoots at.
+// §2.2(d)). 30 (Kling's native rate) is the house rate everywhere; this
+// still holds after this task's Seedance swap for shot clips (MOTION-V2-
+// SPEC.md) because normaliseClip's `fps=` filter EXPLICITLY resamples every
+// clip — Kling (inserts, ad-studio) or Seedance (shot clips) — to this exact
+// constant regardless of the source's own native rate, so nothing here
+// depends on the two models agreeing.
 export const FILM_FPS = 30;
 
 const FONT_DISPLAY = path.join(process.cwd(), "public/fonts/BebasNeue-Regular.ttf");
@@ -236,14 +267,36 @@ const WORLD_ATMOSPHERE: Record<string, string> = {
   noir: "drifting fog and flickering light",
 };
 
-const CLIP_NEGATIVE =
-  "blur, distort, low quality, deformed face, extra limbs, warped anatomy, morphing, changing costume, different dog, wrong tongue color, wrong tail length, wrong ear shape, ears changing, tail changing, cartoon, cel shading, 3d render, cgi, plastic sheen, illustration, stylized animation, text, watermark";
+// RETIRED by this task's change #1: Seedance 2.0 (the shot-clip model as of
+// MOTION-V2-SPEC.md) has no `negative_prompt` input at all, so this can no
+// longer BE a negative prompt for generateShotClip — its MEANING moves into
+// that function's own prompt text as prose instead (see generateShotClip
+// below). Two terms from the old value are DELIBERATELY DROPPED and must not
+// reappear in the prose either: "ears changing" and "tail changing" — meant
+// to stop the pet turning into a different dog, but read literally they also
+// ban a wagging tail and moving ears, which is the exact liveliness this
+// move exists to produce (the shape constraints, "wrong tail length" /
+// "wrong ear shape", stay). This constant itself is retired; kept only as
+// the historical record of the old negative_prompt value:
+//   "blur, distort, low quality, deformed face, extra limbs, warped anatomy,
+//   morphing, changing costume, different dog, wrong tongue color, wrong
+//   tail length, wrong ear shape, ears changing, tail changing, cartoon, cel
+//   shading, 3d render, cgi, plastic sheen, illustration, stylized
+//   animation, text, watermark"
 
-/** Submit one Kling clip and poll to completion within `capMs`. */
-async function submitClip(input: Record<string, unknown>, capMs: number): Promise<string> {
+/**
+ * Submit one video-model clip request and poll to completion within `capMs`.
+ * `model` is the fal endpoint id — KLING_MODEL for generateStandaloneClip
+ * (ad-studio) and generateInsertClip (blocked from moving to Seedance, see
+ * that function's comment), SEEDANCE_MODEL for generateShotClip (this task's
+ * change #1, MOTION-V2-SPEC.md). Same queue plumbing and the same deadlines
+ * either way — only the endpoint id and the shape of `input` differ per
+ * caller.
+ */
+async function submitClip(model: string, input: Record<string, unknown>, capMs: number): Promise<string> {
   // fal's per-model input union is too wide to satisfy structurally; submit
   // with a narrow cast.
-  const { request_id } = await fal.queue.submit(KLING_MODEL, {
+  const { request_id } = await fal.queue.submit(model, {
     input: input as never,
     abortSignal: falDeadline(FAL_POLL_CAP_MS),
   });
@@ -254,29 +307,38 @@ async function submitClip(input: Record<string, unknown>, capMs: number): Promis
     // BETWEEN iterations, so without this one hung status call makes the capMs
     // above unenforceable — the same shape of failure that stranded a film run
     // for 23 minutes on an unbounded subscribe (lib/fal-deadline.ts).
-    const s = await fal.queue.status(KLING_MODEL, {
+    const s = await fal.queue.status(model, {
       requestId: request_id,
       logs: false,
       abortSignal: falDeadline(FAL_POLL_CAP_MS),
     });
     if (s.status === "COMPLETED") {
-      const res = await fal.queue.result(KLING_MODEL, {
+      const res = await fal.queue.result(model, {
         requestId: request_id,
         abortSignal: falDeadline(FAL_POLL_CAP_MS),
       });
       const url = (res.data as { video?: { url?: string } })?.video?.url;
-      if (!url) throw new Error("kling result missing url");
+      if (!url) throw new Error("video model result missing url");
       return url;
     }
   }
-  throw new Error(`kling request ${request_id} timed out`);
+  throw new Error(`video model request ${request_id} timed out`);
 }
 
-// CLIP_NEGATIVE minus every identity-lock term ("different dog", "ears
-// changing", "tail changing", "changing costume"...) — those exist to stop a
-// customer's pet drifting across 8 seconds, and in a 5-second ad teaser they
-// only fight the motion we are paying for. What stays is the quality/style
-// half, plus three terms aimed straight at the failure this replaced.
+// Kling's negative_prompt for the AD-STUDIO path only (generateStandaloneClip
+// — NOT the product, stays on Kling deliberately, see KLING_MODEL's comment
+// above). Unchanged by this task (ad-side settings never move together with
+// product-side ones, per the owner's standing instruction) — value is byte-
+// for-byte what it always was. Used to be phrased as "CLIP_NEGATIVE minus
+// every identity-lock term"; spelled out directly now that CLIP_NEGATIVE
+// itself is retired (see submitClip's comment above): the quality/style half
+// of that old list (blur, distort, low quality, deformed face/limbs/
+// anatomy, cartoon/cel-shading/3d-render/cgi/illustration, text/watermark),
+// MINUS every identity-lock term ("different dog", "ears changing", "tail
+// changing", "changing costume"...) — those exist to stop a customer's pet
+// drifting across 8 seconds, and in a 5-second ad teaser they only fight the
+// motion we are paying for — PLUS three terms aimed straight at the failure
+// this replaced (static image / frozen frame / no motion).
 const AD_CLIP_NEGATIVE =
   "static image, frozen frame, no motion, blur, distort, low quality, deformed face, extra limbs, warped anatomy, cartoon, cel shading, 3d render, cgi, plastic sheen, illustration, stylized animation, text, watermark";
 
@@ -302,17 +364,20 @@ export async function generateStandaloneClip(
     opts.motion ??
     "Slow cinematic push-in, gentle parallax, the subject breathing and shifting weight, ambient movement in the background";
   return submitClip(
+    KLING_MODEL,
     {
       start_image_url: publicUrl(imageUrl),
       duration: String(seconds),
-      // 0.30, NOT the product path's 0.55. That value exists to hold the start
-      // frame hard, and generateShotClip's own comment names the cost: "some
-      // stiffness". For a customer's film that is the right trade — the whole
-      // job is that the dog stays the same dog. Here the job is the opposite,
-      // and the first version of this function copied 0.55 across without
-      // asking whether its purpose still applied. The result did not move at
-      // all: high cfg, plus a negative prompt built to suppress change, plus a
-      // prompt saying "no morphing" — three separate brakes and no accelerator.
+      // 0.30, NOT the product path's 0.55 (product no longer has a cfg_scale
+      // at all post-Seedance-swap, see generateShotClip). That value exists
+      // to hold the start frame hard, and generateShotClip's own OLD comment
+      // named the cost: "some stiffness". For a customer's film that was the
+      // right trade — the whole job is that the dog stays the same dog. Here
+      // the job is the opposite, and the first version of this function
+      // copied 0.55 across without asking whether its purpose still applied.
+      // The result did not move at all: high cfg, plus a negative prompt
+      // built to suppress change, plus a prompt saying "no morphing" — three
+      // separate brakes and no accelerator.
       cfg_scale: 0.3,
       negative_prompt: AD_CLIP_NEGATIVE,
       prompt: `${motion}. Photorealistic live-action, filmic depth of field, clearly visible continuous motion throughout the shot. The camera moves and the scene is alive — this must not look like a still photograph.`,
@@ -328,24 +393,35 @@ export async function generateStandaloneClip(
  * from the opening seconds, and a slow-motion punch-in reframe of a LATER
  * window of the same source clip, this task's change #1).
  *
- * Identity through the clip is held by (a) the customer's hand-picked,
- * identity-gated start frame and (b) calm low-morph motion. We deliberately do
- * NOT use Kling's `elements` character lock — measured to add queue flakiness
- * without improving on a strong start frame, and the storyboard picks already
- * give us six high-identity frames to animate.
+ * MOTION-V2-SPEC.md (2026-08-13, decided) — this task's change #1: the video
+ * model is SEEDANCE_MODEL (Seedance 2.0), not Kling. v1 held identity with
+ * FOUR brakes stacked on the start frame — cfg_scale, negative_prompt, the
+ * prompt's own "calm, no yaw" language, and a pinned end frame — and the
+ * owner's own side-by-side video review judged the result too motion-starved
+ * to read as a movie trailer. Seedance's endpoint has neither `cfg_scale`
+ * nor `negative_prompt` (the two biggest brakes are gone by contract, not
+ * choice), end frames are off everywhere in this file (USE_END_FRAMES, see
+ * below), and the ONE remaining brake is this function's own prompt text —
+ * which is why CLIP_NEGATIVE's old meaning is folded into the prompt below
+ * as prose instead of silently dropped (minus "ears changing"/"tail
+ * changing", deliberately — see submitClip's comment for why).
  *
- * `endFrameUrl` (FILM-QUALITY-V3-SPEC.md §5.3): when this cut opted into
- * start+end interpolation (resolveWorld(order).endPoses[shotIndex] is
- * non-null — SHOT_END_POSES for presets, or a custom order's own
- * Claude-authored pose) AND that end frame generated + cleared the identity
- * gate, this is its url and gets
- * passed straight through as `end_image_url` — confirmed present on THIS
- * exact endpoint's typed input (KlingVideoV3ProImageToVideoInput in
- * @fal-ai/client, "URL of the image to be used for the end of the video"), so
- * no separate interpolation-only model/env var is needed (spec §5.3's other
- * two branches don't apply here). Undefined means either the cut isn't
- * enrolled or its end frame failed to earn identity clearance — either way
- * this silently falls back to the original single-frame i2v call, unchanged.
+ * Identity through the clip is held by (a) the customer's hand-picked,
+ * identity-gated start frame and (b) that prompt text. We do NOT use Kling's
+ * `elements` character lock (not applicable to this endpoint anyway) — the
+ * storyboard picks already give us six high-identity frames to animate.
+ *
+ * `endFrameUrl` / `USE_END_FRAMES` (FILM-QUALITY-V3-SPEC.md §5.3 originally;
+ * turned OFF for v2 per MOTION-V2-SPEC.md §3.1): pinning the last frame to an
+ * approved still was most of what suppressed motion in v1, so v2
+ * deliberately stops passing `end_image_url` to the video model — a
+ * reversible choice (Seedance supports `end_image_url` too, under that exact
+ * name), not a limitation, hence the single `USE_END_FRAMES` switch rather
+ * than deleting the plumbing. `endFrameUrl` is still threaded through as a
+ * parameter (an existing order may have one cached in
+ * `filmArtifacts.endFrameUrls` from before this switch flipped, and
+ * runFilmGeneration/runShotRerender still pass it through) — it is simply
+ * never attached to the request while `USE_END_FRAMES` is false.
  */
 async function generateShotClip(
   stillUrl: string,
@@ -362,28 +438,30 @@ async function generateShotClip(
   const camera = getShotMotion(shotIndex, orderId);
   const atmosphere = WORLD_ATMOSPHERE[world] ?? "";
   const note = directorNote?.trim() ? ` Director's note, follow it strictly: ${directorNote.trim()}.` : "";
-  // §5.1: when an end frame is supplied, the model's only job is to fill the
-  // gap between two already-approved stills — say so explicitly so it doesn't
-  // treat the camera/atmosphere text above as license to invent extra motion
-  // beyond that transition.
-  const interpolationNote = endFrameUrl
-    ? " The final frame of this clip must match the provided end reference image exactly — interpolate smoothly toward it, inventing no motion beyond that transition."
-    : "";
+  // §5.1: when an end frame is supplied AND USE_END_FRAMES is on, the model's
+  // only job is to fill the gap between two already-approved stills — say so
+  // explicitly so it doesn't treat the camera/atmosphere text above as
+  // license to invent extra motion beyond that transition. USE_END_FRAMES is
+  // false in v2, so this is currently always "".
+  const interpolationNote =
+    USE_END_FRAMES && endFrameUrl
+      ? " The final frame of this clip must match the provided end reference image exactly — interpolate smoothly toward it, inventing no motion beyond that transition."
+      : "";
   const input: Record<string, unknown> = {
-    start_image_url: publicUrl(stillUrl),
+    image_url: publicUrl(stillUrl),
     duration: String(durationSec),
-    generate_audio: false,
-    // Tuning knob: 0.4 -> 0.55. Low cfg lets the model drift from the start
-    // frame on its own initiative, which is the same failure mode as the
-    // yaw problem — it invents detail the reference never showed. Higher
-    // cfg holds the start frame more strictly; trade-off is some stiffness
-    // if pushed too far, so this is a nudge, not a jump to 1.0.
-    cfg_scale: 0.55,
-    negative_prompt: CLIP_NEGATIVE,
-    prompt: `${camera}, ${atmosphere}.${note} The pet stays exactly the same individual — identical face, mouth/tongue color, tail length and ear carriage, coat markings and costume — lively but never morphing into a different dog.${interpolationNote}`,
+    generate_audio: false, // Seedance defaults this to TRUE — the score is generated separately, force it off
+    resolution: "1080p",
+    // CLIP_NEGATIVE's old meaning, as prose (Seedance has no negative_prompt
+    // input — see SEEDANCE_MODEL's comment above). "ears changing"/"tail
+    // changing" are DELIBERATELY NOT here — see submitClip's retired-
+    // CLIP_NEGATIVE comment for why. Shape constraints ("wrong tail length",
+    // "wrong ear shape") stay, phrased positively below ("correct tail
+    // length", "correct ear shape").
+    prompt: `${camera}, ${atmosphere}.${note} The pet must stay exactly the same individual throughout this clip — identical face, mouth/tongue color, coat markings and costume, correct tail length, correct ear shape — lively and moving (a wagging tail and moving ears are expected here, not a flaw) but never morphing into a different dog and never changing costume. Photorealistic live-action footage only: no deformed face, extra limbs, or warped anatomy; no cartoon, cel shading, 3D render, CGI, illustration, or stylized animation; no on-screen text or watermark.${interpolationNote}`,
   };
-  if (endFrameUrl) input.end_image_url = publicUrl(endFrameUrl);
-  return submitClip(input, 15 * 60 * 1000);
+  if (USE_END_FRAMES && endFrameUrl) input.end_image_url = publicUrl(endFrameUrl);
+  return submitClip(SEEDANCE_MODEL, input, 15 * 60 * 1000);
 }
 
 // The video identity gate. Clips can hold a strong start frame yet drift into
@@ -492,6 +570,31 @@ async function generateGatedClip(
 /* ------------------------------------------------------------------ */
 /* Start+end frame interpolation (FILM-QUALITY-V3-SPEC.md §5)           */
 /* ------------------------------------------------------------------ */
+
+// OFF for v2 (MOTION-V2-SPEC.md §3.1, decided 2026-08-13; this task's change
+// #1). Pinning the last frame to an approved still was most of what
+// suppressed motion in v1 — the model's only job became interpolating
+// between two already-approved stills instead of inventing anything. Seedance
+// still supports `end_image_url` (this is a deliberate choice, not a
+// limitation of the new model — see SEEDANCE_MODEL's comment above), so ONE
+// switch controls both effects this needs, reversibly, in one edit:
+//   (a) generateShotClip stops attaching `end_image_url` to the request (see
+//       the USE_END_FRAMES check there) — this is the one that actually
+//       matters for motion.
+//   (b) runFilmGeneration skips GENERATING end frames at all for an order
+//       that doesn't already have them cached, so a v2 order never pays fal
+//       for a still (a) is guaranteed not to consume (see the
+//       `art.endFrameUrls === undefined` check there). runShotRerender's own
+//       end-frame generation is gated the same way, for the same reason,
+//       though the task that introduced this switch named only (b)
+//       explicitly — this extension keeps the admin re-render path from
+//       quietly re-introducing the wasted spend (a) exists to avoid.
+// Existing orders that already have `endFrameUrls` cached in `filmArtifacts`
+// are UNAFFECTED either way: (b) only gates NEW generation (the
+// `=== undefined` check), so a cached array is read and reused exactly as
+// before — it is just never attached to the video request per (a). Flip this
+// back to `true` to restore start+end interpolation.
+const USE_END_FRAMES = false;
 
 // The end frame IS a still (it becomes a real frame of the finished film,
 // same as any chosen storyboard take), so it clears the STILLS bar
@@ -658,14 +761,17 @@ async function generateInsertStill(subject: string): Promise<string> {
   return url;
 }
 
-// Kling's shortest legal duration (fal's duration enum is 3-15s, same
-// endpoint the pet shots use — see KLING_MODEL). Insert beats are only
-// ~2-2.5s on screen even after 60s normalization (EDL_TEMPLATE's raw i1/i2/i3
-// are 2.0s, and buildEdl's scale factor is ~1.24 at time of writing, so a
-// scaled insert beat stays comfortably under 3s) — paying for anything longer
-// than Kling's minimum here would be spend with no beat left to show it.
-// Exported so scripts/test-assemble.ts can synthesize insert-clip fixtures at
-// this exact length.
+// Kling's shortest legal duration (fal's duration enum is 3-15s — the pet
+// shots no longer use this same endpoint, see KLING_MODEL/SEEDANCE_MODEL's
+// comments above, but generateInsertClip still does, and stays on Kling
+// specifically BECAUSE this value is 3: Seedance's own duration enum is
+// "auto"|"4".."15" — 3 is illegal there, see generateInsertClip's comment).
+// Insert beats are only ~2-2.5s on screen even after 60s normalization
+// (EDL_TEMPLATE's raw insert beats are 2.0s, and buildEdl's scale factor is
+// ~1.24 at time of writing, so a scaled insert beat stays comfortably under
+// 3s) — paying for anything longer than Kling's minimum here would be spend
+// with no beat left to show it. Exported so scripts/test-assemble.ts can
+// synthesize insert-clip fixtures at this exact length.
 export const INSERT_CLIP_SECONDS = 3;
 
 // No pet in frame (spec §4.4) means no identity risk, hence no CLIP_NEGATIVE
@@ -686,6 +792,22 @@ const INSERT_CLIP_NEGATIVE =
  * what makes a B-roll insert (a sign, a puddle, receding taillights) read as
  * alive rather than an animated photograph.
  *
+ * DELIBERATELY STILL ON KLING, NOT SEEDANCE, despite this task naming
+ * "generateShotClip and generateInsertClip" as the two product paths to
+ * move — this is the one blocked exception, verified rather than guessed:
+ * Seedance 2.0's `duration` enum is `"auto"|"4".."15"` (fal docs, confirmed
+ * live 2026-08-15) — 3 is NOT a legal value. INSERT_CLIP_SECONDS is 3
+ * (Kling's minimum, and the most an on-screen insert beat ever needs — see
+ * that constant's own comment), and the same task that named this function
+ * as a Seedance migration target also said "INSERT_CLIP_SECONDS stays 3" —
+ * those two directives cannot both be satisfied; a duration:"3" request to
+ * Seedance is a guaranteed rejection on every call, silently masked by this
+ * function's own graceful-degradation fallback to Ken Burns (which would be
+ * WORSE than a loud error: it would look shipped while permanently failing).
+ * Flagged for the owner rather than resolved by guessing — see this task's
+ * report. KLING_MODEL, the negative_prompt below, and everything else here
+ * are therefore UNCHANGED from before this task.
+ *
  * Never throws to the caller in a way that stalls the film: any failure here
  * is caught by the caller (runFilmGeneration), which caches `null` for this
  * insert index and falls back to Ken Burns for it (renderInsertBeat) — spec:
@@ -699,7 +821,7 @@ async function generateInsertClip(stillUrl: string, subject: string): Promise<st
     negative_prompt: INSERT_CLIP_NEGATIVE,
     prompt: `${subject}, slow atmospheric drift, subtle cinematic camera motion, no animals, no people, no text.`,
   };
-  return submitClip(input, 15 * 60 * 1000);
+  return submitClip(KLING_MODEL, input, 15 * 60 * 1000);
 }
 
 /** scorePrompt comes from resolveWorld(order).score — static WORLD_SCORES for presets, Claude's bundle for custom orders. */
@@ -980,24 +1102,59 @@ export function punchInSourceWindow(
 }
 
 /**
- * The current beat template (TRAILER-STORY-SPEC.md §1.3) — 6 clips (each used
- * twice: once wide, once as a slow-motion punch-in reframe of a LATER window
- * of the same source clip, this task's change #1), 3 no-pet inserts (each
- * with its own animated Kling clip, falling back to Ken Burns — this task's
- * change #2), 8 title cards. Authored `seconds` here are the UNSCALED
- * lengths from the spec table; buildEdl() below scales every clip/insert beat
- * so the assembled total lands on EXACTLY 60.0s (§1.3).
+ * The current beat template (TRAILER-STORY-V3-SPEC.md §4 — this task's
+ * change #2). 6 clips (each used twice: once wide, once as a slow-motion
+ * punch-in reframe of a LATER window of the same source clip, this task's
+ * change #1), 3 no-pet inserts (each with its own animated clip, falling
+ * back to Ken Burns — this task's change #2's predecessor), 8 title cards.
+ * Authored `seconds` here are the UNSCALED lengths from the spec table;
+ * buildEdl() below scales every clip/insert beat so the assembled total
+ * lands on EXACTLY 60.0s.
+ *
+ * REORDERED from the original six-card cut (TRAILER-STORY-V3-SPEC.md §4,
+ * this task's change #2). The storyboard reliably comes back from Claude as
+ * [build -> peak -> resolution -> ending] no matter how the prompt begs it
+ * not to (§4.1 — tried twice, failed twice: cut 4 kept giving away the
+ * resolution even when explicitly told not to). Cut 3's punch-in is
+ * therefore the true dramatic peak, and `rise` is the last card that still
+ * poses a question rather than answering one. In the OLD order, `finale`
+ * (the title) sat right after that peak, and the cuts that resolve the story
+ * — cut 4 (the answer) and cut 5 (the customer's own chosen ending) — played
+ * AFTER the title: the trailer answered its own question before the title
+ * even arrived, and the last 6.7s of screen time were three title cards back
+ * to back (finale + stinger + brand) with no picture in between at all.
+ *
+ * The fix moves nothing but POSITION. `finale` now drops in immediately
+ * after `rise` — right at the peak, cutting to black on a question, not an
+ * answer — and cut 4 (the resolution) and cut 5 (the customer's ending) play
+ * AFTER the title, functioning as the answer instead of pre-empting it, with
+ * `stinger` and `brand` woven back in around cut 5 instead of stacked at the
+ * very end. What plays BEFORE the title, in order: premise -> cut 0 ->
+ * intro -> cut 0 -> cut 1 -> starring -> cut 1 -> insert 0 -> cut 2 (x2) ->
+ * turn -> insert 1 -> cut 3 (x2) -> rise. What plays AFTER: cut 4 -> insert
+ * 2 -> cut 4 -> cut 5 -> stinger -> cut 5 -> brand — so the very last thing
+ * on screen is cut 5's punch-in (the pet, the customer's own ending), and
+ * `brand` is the only card left after any picture at all, not three in a
+ * row.
+ *
+ * Same 8 cards, same 12 clip beats, same 3 inserts, same per-beat durations
+ * as before this reorder — only the ORDER of clip/insert beats relative to
+ * the cards changed; the cards' relative order to EACH OTHER did not change
+ * (premise still first, stinger still immediately before brand). See
+ * buildEdl's doc comment for why that makes the 60.0s total and the scale
+ * factor provably unaffected by a pure reorder — verified directly against
+ * buildEdl's own output for this exact template, not just argued (this
+ * task's own verification script).
  *
  * Card lineup vs. the pre-story cut (EDL_TEMPLATE_LEGACY below): `open`
  * (MARQUEE TAILS PRESENTS) is REPLACED by `premise` in the same lead
  * position — the first thing the audience reads changes from the studio's
- * own name to what the film is ABOUT (§0.1/§1.3). `comingSoon` is CUT
- * entirely (a "coming soon" card after the title undercuts a stinger).
- * `starring` shrinks 2.2 -> 2.0s. `stinger` is NEW, placed AFTER `finale`
- * (the title) — putting it before the title would just read as another
- * logline, not a punchline (§1.3). `brand` is unchanged and stays last.
- * Net: brand-card time 7.7s -> 3.5s funds the story cards' 9.0s -> 13.4s
- * (§1.4) with the SAME 8 total card beats either way.
+ * own name to what the film is ABOUT (§0.1/§1.3 of the original story spec).
+ * `comingSoon` is CUT entirely (a "coming soon" card after the title
+ * undercuts a stinger). `starring` shrinks 2.2 -> 2.0s. `stinger` is NEW.
+ * `brand` is unchanged and stays last. Net: brand-card time 7.7s -> 3.5s
+ * funds the story cards' 9.0s -> 13.4s with the SAME 8 total card beats
+ * either way.
  *
  * Only used when both `premise` AND `stinger` are present on the order's
  * resolved loglines (see hasStoryCards in assembleToFiles) — otherwise
@@ -1020,17 +1177,17 @@ const EDL_TEMPLATE: readonly EdlBeat[] = [
   { kind: "clip", clip: 2, punchIn: NO_PUNCH_IN, seconds: 2.5 },
   { kind: "clip", clip: 2, punchIn: PUNCH_IN_ZOOM, seconds: 2.0 },
   { kind: "card", card: "turn", seconds: 2.0 },
-  { kind: "clip", clip: 3, punchIn: NO_PUNCH_IN, seconds: 2.5 },
   { kind: "insert", insert: 1, seconds: 2.0 },
+  { kind: "clip", clip: 3, punchIn: NO_PUNCH_IN, seconds: 2.5 },
   { kind: "clip", clip: 3, punchIn: PUNCH_IN_ZOOM, seconds: 2.0 },
-  { kind: "clip", clip: 4, punchIn: NO_PUNCH_IN, seconds: 2.5 },
   { kind: "card", card: "rise", seconds: 2.0 },
-  { kind: "clip", clip: 4, punchIn: PUNCH_IN_ZOOM, seconds: 2.0 },
+  { kind: "card", card: "finale", seconds: 3.0 }, // title lands at the peak, not after the resolution
+  { kind: "clip", clip: 4, punchIn: NO_PUNCH_IN, seconds: 2.5 },
   { kind: "insert", insert: 2, seconds: 2.0 },
+  { kind: "clip", clip: 4, punchIn: PUNCH_IN_ZOOM, seconds: 2.0 },
   { kind: "clip", clip: 5, punchIn: NO_PUNCH_IN, seconds: 2.5 },
-  { kind: "clip", clip: 5, punchIn: PUNCH_IN_ZOOM, seconds: 3.5 }, // climax punch-in, held longer
-  { kind: "card", card: "finale", seconds: 3.0 },
   { kind: "card", card: "stinger", seconds: 2.2 },
+  { kind: "clip", clip: 5, punchIn: PUNCH_IN_ZOOM, seconds: 3.5 }, // last thing on screen is the pet, not text
   { kind: "card", card: "brand", seconds: 1.5 },
 ];
 
@@ -1519,8 +1676,23 @@ const SFX_LEVEL_DB: Record<SfxName, number> = { boom: -4, riser: -3, whoosh: -6 
 const MUSIC_DUCK_DB = -2.5; // music dips this much under each card's boom hit
 const MUSIC_DUCK_SECONDS = 0.6; // duck window length — just the transient, not the whole card
 const MUSIC_FADE_OUT_SECONDS = 1.5; // final fade so the 60s mark doesn't cut off abruptly
-const RISER_LEAD_SECONDS = 2.5; // riser starts this long before the climax punch-in beat
+// Re-aimed by this task's change #3 (TRAILER-STORY-V3-SPEC.md §5.2): after
+// change #2 reordered the EDL, the climax is the cut to black INTO the
+// `finale` card, not whatever clip beat happens to render last in the
+// reordered template (that beat is now the post-title epilogue) — see
+// buildSfxEvents below. The constant itself (its length) is unchanged, only
+// what it leads into moved.
+const RISER_LEAD_SECONDS = 2.5; // riser starts this long before the finale card (the cut to black at the peak)
 const WHOOSH_LEAD_SECONDS = 0.15; // whoosh arrives just ahead of the cut it accents
+// This task's change #3 (TRAILER-STORY-V3-SPEC.md §5.2): the music drops to
+// silence for this long immediately before the `finale` card lands, then
+// resumes once the card is on screen — the riser builds into the silence,
+// the cut goes quiet, the title appears without the bed under it. Extends
+// the existing per-card MUSIC_DUCK_DB mechanism (see mixAudio) rather than
+// inventing a new one. UNVERIFIED starting guess (spec §6 item 1) — a tuning
+// knob, not a measured value; re-evaluate once someone has actually watched
+// the assembled 60s with this in it.
+const MUSIC_TITLE_GAP_SECONDS = 0.4;
 const MIX_SAMPLE_RATE = 44100;
 // Not every card gets a whoosh (spec: "全部には付けない...5〜6箇所") — these 5
 // are the biggest story beats; open/comingSoon/brand stay clean so the
@@ -1564,6 +1736,20 @@ function beatStartTimes(beats: ScaledBeat[]): number[] {
   return starts;
 }
 
+/**
+ * Seconds into the EDL where the `finale` card begins, or undefined if this
+ * EDL somehow has none (shouldn't happen — both EDL_TEMPLATE and
+ * EDL_TEMPLATE_LEGACY carry exactly one `finale` card each). Shared by the
+ * riser retarget and the pre-title music gap (this task's change #3) — both
+ * need to know exactly when the cut to black/title happens, and after
+ * change #2's reorder that is no longer "the last beat" of anything.
+ */
+function finaleCardStartSeconds(beats: ScaledBeat[]): number | undefined {
+  const starts = beatStartTimes(beats);
+  const i = beats.findIndex((b) => b.kind === "card" && b.card === "finale");
+  return i >= 0 ? starts[i] : undefined;
+}
+
 type SfxEvent = { file: SfxName; atSeconds: number };
 
 /** Every SFX one-shot this EDL should fire, with its absolute start time. */
@@ -1580,14 +1766,17 @@ function buildSfxEvents(beats: ScaledBeat[]): SfxEvent[] {
       }
     }
   });
-  // Riser leads into the climax — the LAST "clip" beat in the EDL (the
-  // long punch-in, spec §1.2's b12).
-  let climaxStart: number | undefined;
-  beats.forEach((b, i) => {
-    if (b.kind === "clip") climaxStart = starts[i];
-  });
-  if (climaxStart !== undefined) {
-    events.push({ file: "riser", atSeconds: Math.max(0, climaxStart - RISER_LEAD_SECONDS) });
+  // Riser leads into the CUT TO BLACK where the title lands (this task's
+  // change #3, TRAILER-STORY-V3-SPEC.md §5.2). Before change #2's EDL
+  // reorder, the last "clip" beat in the EDL WAS the climax, so "aim at the
+  // last clip beat" and "aim at the peak" were the same instruction. After
+  // the reorder that's no longer true — the last clip beat is now the
+  // post-title epilogue (cut 5's resolution, the customer's own ending), and
+  // the moment that actually wants a riser building into it is the `finale`
+  // card itself.
+  const finaleStart = finaleCardStartSeconds(beats);
+  if (finaleStart !== undefined) {
+    events.push({ file: "riser", atSeconds: Math.max(0, finaleStart - RISER_LEAD_SECONDS) });
   }
   return events;
 }
@@ -1603,11 +1792,32 @@ async function mixAudio(dir: string, beats: ScaledBeat[], scoreLocalPath: string
   const output = path.join(dir, "mix.wav");
   const fadeStart = Math.max(0, totalSeconds - MUSIC_FADE_OUT_SECONDS);
 
+  // This task's change #3 (TRAILER-STORY-V3-SPEC.md §5.2): a hard-silence
+  // window in the MUSIC itself, immediately before the `finale` card lands —
+  // computed once here and applied in BOTH branches below (SFX present or
+  // not), because silence needs no SFX file to exist; "the music gap should
+  // be safe with or without SFX files present" is the whole point of putting
+  // it here rather than inside the SFX-only branch. Same `volume=enable=`
+  // idiom as MUSIC_DUCK_DB's per-card ducking below, just one deeper,
+  // one-off window instead of a per-card dip.
+  const finaleStart = finaleCardStartSeconds(beats);
+  const musicGapFilter =
+    finaleStart !== undefined
+      ? (() => {
+          const gapStart = Math.max(0, finaleStart - MUSIC_TITLE_GAP_SECONDS);
+          return `volume=enable='between(t,${gapStart.toFixed(3)},${finaleStart.toFixed(3)})':volume=0`;
+        })()
+      : undefined;
+
   if (!sfxFilesAvailable()) {
     console.log("[film] SFX files not found in public/sfx — assembling with music only");
+    const musicOnlyChain = [
+      ...(musicGapFilter ? [musicGapFilter] : []),
+      `afade=t=out:st=${fadeStart.toFixed(3)}:d=${MUSIC_FADE_OUT_SECONDS}`,
+    ].join(",");
     await ffmpeg([
       "-i", scoreLocalPath,
-      "-af", `afade=t=out:st=${fadeStart.toFixed(3)}:d=${MUSIC_FADE_OUT_SECONDS}`,
+      "-af", musicOnlyChain,
       "-t", totalSeconds.toFixed(3),
       output,
     ]);
@@ -1629,6 +1839,7 @@ async function mixAudio(dir: string, beats: ScaledBeat[], scoreLocalPath: string
     });
   const musicChain = [
     ...duckWindows,
+    ...(musicGapFilter ? [musicGapFilter] : []),
     `afade=t=out:st=${fadeStart.toFixed(3)}:d=${MUSIC_FADE_OUT_SECONDS}`,
     `aformat=sample_rates=${MIX_SAMPLE_RATE}:channel_layouts=stereo`,
   ].join(",");
@@ -1824,11 +2035,23 @@ export async function runFilmGeneration(order: Order): Promise<void> {
   // stays Ken Burns, same as it always has been for those orders.
   art = await ensureInsertClips(order.id, art, resolved.inserts);
 
-  // Stage II. Start+end frame interpolation (spec §5.2/§5.4) — cached
-  // SEPARATELY from clipUrls/clipScores, same reasoning as insertStillUrls
-  // above: an `undefined` cache means "not yet attempted" (run it), while a
-  // defined array (even one full of `null`s) means "already attempted, reuse
-  // as-is" — a resume must never re-spend on an already-gated end frame.
+  // Stage II. Start+end frame interpolation (spec §5.2/§5.4) — OFF for v2
+  // (USE_END_FRAMES = false, MOTION-V2-SPEC.md §3.1, this task's change #1):
+  // an order with no cached end frames yet simply never generates any, so it
+  // never pays fal for a still generateShotClip is guaranteed not to attach
+  // to the request (see USE_END_FRAMES's own comment for the full reasoning
+  // and the one-switch reversal path). Orders that ALREADY have
+  // `endFrameUrls` cached from before this switch flipped are untouched by
+  // this gate — it only blocks NEW generation (the `=== undefined` check
+  // below), never a defined array, so resume/re-render for those orders is
+  // unchanged; the cached urls just stop being attached to the video request
+  // (generateShotClip's own USE_END_FRAMES gate).
+  //
+  // Cached SEPARATELY from clipUrls/clipScores, same reasoning as
+  // insertStillUrls above: an `undefined` cache means "not yet attempted"
+  // (run it, when the switch is on), while a defined array (even one full of
+  // `null`s) means "already attempted, reuse as-is" — a resume must never
+  // re-spend on an already-gated end frame.
   //
   // resolved.endPoses (NOT the SHOT_END_POSES constant directly) enrolls only
   // a couple of cuts for preset orders (§5.4's staged rollout); every other
@@ -1838,7 +2061,7 @@ export async function runFilmGeneration(order: Order): Promise<void> {
   // generatedScript provided them (see resolveWorld/resolveCustomEndPoses in
   // film-script.ts) — this call site doesn't need to know which branch it
   // got, which is the whole point of going through resolveWorld.
-  if (art.endFrameUrls === undefined) {
+  if (USE_END_FRAMES && art.endFrameUrls === undefined) {
     console.log(`[film] generating end frames for interpolated cuts order=${order.id}`);
     const endFrameUrls = await Promise.all(
       shotStillUrls.map((stillUrl, i) => {
@@ -2196,6 +2419,15 @@ export async function runShotRerender(
   // is generated + gated from the new still before the clip re-animates. A
   // plain reanimate (no reshoot) reuses the cached end frame as-is, since the
   // still it was posed from hasn't changed.
+  //
+  // Also gated on USE_END_FRAMES (this task's change #1): the switch's own
+  // instructions named only runFilmGeneration's Stage II explicitly, but
+  // leaving this admin re-render path ungated would quietly reintroduce the
+  // exact wasted spend USE_END_FRAMES exists to avoid — generateShotClip
+  // never attaches end_image_url while it's off, so generating a fresh one
+  // here just to have it ignored is spend for nothing. Added for
+  // consistency; flagged in this task's report as an addition beyond the
+  // literal instruction.
   const endFrameUrls = [...(art.endFrameUrls ?? clipUrls.map(() => null))];
   const endPose = resolved.endPoses[shotIndex] ?? null;
 
@@ -2206,7 +2438,7 @@ export async function runShotRerender(
     endFrameUrls[shotIndex] = null; // stale — posed from the still just replaced
   }
 
-  if (endPose && !endFrameUrls[shotIndex]) {
+  if (USE_END_FRAMES && endPose && !endFrameUrls[shotIndex]) {
     endFrameUrls[shotIndex] = await generateGatedEndFrame(
       still,
       endPose,
