@@ -979,7 +979,19 @@ async function titleCard(
     )
     .join(",");
 
-  if (logo && existsSync(logo.file)) {
+  // 資産が欠けてもカードは出る、が**黙って出てはいけない**。ロゴを
+  // trigger.config.ts の additionalFiles に入れ忘れたせいで、文字だけの
+  // ブランドカードが本番納品された（2026-08-16、べっぷ君のDC）。ログにも
+  // 何も出ず、完成動画を最後まで見るまで誰も気づけなかった。
+  const hasLogo = !!logo && existsSync(logo.file);
+  if (logo && !hasLogo) {
+    console.warn(
+      `[film] brand logo not found at ${logo.file} — closing card will be TEXT ONLY. ` +
+        `public/ の資産は trigger.config.ts の additionalFiles に入っているか確認すること。`
+    );
+  }
+
+  if (logo && hasLogo) {
     const h = Math.round(logo.heightPx * scale);
     const y = Math.round(logo.centerY * scale) - Math.round(h / 2);
     // lumakey で暗部を抜く。ロゴPNGの黒（ほぼ #000）とカード背景（0x0b0a10、
@@ -1956,7 +1968,10 @@ async function mixAudio(dir: string, beats: ScaledBeat[], scoreLocalPath: string
       : undefined;
 
   if (!sfxFilesAvailable()) {
-    console.log("[film] SFX files not found in public/sfx — assembling with music only");
+    console.warn(
+      "[film] SFX files not found in public/sfx — assembling with MUSIC ONLY (no boom/riser/whoosh). " +
+        "trigger.config.ts の additionalFiles を確認すること。"
+    );
     const musicOnlyChain = [
       // SFX が無い経路では riser も boom も鳴らないので、2窓は続きの無音になる。
       ...(mixGapFilter ? [mixGapFilter] : []),

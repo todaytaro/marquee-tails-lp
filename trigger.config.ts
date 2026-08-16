@@ -16,6 +16,11 @@ export default defineConfig({
       additionalFiles({
         files: [
           "public/fonts/**", // ffmpeg drawtext fonts (film-pipeline title cards)
+          // 締めのブランドカードに重ねる MT ロゴ（film-pipeline の BRAND_LOGO）。
+          // fonts / sfx と同じで、ここに書かないとタスクからは見えない。ロゴを
+          // 足したときにこの行を忘れ、べっぷ君のDCが文字だけのカードで納品された
+          // （2026-08-16）。**public/ 配下をコードから読むときは必ずここに追記する。**
+          "public/brand/**",
           // Trailer SFX bed (boom/riser/whoosh) mixed by ffmpeg in the film
           // assembly. Without these here the task can't see them and every
           // order silently falls back to the music-only mix.
