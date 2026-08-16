@@ -1817,7 +1817,13 @@ const WHOOSH_LEAD_SECONDS = 0.15; // whoosh arrives just ahead of the cut it acc
 // knob, not a measured value; re-evaluate once someone has actually watched
 // the assembled 60s with this in it.
 // タイトル直前、ミックス全体（riser を含む）が落ちる長さ。
-const MUSIC_TITLE_GAP_SECONDS = 0.4;
+// タイトル直前、ミックス全体（riser を含む）が落ちる長さ。`null` で無効。
+//
+// 一度 0.4 秒で入れたが、オーナーの判定は「不自然」「音楽は全部に適用しよう」。
+// 予告編の定番ではあっても、この 60 秒には合わなかった — 間を置くほどの尺が
+// 無く、切れ目の方が目立つ。**劇伴は 0〜60 秒を通しで鳴らす。**
+// 戻すならこの定数に秒数を入れるだけ（実装は残してある）。
+const MUSIC_TITLE_GAP_SECONDS: number | null = null;
 // タイトルが出たあと、**音楽だけ**が戻らない長さ。boom はこの間に単体で鳴る。
 // `null` = 最後まで戻さない。1.0 秒で戻した版をオーナーが聴いて「違和感がある」
 // と判定したため（2026-08-15）。復帰が曲の途中から始まるので、無音で作った
@@ -1941,14 +1947,12 @@ async function mixAudio(dir: string, beats: ScaledBeat[], scoreLocalPath: string
   //   mixGapFilter   … タイトル直前。ミックス全体（riser ごと）を落とす
   //   musicHoldFilter … タイトル後。音楽だけ止めたまま、boom を単体で鳴らす
   const mixGapFilter =
-    finaleStart !== undefined
+    finaleStart !== undefined && MUSIC_TITLE_GAP_SECONDS !== null
       ? `volume=enable='between(t,${Math.max(0, finaleStart - MUSIC_TITLE_GAP_SECONDS).toFixed(3)},${finaleStart.toFixed(3)})':volume=0`
       : undefined;
   const musicHoldFilter =
-    finaleStart !== undefined
-      ? `volume=enable='between(t,${finaleStart.toFixed(3)},${(
-          MUSIC_TITLE_HOLD_SECONDS === null ? totalSeconds : finaleStart + MUSIC_TITLE_HOLD_SECONDS
-        ).toFixed(3)})':volume=0`
+    finaleStart !== undefined && MUSIC_TITLE_HOLD_SECONDS !== null
+      ? `volume=enable='between(t,${finaleStart.toFixed(3)},${(finaleStart + MUSIC_TITLE_HOLD_SECONDS).toFixed(3)})':volume=0`
       : undefined;
 
   if (!sfxFilesAvailable()) {
