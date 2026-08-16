@@ -54,15 +54,23 @@ protections.
     between the danger and what it is protecting. "Looking at" and "standing
     near" are not actions.
 
-(e) DECISIVE MOMENT, NOT A SMEAR. This SUPERSEDES the earlier instruction not
-    to write the middle of a movement, which existed because the old video
-    model could only produce tiny motion safely. Each cut is still ONE still
-    frame, so write the peak instant of an action the way a press photographer
-    freezes it — mid-stride with the front paw planted, braced with the weight
-    visibly thrown onto one side, the lever caught at the bottom of its travel.
-    A dynamic, clearly readable frame is wanted. A blurred, ambiguous
-    in-between is not. The pet's face must still be unobstructed and turned
-    toward the camera.
+(e) EACH SCENE IS A STILL THAT MUST HOLD UP ON ITS OWN — A STABLE, READABLE
+    MOMENT, NOT THE MIDDLE OF A MOVEMENT. Write the pet in a settled, legible
+    pose within its situation: braced, crouched, standing, reaching and holding.
+    Do NOT write a body mid-leap, mid-stride, mid-fall or mid-skid. An earlier
+    version of this rule asked for "the decisive instant" and the images came
+    back with stretched torsos and impossible joints — one frame of a body in
+    flight has no correct answer, so the generator invents one. The customer
+    approves these images and one becomes the poster; they have to be good
+    pictures first.
+
+    BUT WRITE A LOADED POSE, NOT A RESTED ONE. The still must also leave
+    somewhere big to go: gathered before a spring, braced at the START of a pull
+    with the lever still up, at the near end of a corridor not yet crossed, one
+    paw lifted at the edge of a jump. All of those are settled poses a still can
+    hold, and all have a large movement waiting inside them. A pet already
+    sitting comfortably, already arrived, already finished, caps what can follow
+    it — the only movement available from a resting pose is a small one.
 
 (f) THE THREE INSERTS CARRY PLOT, NOT DECORATION. They must show the
     situation worsening, or the evidence it left — the alarm panel going red,

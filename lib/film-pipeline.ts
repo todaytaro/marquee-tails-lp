@@ -388,6 +388,39 @@ export async function generateStandaloneClip(
 }
 
 /**
+ * 同一性の縛り。Seedance には negative_prompt の入力口が無いので、Kling 時代に
+ * 禁止語リストで表していた内容をここに散文で持っている。**Kling 経路でも同じ
+ * 文言を使う** — モデルによって縛りの強さが変わると、Preset と DC で「同じ犬か
+ * どうか」の基準が変わってしまうため。Kling には加えて negative_prompt も渡す
+ * （持っているものを使わない理由が無い）。
+ *
+ * 耳の形は 2026-08-15 にオーナーが指摘して追加した。動きを大きくしたクリップで
+ * シュナウザーの折れ耳が立ち耳に変わり、他が全部保たれていても別の犬に見えた。
+ * 「動くな」ではなく「形と付き方を変えるな」と書き分けてあるのが要点 —
+ * 同じ日に "ears changing" を CLIP_NEGATIVE から外したのは、それが尻尾を振る
+ * 動きまで潰していたからで、同じ轍を踏まないため。
+ */
+const IDENTITY_CLAUSE =
+  "The pet must stay exactly the same individual throughout this clip — identical face, mouth/tongue color, coat markings, costume and tail length — " +
+  "lively and moving, but never morphing into a different dog and never changing costume. " +
+  "A wagging tail and ears that move with the body are expected here, not a flaw. " +
+  "The ears do, however, keep exactly the set and shape they have in the reference frame for the whole clip: folded ears stay folded, drop ears stay dropped. " +
+  "They may swing and flick with the motion, but must never prick up, stand erect, rotate upright, or change shape — " +
+  "a change of ear carriage reads as a different dog even when everything else holds. " +
+  "Photorealistic live-action footage only: no deformed face, extra limbs, or warped anatomy; no cartoon, cel shading, 3D render, CGI, illustration, or stylized animation; no on-screen text or watermark.";
+
+/**
+ * Kling 用の negative_prompt。**"ears changing" と "tail changing" は入っていない**
+ * — 別の犬の耳・尻尾に変わるなという意図だったが、文字通り読むと尻尾を振る動きも
+ * 禁じてしまい、v2 でいちばん出したい動きを潰す。形を縛る "wrong tail length" /
+ * "wrong ear shape" は残す（2026-08-15、MOTION-V2-SPEC.md §3.3）。
+ */
+const CLIP_NEGATIVE =
+  "blur, distort, low quality, deformed face, extra limbs, warped anatomy, morphing, changing costume, different dog, " +
+  "wrong tongue color, wrong tail length, wrong ear shape, cartoon, cel shading, 3d render, cgi, plastic sheen, " +
+  "illustration, stylized animation, text, watermark";
+
+/**
  * Animate a chosen still into a SHOT_SECONDS silent clip with a per-shot
  * camera move. This is now raw MATERIAL for the EDL, not a finished shot —
  * the assembler trims 2-3.5s beats out of it (possibly twice — a wide framing
@@ -472,21 +505,41 @@ async function generateShotClip(
     USE_END_FRAMES && endFrameUrl
       ? " The final frame of this clip must match the provided end reference image exactly — interpolate smoothly toward it, inventing no motion beyond that transition."
       : "";
-  const input: Record<string, unknown> = {
-    image_url: publicUrl(stillUrl),
-    duration: String(durationSec),
-    generate_audio: false, // Seedance defaults this to TRUE — the score is generated separately, force it off
-    resolution: "1080p",
-    // CLIP_NEGATIVE's old meaning, as prose (Seedance has no negative_prompt
-    // input — see SEEDANCE_MODEL's comment above). "ears changing"/"tail
-    // changing" are DELIBERATELY NOT here — see submitClip's retired-
-    // CLIP_NEGATIVE comment for why. Shape constraints ("wrong tail length",
-    // "wrong ear shape") stay, phrased positively below ("correct tail
-    // length", "correct ear shape").
-    prompt: `${camera}, ${atmosphere}.${actionNote}${note} This is live-action footage, not a photograph with a moving camera: the animal is in continuous visible motion from the first frame to the last, and its body travels within the frame. The pet must stay exactly the same individual throughout this clip — identical face, mouth/tongue color, coat markings, costume and tail length — lively and moving, but never morphing into a different dog and never changing costume. A wagging tail and ears that move with the body are expected here, not a flaw. The ears do, however, keep exactly the set and shape they have in the reference frame for the whole clip: folded ears stay folded, drop ears stay dropped. They may swing and flick with the motion, but must never prick up, stand erect, rotate upright, or change shape — a change of ear carriage reads as a different dog even when everything else holds. Photorealistic live-action footage only: no deformed face, extra limbs, or warped anatomy; no cartoon, cel shading, 3D render, CGI, illustration, or stylized animation; no on-screen text or watermark.${interpolationNote}`,
-  };
+  // モデルはプランで選ばない。**action の有無で選ぶ。**
+  //   action あり（Director's Cut）… Seedance。$5.47/8秒、大きく動く
+  //   action なし（Preset、および action 以前の DC）… Kling。$0.67/8秒、微動
+  // Preset は resolveWorld が actions: [null×6] を返すので自動的に Kling 側に
+  // 落ちる。条件が1つなので「Seedance なのにカメラだけの指示」といった不整合が
+  // 起こりようがない — SHOT_CAMERA と SHOT_MOTIONS の取り違えは 2026-08-15 に
+  // 実際に破綻クリップを作っている（getShotCamera のコメント参照）。
+  //
+  // 単価差は 8 倍あり、1注文あたり $32.8 対 $4.0。Preset を $159 で売る前提の
+  // 粗利はこの選択に乗っている（MOTION-V2-SPEC.md §4.1）。
+  const useSeedance = !!action?.trim();
+  const prompt = `${camera}, ${atmosphere}.${actionNote}${note} This is live-action footage, not a photograph with a moving camera: the animal is in continuous visible motion from the first frame to the last, and its body travels within the frame. ${IDENTITY_CLAUSE}${interpolationNote}`;
+
+  const input: Record<string, unknown> = useSeedance
+    ? {
+        image_url: publicUrl(stillUrl), // Seedance は image_url、Kling は start_image_url
+        duration: String(durationSec),
+        generate_audio: false, // Seedance の既定は TRUE。劇伴は別に作るので切る
+        resolution: "1080p",
+        prompt,
+      }
+    : {
+        start_image_url: publicUrl(stillUrl),
+        duration: String(durationSec),
+        generate_audio: false,
+        // Kling は negative_prompt と cfg_scale を持っている。0.55 は v1 で
+        // 「開始フレームをどれだけ強く保持するか」を 0.4 から詰めた値で、
+        // 動きの小ささと引き換えに同一性を買っている。action の無い経路は
+        // もともとそのトレードオフを選んだ経路なので、そのまま。
+        cfg_scale: 0.55,
+        negative_prompt: CLIP_NEGATIVE,
+        prompt,
+      };
   if (USE_END_FRAMES && endFrameUrl) input.end_image_url = publicUrl(endFrameUrl);
-  return submitClip(SEEDANCE_MODEL, input, 15 * 60 * 1000);
+  return submitClip(useSeedance ? SEEDANCE_MODEL : KLING_MODEL, input, 15 * 60 * 1000);
 }
 
 // The video identity gate. Clips can hold a strong start frame yet drift into
