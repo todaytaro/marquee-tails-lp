@@ -10,6 +10,25 @@ import { useRef, useState } from "react";
  * world. Shown so a first-time visitor sees the finished product before they
  * ever read a price.
  *
+ * THE "PRESET WORLDS" CAPTION, and why it is accurate even though this
+ * particular order was placed as a custom one (2026-08-16):
+ *
+ * It was produced in July, before the plans diverged, on the Kling pipeline —
+ * which is exactly what Preset Worlds runs today (MOTION-V2-SPEC.md §4.0.1).
+ * Director's Cut moved to Seedance and now produces visibly larger movement,
+ * so calling this a Director's Cut example would UNDERSELL that plan and
+ * mislead a buyer about what $249 delivers. The caption claims what the
+ * finished film looks like, not which button was pressed to order it, and on
+ * that claim it is right: same video model, same edit engine, same six-shot
+ * shape a Preset buyer receives.
+ *
+ * Two things would make this cleaner and are worth doing when there is
+ * material for them: swap in Camyu's actual Preset order (noir, delivered
+ * 2026-08-01) so provenance and caption match exactly, or replace the whole
+ * showcase with a new-pipeline Director's Cut once one has been reviewed —
+ * this film predates the no-helmet rule and its bubble helmet is a look the
+ * pipeline no longer produces.
+ *
  * UPLOAD_PHOTO is the one illustrative exception: a same-likeness recreation
  * of an ordinary backyard snapshot (not the customer's literal raw upload),
  * generated so the "before" shot reads as an everyday US pet photo rather
@@ -147,6 +166,8 @@ export default function ShowcaseFilm() {
           </div>
           <figcaption className="mt-3 text-center text-xs tracking-wide text-muted">
             Camyu · <span className="text-gold-bright">“The Long Way Home”</span> · Deep Space Explorer · 60 seconds, six shots
+            <br />
+            <span className="text-muted/80">This is what a Preset Worlds film looks like.</span>
           </figcaption>
         </figure>
 

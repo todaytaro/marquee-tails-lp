@@ -22,12 +22,17 @@ const tiers: readonly Tier[] = [
   {
     key: "preset",
     name: "Preset Worlds",
-    blurb: "A ready-made world — your pet cast as the star.",
+    blurb: "A director-made world. Your pet cast as the star.",
     price: "$159",
     items: [
       "60-second cinematic trailer in a director-made world",
       "Choose Deep Space Explorer, Storybook Kingdom, or Noir Detective",
       "Your pet, instantly recognizable, across six starring shots",
+      // 動きの差を**両方のカードに**書く。DC 側にだけ書くと、Preset は
+      // 「書かれていないもの」を想像で埋められて、実際より悪く読まれる。
+      // ここは嘘のない範囲で Preset の絵の作り込みを言う（Kling は微動しか
+      // 出せないが、その微動と照明・カット割りで成立している）。
+      "Lit and framed like a real film — the camera moves, your pet alive in every frame",
       "Digital movie poster — included free",
       // 2026-08-16: リロールは両プランに開いた。完成した動画を作り直さないと
       // 決めた以上、絵コンテが顧客に残る唯一の直し場所なので、Preset にも要る。
@@ -43,9 +48,14 @@ const tiers: readonly Tier[] = [
   {
     key: "custom",
     name: "Director's Cut",
-    blurb: "No presets — your story, your world, your call.",
+    blurb: "Your story, your world — and your pet actually performs.",
     price: "$249",
     items: [
+      // **1行目に動きを置く。** 2026-08-16 以降、DC と Preset の最大の差は
+      // 「物語が自由かどうか」ではなく「ペットが動くかどうか」になった
+      // (MOTION-V2-SPEC.md §4.0.1 — DC は Seedance、Preset は Kling)。
+      // 差が一番大きいものを一番上に書く。
+      "Your pet performs — it runs, leaps, hauls the lever. Real action, not a moving photograph",
       "A fully bespoke trailer — your story, your world, not a preset",
       "You're the director: shape and approve the written treatment first — up to 2 free revisions",
       "Your call on wardrobe too — one signature look, yours to approve or change",
