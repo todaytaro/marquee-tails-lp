@@ -961,7 +961,12 @@ async function titleCard(
   seconds: number,
   lines: CardLine[],
   width = 1920,
-  height = 1080
+  height = 1080,
+  // 締めのブランドカードだけが使う。ロゴ画像を中央に置き、その下に文字を敷く。
+  // 画像は 2 本目の入力として読み、overlay で合成してから drawtext を掛ける
+  // （drawtext は画像を扱えないので、順序はこれしかない）。
+  // logo が無ければ従来どおり文字だけ — 画像が欠けてもカードは出る。
+  logo?: { file: string; heightPx: number; centerY: number }
 ): Promise<void> {
   const scale = width / 1920;
   const draw = lines
@@ -973,6 +978,29 @@ async function titleCard(
         )}:x=(w-text_w)/2:y=${l.y}`
     )
     .join(",");
+
+  if (logo && existsSync(logo.file)) {
+    const h = Math.round(logo.heightPx * scale);
+    const y = Math.round(logo.centerY * scale) - Math.round(h / 2);
+    // lumakey で暗部を抜く。ロゴPNGの黒（ほぼ #000）とカード背景（0x0b0a10、
+    // わずかに青い黒）は同じではないので、そのまま重ねるとロゴの外周が矩形と
+    // して浮く。金色だけを残して背景を透過させれば境界が消える。
+    // threshold はロゴの金（明度が高い）と背景の黒の間。tolerance を大きく
+    // 取りすぎると金の縁が溶けるので控えめに。
+    const chain =
+      `[1:v]scale=-1:${h},format=rgba,lumakey=threshold=0.18:tolerance=0.10[logo];` +
+      `[0:v][logo]overlay=x=(W-w)/2:y=${y}` +
+      (draw ? `[ov];[ov]${draw}` : "");
+    await ffmpeg([
+      "-f", "lavfi", "-i", `color=c=0x0b0a10:s=${width}x${height}:d=${seconds.toFixed(3)}:r=${FILM_FPS}`,
+      "-i", logo.file,
+      "-filter_complex", chain,
+      "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", PRESET_INTERMEDIATE, "-crf", String(CRF_INTERMEDIATE),
+      output,
+    ]);
+    return;
+  }
+
   await ffmpeg([
     "-f", "lavfi", "-i", `color=c=0x0b0a10:s=${width}x${height}:d=${seconds.toFixed(3)}:r=${FILM_FPS}`,
     "-vf", draw,
@@ -980,6 +1008,18 @@ async function titleCard(
     output,
   ]);
 }
+
+/**
+ * 締めのブランドカードのロゴ。無ければ文字だけのカードになる（同梱SFXと同じ
+ * フォールバック方針 — 資産が欠けてもパイプラインは止まらない）。
+ * 高さ 360px は 1080 の 1/3。オーナー提供の 735x506 を高さ基準で入れると
+ * 幅 523px、画面幅の 27% に収まる。
+ */
+const BRAND_LOGO = {
+  file: path.join(process.cwd(), "public/brand/mt-logo.png"),
+  heightPx: 360,
+  centerY: 470, // 中央よりやや上。下に社名を置く余白を作る
+};
 
 /**
  * Auto-shrink a card's headline for long copy (a long logline, or a long JP
@@ -1054,7 +1094,12 @@ function cardLinesFor(card: CardId, petName: string, loglines: Loglines): CardLi
     case "comingSoon":
       return [{ text: TITLE_CARDS.comingSoon, size: 58, y: "(h-text_h)/2", font: FONT_DISPLAY }];
     case "brand":
-      return [{ text: TITLE_CARDS.closing, size: 44, y: "(h-text_h)/2", font: FONT_DISPLAY }];
+      // ロゴ（BRAND_LOGO、中心 y=470）の下にサービス名を敷く。ロゴは "MT" の
+      // 2文字なので、初見の視聴者にはブランド名が読めない — 最後の1.5秒は
+      // サービス名を憶えてもらう唯一の機会なので、文字も残す。
+      // ロゴ画像が無ければ文字だけのカードになり、その場合はこの y でも
+      // 中央からやや下に出るだけで破綻はしない。
+      return [{ text: TITLE_CARDS.closing, size: fitFontSize(TITLE_CARDS.closing, FONT_DISPLAY, 56), y: "h/2+190", font: FONT_DISPLAY }];
   }
 }
 
@@ -1771,7 +1816,19 @@ const WHOOSH_LEAD_SECONDS = 0.15; // whoosh arrives just ahead of the cut it acc
 // inventing a new one. UNVERIFIED starting guess (spec §6 item 1) — a tuning
 // knob, not a measured value; re-evaluate once someone has actually watched
 // the assembled 60s with this in it.
+// タイトル直前、ミックス全体（riser を含む）が落ちる長さ。
 const MUSIC_TITLE_GAP_SECONDS = 0.4;
+// タイトルが出たあと、**音楽だけ**が戻らない長さ。boom はこの間に単体で鳴る。
+// `null` = 最後まで戻さない。1.0 秒で戻した版をオーナーが聴いて「違和感がある」
+// と判定したため（2026-08-15）。復帰が曲の途中から始まるので、無音で作った
+// 間をその継ぎ目が壊す。タイトル以降はエピローグで、SFX と映像だけで持つ。
+//
+// 2026-08-15、CAMYU の素材で組み直して実測したところ、無音 0.4 秒のあと
+// 37.90 秒で「タイトル表示・boom・音楽の全開復帰」が同時に起き、オーナーの
+// 判定は「ここが不自然」。予告編の型では**タイトルは無音の中に出て、一拍
+// 置いてから音楽が戻る** — 打点は boom 単体で足りる。音楽まで同時に戻すと、
+// 一番見せたい 1 コマの上で情報が渋滞する。
+const MUSIC_TITLE_HOLD_SECONDS: number | null = null;
 const MIX_SAMPLE_RATE = 44100;
 // Not every card gets a whoosh (spec: "全部には付けない...5〜6箇所") — these 5
 // are the biggest story beats; open/comingSoon/brand stay clean so the
@@ -1880,18 +1937,26 @@ async function mixAudio(dir: string, beats: ScaledBeat[], scoreLocalPath: string
   // idiom as MUSIC_DUCK_DB's per-card ducking below, just one deeper,
   // one-off window instead of a per-card dip.
   const finaleStart = finaleCardStartSeconds(beats);
-  const musicGapFilter =
+  // 2窓ある。**掛ける先が違う。**
+  //   mixGapFilter   … タイトル直前。ミックス全体（riser ごと）を落とす
+  //   musicHoldFilter … タイトル後。音楽だけ止めたまま、boom を単体で鳴らす
+  const mixGapFilter =
     finaleStart !== undefined
-      ? (() => {
-          const gapStart = Math.max(0, finaleStart - MUSIC_TITLE_GAP_SECONDS);
-          return `volume=enable='between(t,${gapStart.toFixed(3)},${finaleStart.toFixed(3)})':volume=0`;
-        })()
+      ? `volume=enable='between(t,${Math.max(0, finaleStart - MUSIC_TITLE_GAP_SECONDS).toFixed(3)},${finaleStart.toFixed(3)})':volume=0`
+      : undefined;
+  const musicHoldFilter =
+    finaleStart !== undefined
+      ? `volume=enable='between(t,${finaleStart.toFixed(3)},${(
+          MUSIC_TITLE_HOLD_SECONDS === null ? totalSeconds : finaleStart + MUSIC_TITLE_HOLD_SECONDS
+        ).toFixed(3)})':volume=0`
       : undefined;
 
   if (!sfxFilesAvailable()) {
     console.log("[film] SFX files not found in public/sfx — assembling with music only");
     const musicOnlyChain = [
-      ...(musicGapFilter ? [musicGapFilter] : []),
+      // SFX が無い経路では riser も boom も鳴らないので、2窓は続きの無音になる。
+      ...(mixGapFilter ? [mixGapFilter] : []),
+      ...(musicHoldFilter ? [musicHoldFilter] : []),
       `afade=t=out:st=${fadeStart.toFixed(3)}:d=${MUSIC_FADE_OUT_SECONDS}`,
     ].join(",");
     await ffmpeg([
@@ -1918,8 +1983,10 @@ async function mixAudio(dir: string, beats: ScaledBeat[], scoreLocalPath: string
     });
   const musicChain = [
     ...duckWindows,
-    // 無音はここではなく amix の後（下）で一度だけ掛ける。両方に掛けても
-    // 結果は同じだが、「どこで音が消えるのか」が2箇所に散ると読めなくなる。
+    // タイトル後のホールドは音楽トラックにだけ掛ける — boom はミックス側に
+    // 別入力で入るので、ここで止めても鳴り続ける。タイトル**直前**の無音は
+    // riser も落とす必要があるので amix の後（下）。
+    ...(musicHoldFilter ? [musicHoldFilter] : []),
     `afade=t=out:st=${fadeStart.toFixed(3)}:d=${MUSIC_FADE_OUT_SECONDS}`,
     `aformat=sample_rates=${MIX_SAMPLE_RATE}:channel_layouts=stereo`,
   ].join(",");
@@ -1940,7 +2007,7 @@ async function mixAudio(dir: string, beats: ScaledBeat[], scoreLocalPath: string
   // 落ちただけで、無音にならなかった — riser がタイトルの2.5秒前から鳴り始め、
   // その窓の上を鳴り続けるため。予告編の「全部止まってタイトル」は、止まるのが
   // 音楽だけでは成立しない。riser は無音の直前まで駆け上がり、そこで一緒に切れる。
-  const mixGap = musicGapFilter ? `,${musicGapFilter}` : "";
+  const mixGap = mixGapFilter ? `,${mixGapFilter}` : "";
   filterParts.push(`${mixLabels.join("")}amix=inputs=${mixLabels.length}:duration=first:dropout_transition=0${mixGap}[a]`);
 
   await ffmpeg([
@@ -2325,7 +2392,16 @@ async function assembleToFiles(
         await renderInsertBeat(insertStills[beat.insert], out, seconds);
       }
     } else {
-      await titleCard(out, seconds, cardLinesFor(beat.card, petName, loglines), 1920, 1080);
+      // ロゴは締めの brand カードだけ。他のカードに置くと、物語の途中で
+      // ブランドが割り込むことになる。
+      await titleCard(
+        out,
+        seconds,
+        cardLinesFor(beat.card, petName, loglines),
+        1920,
+        1080,
+        beat.card === "brand" ? BRAND_LOGO : undefined
+      );
     }
     wideSegments.push(out);
   }
