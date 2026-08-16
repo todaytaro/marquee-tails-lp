@@ -101,9 +101,18 @@ export async function POST(req: Request) {
         shippingRegion: shipping?.address?.state ?? null,
         shippingPostalCode: shipping?.address?.postal_code ?? null,
         shippingCountry: shipping?.address?.country ?? null,
+        // 請求先の国。checkout の billing_address_collection: "required" で
+        // 必ず入る（2026-08-16 以降のセッション）。税務の記録が目的で、
+        // shipping とは別 — shipping は物理アドオンのときしか埋まらない。
+        billingCountry: session.customer_details?.address?.country ?? null,
+        billingPostalCode: session.customer_details?.address?.postal_code ?? null,
       },
     });
-    console.log(`[stripe-webhook] order created id=${order.id} tier=${tier} email=${customerEmail}`);
+    console.log(
+      `[stripe-webhook] order created id=${order.id} tier=${tier} email=${customerEmail} country=${
+        session.customer_details?.address?.country ?? "?"
+      }`
+    );
 
     // CHARGEBACK-DEFENSE-SPEC.md §3 checkout.consent — the buyer's
     // pre-purchase agreement to the ToS/Refund Policy consent line is the

@@ -119,6 +119,17 @@ model Order {
   shippingPostalCode String?
   shippingCountry    String? // ISO 3166-1 alpha-2 (e.g. "US")
 
+  // 決済時の請求先の国。ISO 3166-1 alpha-2。**税務のために持つ。**
+  //   ・デジタル役務の内外判定は顧客の住所地で行う。海外の顧客なら日本の
+  //     消費税は課税対象外だが、「海外だった」と後から示せる記録が要る
+  //   ・米国の州税は州ごとの経済的ネクサスで判定する。どの国・州からいくら
+  //     売れたかを持っていないと、閾値に近づいたことに気づけない
+  // 上の shippingCountry とは別物 — あちらは物理アドオンの配送先で、
+  // 基本プランの注文には入らない。こちらは全注文に入る。
+  // 2026-08-16 より前の注文は null（当時は請求先住所を集めていなかった）。
+  billingCountry     String?
+  billingPostalCode  String? // 米国の州別集計に要る。国だけでは州が割れない
+
   // Printify連携の監査用 — populated once the physical add-on's Printify
   // order fires (see addonType below); no physical good exists before that.
   podOrderId String? // PrintifyのオーダーID（サポート対応・突合用）
