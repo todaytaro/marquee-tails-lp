@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Image from "next/image";
-import { REFUND_AMOUNT_USD, NONREFUNDABLE_FEE_USD } from "@/lib/safety-net";
+import { REFUND_AMOUNT_USD, NONREFUNDABLE_FEE_USD, STORYBOARD_REROLL_CAP } from "@/lib/safety-net";
 
 type TierKey = "preset" | "custom";
 
@@ -29,6 +29,9 @@ const tiers: readonly Tier[] = [
       "Choose Deep Space Explorer, Storybook Kingdom, or Noir Detective",
       "Your pet, instantly recognizable, across six starring shots",
       "Digital movie poster — included free",
+      // 2026-08-16: リロールは両プランに開いた。完成した動画を作り直さないと
+      // 決めた以上、絵コンテが顧客に残る唯一の直し場所なので、Preset にも要る。
+      `Approve the storyboard before we film — re-roll a scene if it's not right, ${STORYBOARD_REROLL_CAP} free per order`,
       "Storyboard ready in up to one business day — we train a model of your pet, shoot eighteen takes, and a director reviews every one",
       "HD delivery, 48h after storyboard approval",
     ],
@@ -53,7 +56,7 @@ const tiers: readonly Tier[] = [
       // non-refundable concept & storyboard fee; see the checkout consent
       // line, Terms, Refund Policy and Tokushoho page for the other four
       // disclosure points.
-      `Don't love your storyboard? Re-roll any scene up to 3 times free — and if it's still not right before we film, get $${REFUND_AMOUNT_USD} back ($${NONREFUNDABLE_FEE_USD} concept & storyboard fee stays non-refundable)`,
+      `Don't love your storyboard? Re-roll a scene — ${STORYBOARD_REROLL_CAP} free per order — and if it's still not right before we film, get $${REFUND_AMOUNT_USD} back ($${NONREFUNDABLE_FEE_USD} concept & storyboard fee stays non-refundable)`,
       "Digital movie poster — included free",
       "Strictly limited slots each day — reserved, not mass-produced",
     ],

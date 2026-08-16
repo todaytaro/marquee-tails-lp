@@ -67,17 +67,22 @@ export default function TermsPage() {
         up to two (2) free revisions to the written treatment.
       </p>
       <p>
-        Director&rsquo;s Cut orders may re-roll (regenerate) any single
-        storyboard scene up to three (3) times at no additional cost before
-        approving it. If, after using all three re-rolls, you still cannot
-        approve the storyboard, you may end production before filming begins
-        in exchange for a $150 refund; the $99 concept &amp; storyboard fee is
+        Every order includes two (2) free storyboard re-rolls. A re-roll
+        regenerates one scene as three brand-new takes; the two are a total
+        for the order, not two per scene. Director&rsquo;s Cut orders may
+        additionally end production before filming, in exchange for a $150
+        refund, once both re-rolls are used and the storyboard still
+        cannot be approved; the $99 concept &amp; storyboard fee is
         non-refundable in that case, because it covers the treatment and
-        storyboard work already completed for you. This is separate from,
-        and does not replace, the defect-based remake/refund process in our{" "}
-        <a href="/refund">Refund &amp; Cancellation Policy</a>, which applies
-        to your finished, delivered film and poster rather than to
-        pre-production direction.
+        storyboard work already completed for you.
+      </p>
+      <p>
+        You approve the storyboard before we film. Once approved, the order
+        is final and <strong>we do not remake or re-film a delivered
+        trailer</strong> &mdash; the film is built from frames you already
+        saw and approved. See our{" "}
+        <a href="/refund">Refund &amp; Cancellation Policy</a> for how this
+        works and what still applies if something goes wrong on our side.
       </p>
 
       <h2>7. Pricing &amp; Payment</h2>

@@ -82,7 +82,7 @@ export function StoryboardReviewPanel({
       </div>
       <p className="mb-4 text-xs text-muted">
         顧客にはまだ何も送られていません。各カットで犬がフレーム内に読めるか確認してから承認してください。
-        気になるテイクは1枚単位で引き直せます（顧客の3回のリロール枠はここでは消費しません）。
+        気になるテイクは1枚単位で引き直せます（顧客の無償リロール枠はここでは消費しません）。
       </p>
 
       <div className="space-y-5">

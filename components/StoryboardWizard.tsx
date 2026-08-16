@@ -28,7 +28,10 @@ import { refundConfirmText } from "@/lib/refund-consent";
  *     loop or the admin's Gate-2 shot re-render.
  *   - once all are spent, a refund offer (/api/orders/request-refund)
  *     that freezes Gate 1 for this order once accepted.
- * Preset ($99) orders pass isCustom=false and see none of this (spec §7).
+ * Preset orders pass isCustom=false: 2026-08-16 以降、**リロールは両プラン**で、
+ * isCustom が残っているのは撮影前返金の申し出だけ。完成した動画を作り直さないと
+ * 決めた以上、絵コンテが顧客に残る唯一の救済で、Preset から外すと
+ * 「承認するしかない」プランになってしまう。
  */
 
 type Cut = { scene: string; options: string[] };
@@ -312,7 +315,6 @@ export default function StoryboardWizard({
   /* ---------------------------------------------------------- */
 
   function rerollCounter() {
-    if (!isCustom) return null;
     return (
       <p className="text-xs uppercase tracking-[0.2em] text-muted">
         {rerollsRemaining} of {rerollCap} free re-rolls left
@@ -488,12 +490,11 @@ export default function StoryboardWizard({
           })}
         </ol>
 
-        {isCustom && (
-          <div className="mx-auto mt-8 max-w-2xl text-center">
-            {rerollCounter()}
-            {refundOffer()}
-          </div>
-        )}
+        {/* カウンタは全プラン。refundOffer は関数側で DC 限定にしている。 */}
+        <div className="mx-auto mt-8 max-w-2xl text-center">
+          {rerollCounter()}
+          {refundOffer()}
+        </div>
 
         <div className="mt-10 rounded-[var(--radius-card)] border border-hairline bg-surface p-5 text-center sm:flex sm:items-center sm:justify-between sm:gap-6 sm:text-left">
           <div>
@@ -614,10 +615,13 @@ export default function StoryboardWizard({
         })}
       </div>
 
-      {/* B2 §3.2 — re-roll control + free-re-roll counter (Director's Cut
-          only). Always visible once earned/available so the "3 free
-          re-rolls" promise reads as real, not hidden. */}
-      {isCustom && (
+      {/* B2 §3.2 — re-roll control + free-re-roll counter. **両プラン**
+          （2026-08-16）。表示条件を rerollCap にしてあるのは、将来 0 に
+          したときに操作ごと消えるようにするため — isCustom のままだと
+          「プランで分ける」という消したはずの前提が残る。
+          回数が残っている限り出しておく。隠すと「無料リロース」の約束が
+          本当に見えない。 */}
+      {rerollCap > 0 && (
         <div className="mx-auto mt-6 max-w-2xl text-center">
           {rerollCounter()}
           {rerollsRemaining > 0 ? (

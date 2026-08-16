@@ -18,38 +18,54 @@ export default function RefundPage() {
         simple change of mind once an order has been placed.
       </p>
 
-      <h2>2. Defects / Quality</h2>
+      <h2>2. The Storyboard Is Where Changes Happen</h2>
       <p>
-        If your delivered film or poster has a defect — for example, your pet
-        is clearly not recognizable against our human quality-review
-        standard — we will remake or fix the affected material at no
-        additional cost, up to two (2) remakes per order. If the issue is
-        still not resolved after the second remake, we will issue a full
-        refund instead.
+        Before we film anything, you approve a storyboard: six still frames
+        showing exactly what your trailer will contain. That approval is the
+        point at which the film is settled. If a scene isn&rsquo;t right, you
+        can re-roll it &mdash; see Section 3 &mdash; and you can keep going
+        until you are happy to approve, or decline to approve at all.
+      </p>
+      <p>
+        Because of that, <strong>we do not remake or re-film a delivered
+        trailer</strong>. The film is made from frames you already saw and
+        approved, and re-filming one costs as much as producing the order
+        again. Changes belong at the storyboard stage, where they are quick
+        and free.
+      </p>
+      <p>
+        This does not limit your rights under applicable consumer law, and it
+        is not a licence for us to deliver poor work: every shot passes a
+        human quality review before it reaches you, and if something is
+        clearly wrong on our side we will put it right at our discretion.
       </p>
 
-      <h2>3. Director&rsquo;s Cut Pre-Production Safety Net</h2>
+      <h2>3. Storyboard Re-Rolls &amp; the Pre-Production Refund</h2>
       <p>
-        Section 2 above covers defects in your DELIVERED film or poster.
-        This section is different: it covers what happens BEFORE anything is
-        filmed, if you and your director simply can&rsquo;t agree on the
-        storyboard.
+        Section 2 explains why changes belong before filming. This section
+        sets out exactly what you get at that stage.
       </p>
       <p>
-        Director&rsquo;s Cut ($249) orders include up to two (2) free text
-        revisions to your written treatment, plus up to three (3) free
-        re-rolls of any single storyboard scene at Gate 1 (before filming
-        begins). If, after using all three re-rolls, you still cannot approve
-        the storyboard, you may end production there in exchange for a $150
-        refund. The $99 concept &amp; storyboard fee is non-refundable in
-        that case &mdash; it covers the treatment and storyboard work we
-        already completed specifically for you, which remain yours to keep.
-        This option is only available before Gate 1 approval (i.e., before
-        filming starts); once you approve the storyboard, production is
-        underway and this section no longer applies &mdash; Section 2&rsquo;s
-        defect policy governs the delivered result instead. This safety net
-        is exclusive to Director&rsquo;s Cut; Preset Worlds orders do not
-        have a Gate 0 treatment step and are not eligible for it.
+        <strong>Every order</strong> includes two (2) free storyboard
+        re-rolls. A re-roll regenerates one scene as three brand-new takes.
+        The two are a total for the order, not two per scene.
+      </p>
+      <p>
+        Director&rsquo;s Cut ($249) additionally includes up to two (2) free
+        revisions to your written treatment before the storyboard is drawn,
+        and one further protection: if you have used both re-rolls and still
+        cannot approve the storyboard, you may end production there, before
+        filming begins, in exchange for a $150 refund. The $99 concept &amp;
+        storyboard fee is non-refundable in that case &mdash; it covers the
+        treatment and storyboard work already completed specifically for you,
+        which remain yours to keep.
+      </p>
+      <p>
+        That refund is only available before you approve the storyboard. Once
+        you approve it, filming begins and the order is final. Preset Worlds
+        orders have no written-treatment stage and no refund window; if you
+        believe something has gone wrong with your order, contact us and we
+        will look at it individually.
       </p>
 
       <h2>4. Non-Delivery</h2>

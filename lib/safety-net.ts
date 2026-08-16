@@ -28,8 +28,14 @@
 
 // PRICING-PRODUCT-V2-SPEC.md §3.5(C): "three free storyboard re-rolls" — a
 // hard product ceiling, not a soft rate limit. Named so it's never
-// re-hardcoded as a bare `3` in a route, a component, or a test.
-export const STORYBOARD_REROLL_CAP = 3;
+// re-hardcoded as a bare number in a route, a component, or a test.
+//
+// **注文あたりの合計** であって、1シーンにつきの回数ではない — 数え上げは
+// order.storyboardRerollCount という単一のカウンタ（schema.prisma に
+// order-wide と明記）。規約は長らく「any single storyboard scene up to
+// three (3) times」と書いており、6シーンで18回と読める誤りだった。
+// 2026-08-16 に 3 → 2 へ下げ、同時に規約の文面もコードに合わせた。
+export const STORYBOARD_REROLL_CAP = 2;
 
 // Gate 0's free treatment-revision limit. A customer-facing product ceiling
 // (not the old internal anti-abuse cap of 20 the field once carried) — the
@@ -81,9 +87,10 @@ function isCustomTier(order: Pick<OrderForGuard, "tier">): boolean {
  * then the cap.
  */
 export function canReroll(order: OrderForGuard): GuardResult {
-  if (!isCustomTier(order)) {
-    return { ok: false, reason: NOT_CUSTOM_REASON };
-  }
+  // **プランで分けない**（2026-08-16）。完成した動画の作り直しはどちらの
+  // プランでも受けないと決めたので、絵コンテのリロールが顧客に残る唯一の
+  // 救済になる。Preset から取り上げると「承認しろ、以上」になってしまう。
+  // Gate 0（脚本の文章修正）と撮影前返金は今も DC 専用 — canRequestRefund。
   if (order.refundRequestedAt) {
     return {
       ok: false,
