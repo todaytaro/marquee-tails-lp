@@ -5,14 +5,18 @@ import { prisma } from "@/lib/db";
 
 const VALID_ADDONS: AddonType[] = ["poster", "canvas"];
 
-// Launch set of countries offered at the add-on Checkout's shipping address
-// collection — Printify ships to these widely. The owner can expand this
-// list later; it does not affect the base plan checkout (no shipping there).
+// 物販アドオンの配送先。**EU・英国は外してある**（2026-08-16）。
+//
+// 元は EU16カ国 + GB + CH + NO を含んでいた。デジタル役務側で EU/英国を
+// 止めた（lib/sales-regions.ts）のに物販が開いていると塞いだ意味が薄い。
+// しかも物販の方が話が複雑で、Printify が**域内の工場で刷って域内に届ける**
+// と、輸入ではなく域内供給になり、その国での VAT 登録が要る形になりうる。
+// デジタルの「免税点なし」ほど単純ではないぶん、判断がつくまで開けない。
+//
+// 開けるときは lib/sales-regions.ts と一緒に見直すこと — 片方だけ開けると
+// 「デジタルは買えないのにポスターは買える」という説明のつかない状態になる。
 const ADDON_SHIP_COUNTRIES: Stripe.Checkout.SessionCreateParams.ShippingAddressCollection.AllowedCountry[] =
-  [
-    "US", "CA", "GB", "AU", "NZ", "IE", "JP",
-    "DE", "FR", "ES", "IT", "NL", "BE", "AT", "SE", "DK", "FI", "NO", "PT", "PL", "CH",
-  ];
+  ["US", "CA", "AU", "NZ", "JP"];
 
 /**
  * Creates the SECOND Stripe Checkout session — the post-delivery physical
