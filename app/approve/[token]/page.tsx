@@ -5,6 +5,7 @@ import { OrderStatus, type Order } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import StoryboardWizard from "@/components/StoryboardWizard";
 import PosterPicker from "@/components/PosterPicker";
+import MoviePosterOverlay from "@/components/MoviePosterOverlay";
 import { normalizeStoryboard } from "@/lib/stills-pipeline";
 import {
   STORYBOARD_REROLL_CAP,
@@ -608,6 +609,51 @@ function PremiereView({ order, petName }: { order: Order; petName: string }) {
             asks for photos.
           </p>
         </div>
+      )}
+      {/*
+        The poster itself. It is a promised deliverable of BOTH plans and the
+        download button above already hands it over — but until now the
+        customer never SAW it here. The only poster on this page was the
+        64x96px thumbnail inside the add-on card, and that one renders the raw
+        text-free art with no title block at all, so it doesn't even read as a
+        movie poster. Being asked to buy a print of something you were never
+        shown is a strange ask.
+
+        MoviePosterOverlay over `posterUrl`, not the flattened `posterPrintUrl`:
+        the print file is the full-resolution composite (measured at 18MB on a
+        3392px-wide order) and has no business being loaded by a page. The
+        overlay is the same design — poster-print.ts is a satori
+        re-implementation of this exact component, kept in lock step — and it
+        renders live type, so it stays sharp at any size and gets per-glyph
+        font fallback for Japanese names for free. It is also literally what
+        the customer saw when they picked this poster in the wizard
+        (PosterPicker uses the same component with the same posterCopy()).
+
+        Gated on posterUrl alone, NOT posterPrintUrl. Those come from different
+        steps — posterUrl is the customer's pick, posterPrintUrl is baked at
+        Gate 2 approval and can legitimately be null if that render failed
+        (lib/approvals.ts catches and continues so a failure there never blocks
+        delivery). In that case the download button above is absent, and the
+        poster should still be visible rather than the page pretending the
+        order has no poster.
+      */}
+      {videoUrl && order.posterUrl && (
+        <section className="mt-16">
+          <p className="text-sm uppercase tracking-[0.3em] text-muted">
+            The one-sheet
+          </p>
+          {/* 2:3 against the film's 16:9 above: max-w-sm (384px) is already
+              taller than the 766px video, but reads undersized next to it on a
+              desktop width — max-w-md holds its own without becoming the
+              loudest thing on the page. */}
+          <div className="film-grain mx-auto mt-6 max-w-sm overflow-hidden rounded-[var(--radius-card)] border border-gold/40 gold-glow-box sm:max-w-md">
+            <MoviePosterOverlay
+              src={order.posterUrl}
+              petName={petName}
+              {...posterCopy(order)}
+            />
+          </div>
+        </section>
       )}
       {/* DELIVERY-RATING-SPEC.md §4 — right after the watch-and-download
           moment (the answer rate here is as good as it ever gets) and
