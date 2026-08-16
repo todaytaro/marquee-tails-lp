@@ -138,7 +138,7 @@ export default function PricingTeaser() {
                 key={tier.key}
                 className={`relative flex flex-col overflow-hidden rounded-card border bg-surface motion-safe:transition-[transform,box-shadow] motion-safe:duration-300 ${
                   isFeatured
-                    ? "border-gold/60 gold-glow-box motion-safe:hover:-translate-y-1.5 motion-safe:hover:shadow-[0_0_60px_rgba(232,182,76,0.45)]"
+                    ? "ticket-foil motion-safe:hover:-translate-y-1.5"
                     : "border-hairline"
                 }`}
               >

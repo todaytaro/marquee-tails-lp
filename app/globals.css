@@ -105,6 +105,72 @@ body {
   box-shadow: 0 0 40px rgba(232, 182, 76, 0.35);
 }
 
+/* ---------------------------------------------------------------- */
+/* Featured ticket — the Director's Cut card                         */
+/*                                                                    */
+/* 「もっとプレミア感を」への対応（2026-08-16）。派手さを足すのではなく、  */
+/* **箔押しのカードらしい物質感**で差をつける。安易に光量を上げると        */
+/* 隣の Preset が暗く貧相に見えて、比較表そのものが壊れる。               */
+/*                                                                    */
+/*   1. 縁を単色から**金の階調**へ。上辺が明るく下へ落ちる = 上から光が    */
+/*      当たっている一枚の板に見える。印刷物の箔押しの見え方。            */
+/*   2. 内側にもう一本の細い罫（二重罫）。証書やチケットの常套手段で、     */
+/*      これだけで「刷り物」の格が上がる。                                */
+/*   3. 上端の内側にごく淡い光。紙のふちが光を拾っている感じ。            */
+/*   4. 影を「光る輪」から**落ち影**へ寄せる。浮いているのではなく、      */
+/*      厚みのあるものが手前に置かれている状態にする。                    */
+/* ---------------------------------------------------------------- */
+.ticket-foil {
+  /* 1px の階調ボーダーを、背景2枚の重ね（padding-box / border-box）で作る。
+     border-image は角丸と相性が悪いのでこの手を使う。 */
+  border: 1px solid transparent;
+  background:
+    /* 面にも階調を入れる。上が明るく下へ沈む = 上から光が当たった一枚の板。
+       縁だけ金にしても実用サイズでは差が弱く、面が平らなままだと「枠を
+       変えただけ」に見えた（2026-08-16、実機で確認）。 */
+    linear-gradient(
+        to bottom,
+        color-mix(in srgb, var(--color-surface) 88%, var(--color-gold) 12%) 0%,
+        var(--color-surface) 32%,
+        color-mix(in srgb, var(--color-surface) 92%, #000 8%) 100%
+      )
+      padding-box,
+    linear-gradient(
+        160deg,
+        rgba(246, 210, 126, 0.85) 0%,
+        rgba(232, 182, 76, 0.45) 28%,
+        rgba(232, 182, 76, 0.18) 62%,
+        rgba(232, 182, 76, 0.4) 100%
+      )
+      border-box;
+  box-shadow:
+    /* 内側の二重罫 */
+    inset 0 0 0 1px rgba(232, 182, 76, 0.1),
+    /* 上端が光を拾う */
+    inset 0 1px 0 0 rgba(246, 210, 126, 0.35),
+    /* 落ち影。輪郭を残したまま沈める */
+    0 18px 40px -12px rgba(0, 0, 0, 0.75),
+    0 0 34px rgba(232, 182, 76, 0.22);
+}
+
+.ticket-foil:hover {
+  box-shadow:
+    inset 0 0 0 1px rgba(232, 182, 76, 0.16),
+    inset 0 1px 0 0 rgba(246, 210, 126, 0.5),
+    0 26px 54px -14px rgba(0, 0, 0, 0.8),
+    0 0 52px rgba(232, 182, 76, 0.34);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ticket-foil:hover {
+    box-shadow:
+      inset 0 0 0 1px rgba(232, 182, 76, 0.1),
+      inset 0 1px 0 0 rgba(246, 210, 126, 0.35),
+      0 18px 40px -12px rgba(0, 0, 0, 0.75),
+      0 0 34px rgba(232, 182, 76, 0.22);
+  }
+}
+
 /* Primary CTA: gold plate, near-black text, glow on hover */
 .btn-marquee {
   display: inline-flex;
