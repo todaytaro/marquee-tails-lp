@@ -36,7 +36,7 @@ export function isStripeConfigured(): boolean {
 
 /**
  * Pass 1 (PRICING-PRODUCT-V2-SPEC.md): 2 plans — "preset" (Preset Worlds,
- * $99, purchasable) and "custom" (Director's Cut, $249, not sellable yet —
+ * $159, purchasable) and "custom" (Director's Cut, $249, also purchasable —
  * see app/api/checkout/route.ts). The old 3-tier model (digital/feature/
  * collector) is fully retired.
  */

@@ -23,7 +23,7 @@ const tiers: readonly Tier[] = [
     key: "preset",
     name: "Preset Worlds",
     blurb: "A ready-made world — your pet cast as the star.",
-    price: "$99",
+    price: "$159",
     items: [
       "60-second cinematic trailer in a director-made world",
       "Choose Deep Space Explorer, Storybook Kingdom, or Noir Detective",

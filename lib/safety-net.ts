@@ -114,7 +114,7 @@ export function canReroll(order: OrderForGuard): GuardResult {
 
 /**
  * $150 refund-request guard (§4.1) — a conjunction of:
- *   1. tier === "custom" (§7 — Preset has no Gate 0, no $99/$150 split)
+ *   1. tier === "custom" (§7 — Preset has no Gate 0, no $99/$150 split; its own deduction is $59, handled case by case rather than by this guard)
  *   2. all STORYBOARD_REROLL_CAP re-rolls spent ("fix it first" — the whole
  *      point of B2 is that re-rolling comes before refunding)
  *   3. Gate 1 not yet approved (still AWAITING_CUSTOMER_APPROVAL — once video

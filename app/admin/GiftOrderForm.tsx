@@ -99,7 +99,7 @@ export function GiftOrderForm() {
             onChange={(e) => setTier(e.target.value as "preset" | "custom")}
             className="mt-1 w-full rounded-[var(--radius-chip)] border border-hairline bg-night/40 px-2 py-1.5 text-sm text-ivory focus:border-gold/60 focus:outline-none"
           >
-            <option value="preset">Preset Worlds（$99相当）</option>
+            <option value="preset">Preset Worlds（$159相当）</option>
             <option value="custom">Director&apos;s Cut（$249相当）</option>
           </select>
         </label>

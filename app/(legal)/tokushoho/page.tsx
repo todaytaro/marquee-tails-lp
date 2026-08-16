@@ -51,7 +51,7 @@ export default function TokushohoPage() {
           <tr>
             <th>販売価格</th>
             <td>
-              各商品ページに表示（Preset Worlds $99、Director&rsquo;s Cut
+              各商品ページに表示（Preset Worlds $159、Director&rsquo;s Cut
               $249）。表示価格は全て税込です。
             </td>
           </tr>

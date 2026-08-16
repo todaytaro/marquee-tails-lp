@@ -62,10 +62,15 @@ export default function RefundPage() {
       </p>
       <p>
         That refund is only available before you approve the storyboard. Once
-        you approve it, filming begins and the order is final. Preset Worlds
-        orders have no written-treatment stage and no refund window; if you
-        believe something has gone wrong with your order, contact us and we
-        will look at it individually.
+        you approve it, filming begins and the order is final.
+      </p>
+      <p>
+        Preset Worlds orders have no written-treatment stage and no standing
+        refund window. If you believe something has gone wrong, contact us and
+        we will look at your order individually; where we agree to refund a
+        Preset order before filming has begun, we keep $59 to cover the model
+        training and storyboard work already completed for you, and refund the
+        rest.
       </p>
 
       <h2>4. Non-Delivery</h2>

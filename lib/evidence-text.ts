@@ -156,7 +156,7 @@ export function buildEvidenceText(
   lines.push(`Stripe Checkout Session: ${order.stripeSessionId}`);
   lines.push(`Customer: ${order.customerEmail}`);
   lines.push(
-    `Product: made-to-order AI-generated pet movie trailer + digital poster (${order.tier === "custom" ? "Director's Cut, $249" : "Preset Worlds, $99"}), tier=${order.tier ?? "unknown"}`
+    `Product: made-to-order AI-generated pet movie trailer + digital poster (${order.tier === "custom" ? "Director's Cut, $249" : "Preset Worlds, $159"}), tier=${order.tier ?? "unknown"}`
   );
   lines.push(
     `Amount charged: ${order.amountPaidCents != null ? `$${(order.amountPaidCents / 100).toFixed(2)}` : "unknown"}`

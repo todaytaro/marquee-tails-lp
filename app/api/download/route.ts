@@ -10,7 +10,7 @@ import { recordEvidence } from "@/lib/evidence";
  * browsers ignore the `download` attribute on a cross-origin link. So every
  * "Download your film" button on the delivery page has, since it shipped,
  * opened the video in a tab instead of saving it — including the two things
- * a customer actually paid $99–$249 for. The bug is invisible from the code
+ * a customer actually paid $159–$249 for. The bug is invisible from the code
  * (the attribute is right there) and invisible in testing unless you watch
  * where the file lands. Routing through this origin makes the attribute
  * meaningful again and lets us name the file, which was also being silently

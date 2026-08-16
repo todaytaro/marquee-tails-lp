@@ -274,7 +274,7 @@ function Gate1View({ order, petName }: { order: Order; petName: string }) {
             scene: cut.scene,
             options: cut.options.map((o) => o.preview),
           }))}
-          // B2-SAFETY-NET-SPEC.md §3/§4/§7 — Preset ($99) sees none of this;
+          // B2-SAFETY-NET-SPEC.md §3/§4/§7 — Preset sees the re-rolls but not the refund offer;
           // only a Director's Cut ("custom") order carries a real re-roll
           // count / refund state.
           isCustom={order.tier === "custom"}

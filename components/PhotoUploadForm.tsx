@@ -419,7 +419,7 @@ export default function PhotoUploadForm({
       {/* The wait is worth naming here, not just in email (LORA-STORYBOARD-SPEC.md
           §2.1/§2.7): a model of this pet is trained before any scene is drawn,
           so the storyboard takes real time now. Unexplained silence after a
-          $99–$249 checkout reads as a stalled order. Split by plan because the
+          $159–$249 checkout reads as a stalled order. Split by plan because the
           wait starts at different moments — a custom order writes its treatment
           first and only kicks the pipeline once the customer approves it
           (app/api/orders/approve-treatment/route.ts calls kickLoraTraining),
