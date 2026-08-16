@@ -67,7 +67,17 @@ const tiers: readonly Tier[] = [
       // line, Terms, Refund Policy and Tokushoho page for the other four
       // disclosure points.
       `Don't love your storyboard? Re-roll a scene — ${STORYBOARD_REROLL_CAP} free per order — and if it's still not right before we film, get $${REFUND_AMOUNT_USD} back ($${NONREFUNDABLE_FEE_USD} concept & storyboard fee stays non-refundable)`,
+      // なぜ DC だけ動くのかを一行で説明する。原価は書かない — 顧客は原価では
+      // なく結果を買う。ただ「動かせるモデルはこのプラン専用」は事実で
+      // (MOTION-V2-SPEC.md §4.0.1: Seedance $5.47/8秒 対 Kling $0.67/8秒)、
+      // 動きの主張と価格差の両方を一度に説明する。
+      "Filmed on the motion model we reserve for Director's Cut — the reason your pet can actually move",
       "Digital movie poster — included free",
+      // Preset にだけ HD と納期があり DC に無かった。安い方にだけ書いてあると
+      // 「高い方は HD ではないのか」と読める。納期は同じ（絵コンテ承認から48h）
+      // だが、DC は手前に Gate 0（脚本の作成と承認）が挟まるぶん全体では長い。
+      // そこを隠さず書く。
+      "HD delivery, 48h after storyboard approval — the treatment stage comes first, so allow longer overall",
       "Strictly limited slots each day — reserved, not mass-produced",
     ],
     flag: "Limited slots",
