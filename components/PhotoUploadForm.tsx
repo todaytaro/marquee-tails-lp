@@ -101,11 +101,77 @@ export default function PhotoUploadForm({
     return cleaned || "photo";
   }
 
-  function addFiles(list: FileList | null) {
+  /**
+   * HEIC / HEIF は iPhone の標準形式なので、Mac の Finder から選ぶと普通に
+   * 混ざる。放っておくと**二通りに黙って壊れる**:
+   *   ・type が "image/heic" … 下の image/ フィルタを通り、Blob に上がり、
+   *     その URL を受け取った fal が読めない
+   *   ・type が ""（Finder 経由だと空になることがある）… フィルタで捨てられ、
+   *     顧客には何も表示されない
+   * どちらもエラーが出ないのが最悪で、顧客は「7枚入れたのに送れない」だけを見る。
+   *
+   * ブラウザ内で JPEG に焼き直す。Safari は HEIC をデコードできるので
+   * createImageBitmap がそのまま通る。Chrome はデコードできないので、
+   * **落とさずに例外にして、ファイル名を出して伝える**。ライブラリを足せば
+   * Chrome でも変換できる（heic2any / libheif-wasm）が、1MB 超の wasm を
+   * 全員に配ることになるので、まずは変換できる環境で変換し、できない環境には
+   * 何が起きたか伝えるところまで。
+   */
+  async function toJpegIfHeic(file: File): Promise<File> {
+    const isHeic =
+      /image\/(heic|heif)/i.test(file.type) || /\.(heic|heif)$/i.test(file.name);
+    if (!isHeic) return file;
+
+    const bitmap = await createImageBitmap(file); // Chrome ではここで throw
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    canvas.getContext("2d")!.drawImage(bitmap, 0, 0);
+    const blob: Blob | null = await new Promise((res) =>
+      canvas.toBlob(res, "image/jpeg", 0.92)
+    );
+    if (!blob) throw new Error("canvas.toBlob returned null");
+    return new File([blob], file.name.replace(/\.(heic|heif)$/i, ".jpg"), {
+      type: "image/jpeg",
+    });
+  }
+
+  async function addFiles(list: FileList | null) {
     if (!list) return;
     setError(null);
-    const next = [...files, ...Array.from(list)].filter((f) => f.type.startsWith("image/"));
+
+    const incoming = Array.from(list);
+    const converted: File[] = [];
+    const failed: string[] = [];
+    for (const f of incoming) {
+      try {
+        const out = await toJpegIfHeic(f);
+        if (out.type.startsWith("image/")) converted.push(out);
+        else failed.push(f.name);
+      } catch {
+        failed.push(f.name);
+      }
+    }
+
+    const next = [...files, ...converted];
+    // 上限超過は**黙って切らない**。以前は slice するだけだったので、20枚
+    // 選んだ人は後ろの8枚が消えたことに気づけなかった。しかも捨てられるのは
+    // 後から足した方なので、「一番いい写真を最後に選んだ」人ほど損をする。
+    const dropped = Math.max(0, next.length - MAX_PHOTOS);
     setFiles(next.slice(0, MAX_PHOTOS));
+
+    const notes: string[] = [];
+    if (failed.length) {
+      notes.push(
+        `We couldn't read ${failed.length} file${failed.length > 1 ? "s" : ""} (${failed
+          .slice(0, 3)
+          .join(", ")}${failed.length > 3 ? "…" : ""}). If these are iPhone HEIC photos, open them and export as JPEG, or send them from your phone instead.`
+      );
+    }
+    if (dropped > 0) {
+      notes.push(`We kept the first ${MAX_PHOTOS} photos — ${dropped} more didn't fit.`);
+    }
+    if (notes.length) setError(notes.join(" "));
   }
 
   function submit() {
@@ -377,7 +443,10 @@ export default function PhotoUploadForm({
         <input
           ref={inputRef}
           type="file"
-          accept="image/*"
+          // HEIC/HEIF を明示。Finder 経由だと type が空になることがあり、
+          // image/* だけだとピッカーに出ない環境がある。拾ってから
+          // addFiles が JPEG に焼き直す（変換できなければ名前を出して伝える）。
+          accept="image/*,.heic,.heif"
           multiple
           className="hidden"
           onChange={(e) => addFiles(e.target.files)}
