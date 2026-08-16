@@ -1918,7 +1918,8 @@ async function mixAudio(dir: string, beats: ScaledBeat[], scoreLocalPath: string
     });
   const musicChain = [
     ...duckWindows,
-    ...(musicGapFilter ? [musicGapFilter] : []),
+    // 無音はここではなく amix の後（下）で一度だけ掛ける。両方に掛けても
+    // 結果は同じだが、「どこで音が消えるのか」が2箇所に散ると読めなくなる。
     `afade=t=out:st=${fadeStart.toFixed(3)}:d=${MUSIC_FADE_OUT_SECONDS}`,
     `aformat=sample_rates=${MIX_SAMPLE_RATE}:channel_layouts=stereo`,
   ].join(",");
@@ -1934,7 +1935,13 @@ async function mixAudio(dir: string, beats: ScaledBeat[], scoreLocalPath: string
     );
     mixLabels.push(`[${label}]`);
   });
-  filterParts.push(`${mixLabels.join("")}amix=inputs=${mixLabels.length}:duration=first:dropout_transition=0[a]`);
+  // 無音は **ミックス全体** に掛ける。音楽トラックだけに掛けた版を CAMYU の
+  // 完成素材で組み直して実測したところ、無音区間の音量は -30dB から -34.7dB に
+  // 落ちただけで、無音にならなかった — riser がタイトルの2.5秒前から鳴り始め、
+  // その窓の上を鳴り続けるため。予告編の「全部止まってタイトル」は、止まるのが
+  // 音楽だけでは成立しない。riser は無音の直前まで駆け上がり、そこで一緒に切れる。
+  const mixGap = musicGapFilter ? `,${musicGapFilter}` : "";
+  filterParts.push(`${mixLabels.join("")}amix=inputs=${mixLabels.length}:duration=first:dropout_transition=0${mixGap}[a]`);
 
   await ffmpeg([
     ...inputs,
