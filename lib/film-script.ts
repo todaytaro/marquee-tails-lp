@@ -764,6 +764,39 @@ export function pickWorldInserts(world: string, orderId: string): string[] {
  * (or [] for zero), matching the mandatory "no inserts -> 60s without them"
  * degradation path — a malformed custom script must still produce a film.
  */
+/**
+ * 仲間の犬を背景に置いてよいカットの上限。6カット中2カット。
+ *
+ * 演出上の理由: 全カットに仲間がいると「嵐に一匹で立ち向かう」という画が
+ * 予告編から消える。仲間は寂しさを埋める薬味であって、主題ではない。
+ */
+export const MAX_CREW_CUTS = 2;
+
+/**
+ * Claude が立てた `crew` フラグを **コードで** MAX_CREW_CUTS 本に切る。
+ *
+ * なぜプロンプトに任せないか: 同じ日（2026-08-17）に「船長と明らかに違う毛色に
+ * しろ」という指示が**完全に無視された**のを実測している。文章での制約は守られる
+ * ときも守られないときもあり、守られなかったことは生成物を見るまで分からない。
+ * 本数の上限は守られたか否かがコード側で判定できる種類の制約なので、判定できる
+ * 側に置く。これはこのコードベースで繰り返し学んだ形 —「モデルが従わないときは
+ * 言い換えを続けず、従いようのない層に仕組みを移す」。
+ *
+ * 超過分は**後ろから落とす**（先頭のカットを優先して残す）。予告編の序盤は
+ * 世界を見せる場所で、仲間がいるなら早く出た方が「賑やかな世界」として読める。
+ * 決め方が任意である以上、orderId のハッシュのような揺れる基準は使わない —
+ * 同じ脚本からは常に同じ映画が出るべきで、再レンダリングで別のカットに仲間が
+ * 移ると、admin が直したはずのものが直っていないように見える。
+ */
+export function capCrewCuts(cuts: { crew?: boolean }[]): boolean[] {
+  let kept = 0;
+  return cuts.map((c) => {
+    if (c.crew !== true || kept >= MAX_CREW_CUTS) return false;
+    kept++;
+    return true;
+  });
+}
+
 export function deriveCustomInserts(cuts: { scene: string }[], orderId: string): string[] {
   if (!Array.isArray(cuts) || cuts.length === 0) return [];
   const n = Math.min(3, cuts.length);
@@ -773,7 +806,13 @@ export function deriveCustomInserts(cuts: { scene: string }[], orderId: string):
   // isn't guaranteed to divide evenly by 3 on malformed/legacy data.
   const step = cuts.length / n;
   const indices = Array.from(new Set(Array.from({ length: n }, (_, k) => (start + Math.round(k * step)) % cuts.length)));
-  return indices.map((i) => `the setting of: ${cuts[i].scene} — empty scene, no animals, no people`);
+  // 「無人の風景」から「飼い犬がいない風景」へ（2026-08-17）。生き物は出せる —
+  // ただし犬だけは顔を描かせない（LoRA を通らないので他人の犬の顔になる）。
+  // generateInsertStill 側のプロンプトと対になっている。
+  return indices.map(
+    (i) =>
+      `the setting of: ${cuts[i].scene} — the pet itself is absent from this shot; no people; any dog appears only as paws, tails, backs or distant silhouettes, never a dog face`
+  );
 }
 
 /** At most this many of the 6 cuts may carry a Claude-authored end pose — see resolveCustomEndPoses. */
@@ -926,7 +965,22 @@ export type WorldBundle = {
   // 動きを供給する担当だった。`action` がその担当。
   // OPTIONAL: これ以前の generatedScript は持たない。無ければ SHOT_MOTIONS
   // だけで動く（v2 以前と同じ挙動）。
-  cuts: { scene: string; action?: string }[];
+  // `crew` は**このカットに仲間の犬が背景として写るか**。Director's Cut のみ。
+  // 2026-08-17 の実測で分かったこと:
+  //   ・背景に犬を入れても主役の顔は壊れない（4秒クリップで確認）
+  //   ・ただし LoRA は「この個体こそが画の犬だ」と学習しているので、**はっきり
+  //     描かれる犬は主役の複製になる。**「船長と違う毛色にしろ」は完全に無視された。
+  //     犬種を分けることは文章では不可能。揃う前提で運用する（船長は衣装と構図で
+  //     区別される）。
+  //   ・二足歩行になるのは動作の書き方が原因。手が要る作業を書くと人間の体が付く。
+  //
+  // **なぜ boolean が要るのか**: 動画側の共有節（CREW_CLAUSE, film-pipeline.ts）を
+  // 全カットに付けると、仲間のいないカットで「奥に他の犬がいる」と嘘を教えることに
+  // なり、モデルがいない犬を描き足す。立っているカットにだけ付ける。
+  // 上限（MAX_CREW_CUTS）は resolveWorld 側のコードで切る。文章での上限指定は
+  // 同じ日に無視されている。
+  // OPTIONAL: 未設定/false は「仲間なし」。これ以前の generatedScript は持たない。
+  cuts: { scene: string; action?: string; crew?: boolean }[];
   // Trailer text beats; {name} allowed. premise/stinger are OPTIONAL (see
   // Loglines doc) — absent on older generatedScript records, or when Claude's
   // output omits them despite the system prompt asking firmly for both
@@ -976,6 +1030,9 @@ export type ResolvedWorld = {
   // arc と添字が一致する、カットごとの動作。DC は Claude が書く。Preset は
   // まだ持たない（全 null）ので SHOT_MOTIONS のフォールバックで動く。
   actions: (string | null)[];
+  // arc と添字が一致する、「このカットに仲間の犬が背景として写るか」。
+  // Preset は常に全 false（乗組員は Director's Cut だけの機能）。
+  crew: boolean[];
   score: string;
   // Same premise/stinger-optional shape as WorldBundle.loglines above — the
   // film pipeline is the single place that decides what "absent" means for
@@ -1019,6 +1076,7 @@ export function resolveWorld(order: Order): ResolvedWorld {
       costume: bundle.costume,
       arc: bundle.cuts.map((c) => c.scene),
       actions: bundle.cuts.map((c) => c.action?.trim() || null),
+      crew: capCrewCuts(bundle.cuts),
       score: bundle.score,
       loglines: {
         premise: fillOpt(bundle.loglines.premise),
@@ -1048,6 +1106,12 @@ export function resolveWorld(order: Order): ResolvedWorld {
     // Preset の 72 本はまだ書かれていない（TRAILER-STORY-V3-SPEC.md）。
     // null は「SHOT_MOTIONS の従来動作で撮れ」の意味。
     actions: [null, null, null, null, null, null],
+    // 仲間の犬は Director's Cut だけ。Preset を外してあるのは手抜きではなく、
+    // Preset が Kling を使い、その negative_prompt に "different dog" が
+    // 入っているため（film-pipeline.ts の CLIP_NEGATIVE）。背景の犬を頼みながら
+    // 別の犬を出すなと言う、打ち消し合う指示になる。外すと今度は主役が別の犬に
+    // 変わる事故への防御が落ちるので、Preset に入れるなら別途その判断が要る。
+    crew: [false, false, false, false, false, false],
     score: WORLD_SCORES[world] ?? WORLD_SCORES.deepspace,
     loglines: getLoglines(world, order.personality, order.petName ?? undefined),
     inserts: pickWorldInserts(world, order.id),

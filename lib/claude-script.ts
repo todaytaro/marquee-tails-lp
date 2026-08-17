@@ -66,7 +66,7 @@ Follow these rules strictly:
    - Prefer rewriting into an original take over rejecting outright; reject only when no reasonable, good-faith rewrite fits the brief's evident intent.
    - If the brief truly cannot be salvaged (abusive, sexual, insists on a real/copyrighted character with no workaround, or is nonsensical/empty of usable content), respond with status "rejected" and a short, warm, customer-facing "reason" telling them what to reword — never a technical or scolding tone, and never quote or repeat anything unsafe from the brief.
 
-3. STRUCTURED OUTPUT. Always respond by calling the submit_treatment tool — never plain text. "costume" is ONE outfit worn identically in all 6 cuts — never mention costume/outfit words inside any "scene" text (scenes describe action/setting only). NOTHING in the costume may cover the pet's face (no helmet, visor, mask or goggles) and no "scene" may put anything across it either — see the costume field's description for why this one is non-negotiable. Provide EXACTLY 6 cuts. You MAY also provide "inserts": exactly 3 short atmospheric scene-only fragments that decorate this film's world as silent B-roll cutaways — NO animals, NO people (e.g. "a rain-lit shop window glowing at night", "a lantern swaying in fog"). This field is entirely optional — omit it completely if nothing fits naturally; never pad it with weak filler just to fill it.
+3. STRUCTURED OUTPUT. Always respond by calling the submit_treatment tool — never plain text. "costume" is ONE outfit worn identically in all 6 cuts — never mention costume/outfit words inside any "scene" text (scenes describe action/setting only). NOTHING in the costume may cover the pet's face (no helmet, visor, mask or goggles) and no "scene" may put anything across it either — see the costume field's description for why this one is non-negotiable. Provide EXACTLY 6 cuts. You MAY also provide "inserts": exactly 3 short scene-only fragments shown as silent B-roll cutaways — the pet is NEVER in them and neither is any person (e.g. "a rain-lit shop window glowing at night", "a lantern swaying in fog", "a fin cutting the water"). Because the pet is absent, these are the only place a creature may appear, which is what lets a story have a living threat at all — see rule 6a and the "inserts" field description. This field is entirely optional — omit it completely if nothing fits naturally; never pad it with weak filler just to fill it.
 
    You MAY also provide "endPoses": a story-aware second pose for AT MOST 3 of the 6 cuts, used to generate a second, identity-checked still frame so the video model interpolates BETWEEN two approved frames instead of inventing motion on its own. This is entirely optional and should be used SPARINGLY and DELIBERATELY — most entries should be null; do not fill in all 6 just because you can. When you do enrol a cut, the pose must serve THAT cut's own story beat, not a generic "gets more heroic" template — reread the brief's ending before choosing: a story that ends with the pet falling asleep should end on the pet settling deeper into sleep, not standing up into a triumphant stance. This is the entire reason the field exists: a fixed, one-size-fits-all end pose previously overrode a customer's actual ending. Each enrolled pose must describe the SAME scene a few seconds later — identical location, lighting, costume and camera framing as that cut's own "scene" — with exactly ONE clearly visible change to the pet's body (a step closer, sitting up, one paw raised, eyes closing). Never a head turn, head rotation, or any change in which way the face points — the identity check only ever verified a front-facing photo, so turning the head or body exposes an angle nothing has confirmed and risks the pet drifting off-model. See the endPoses schema field below for the full constraints and examples.
 
@@ -103,12 +103,26 @@ protections.
 (a) SOMETHING MUST ARRIVE, BREAK, OR CLOSE IN. Across the six cuts the
     situation must visibly change. At least TWO of the six must show the
     CAUSE of the story in frame together with the pet — the thing going
-    wrong, the thing approaching, or the damage it has already done. Because
-    no other animal and no person may share the frame — see the "cuts" field
-    description — the antagonist must be environmental or mechanical: a hull
-    breach venting to space, a wall of water down a corridor, fire taking a
-    doorway, ice splitting underfoot, a storm front, a machine tearing itself
-    apart, a door buckling inward. Name it concretely and put it in the frame.
+    wrong, the thing approaching, or the damage it has already done.
+
+    The cause may be environmental or mechanical — a hull breach venting to
+    space, a wall of water down a corridor, fire taking a doorway, ice
+    splitting underfoot, a storm front, a machine tearing itself apart, a
+    door buckling inward. Name it concretely and put it in the frame.
+
+    IT MAY ALSO BE A LIVING THING, on one condition: the pet and that
+    creature can NEVER share a frame (see the "cuts" field — the model that
+    draws the pet will merge the two). So a creature antagonist lives in the
+    INSERTS, which the pet is never in: a fin cutting the water, circling
+    birds, eyes in the dark, something moving under the surface. The six cuts
+    then show only what it LEAVES BEHIND — splintered planking, water across
+    the deck, the pet braced at a door that is being struck from the far
+    side. This is not a workaround; it is how trailers do monsters. Glimpsed
+    and never met is stronger than shown in full.
+
+    If you use a creature this way, it MUST leave a mark on at least one of
+    the six cuts. A threat that appears in the B-roll and touches nothing in
+    the story is a loose thread, not a story.
 
 (b) EVERY CONSECUTIVE PAIR MUST DIFFER IN SITUATION, NOT ONLY IN CAMERA
     POSITION. Ask of cuts 1→2, 2→3, and so on: has anything changed besides
@@ -283,11 +297,22 @@ export const TREATMENT_TOOL: Anthropic.Tool = {
           "\"Mid-pounce\", \"sliding across\", \"spinning\", \"running full tilt\", \"in a blur\" ask an image model for a body caught between poses, which is where it produces contorted, unreadable anatomy, and they ask the one stage that cannot animate anything. " +
           "Write the readable instant just before or after instead: not \"sliding across the street after a rolling ball\" but \"one paw on the ball it has finally cornered\". The energy survives, and the video stage still has somewhere to go. " +
           "NOTHING may come between the camera and the pet's face — no blinds, bars, mesh, glass, smoke, or fabric draped over it. Anything crossing the face costs the fur texture and eye shape the customer is paying to recognize. A scene that wants blinds opens them; a scene that wants an oversized coat lets it pool on the floor rather than swallow the animal. " +
-          "NO OTHER ANIMAL may share the frame with the pet. The pet is drawn by a model trained to make one specific animal THE animal in the picture; a pigeon, a cat or a bird beside it gives that model two candidates for the role and it blends them into one creature. If a scene wants another animal, put it far away, outside a window, or make it imagined (a parade the pet is leading in its own head) — never next to the pet.",
+          "NO OTHER SPECIES may share the frame with the pet — no cat, no bird, no pigeon, no horse. The pet is drawn by a model trained to make one specific animal THE animal in the picture; a creature of a different species beside it gives that model two candidates for the role and it blends them into one animal. If a scene wants one, put it far away, outside a window, or make it imagined (a parade the pet is leading in its own head) — never next to the pet. " +
+          "OTHER DOGS are the one exception, and only as BACKGROUND — see the \"crew\" field.",
         items: {
           type: "object",
           properties: {
             scene: { type: "string" },
+            crew: {
+              type: "boolean",
+              description:
+                "OPTIONAL, default false. Set true on AT MOST 2 of the 6 cuts to put a few other dogs in the BACKGROUND of this shot — a ship's crew, a pack, a team, the rest of the household. Only where the world plainly HAS a group: a pirate ship has a crew, a lone detective at 3am does not. If this film has no such group, leave every cut false; an empty world is better than an invented one. " +
+                "When true, describe them inside \"scene\" and obey all four of these, which were measured, not guessed: " +
+                "(1) Give them things a DOG'S BODY can do — standing, sitting, walking, hauling a rope IN ITS TEETH, watching the sea. Write a job that needs hands (\"working the rigging\", \"holding a lantern\") and the image model attaches a HUMAN BODY to a dog's head. " +
+                "(2) Put them FURTHER BACK and SMALLER than the pet, and TURNED AWAY from the camera. " +
+                "(3) Do NOT try to give them a different breed or coat colour from the pet. It does not work — the model paints them as copies of the pet whatever you write, and writing it only wastes words. They will look like the pet's own breed; the pet stays the obvious star through costume, size and centre framing, which is what actually separates them. " +
+                "(4) They are BACKGROUND TEXTURE, NOT CHARACTERS. They never interact with the pet, never help it, never are rescued by it, and are never what the story is about. The thing going wrong in this film stays environmental or mechanical (system rule 7a) — a crew is scenery that makes the world feel inhabited, and nothing more.",
+            },
             action: {
               type: "string",
               description:
@@ -362,7 +387,10 @@ export const TREATMENT_TOOL: Anthropic.Tool = {
       },
       inserts: {
         type: "array",
-        description: "OPTIONAL: exactly 3 atmospheric scene-only fragments for silent B-roll cutaways — NO animals, NO people, NO pets, ENGLISH. Omit this field entirely if nothing fits naturally; never invent weak filler just to populate it. These must advance or evidence the story (system rule 6f) — the alarm, the flooding, the wreckage — not generic pretty scenery.",
+        description: "OPTIONAL: exactly 3 scene-only fragments for silent B-roll cutaways — ENGLISH. THE PET IS NEVER IN THESE, and neither is any person. "
+          + "Because the pet is absent, these are the ONE place a living thing may appear: a fin cutting the water, circling birds, eyes in the dark, something moving under the surface, a rat crossing the boards. This is what lets a film have a creature as its threat at all (system rule 6a) — the pet can never share a frame with one, so the creature is glimpsed here and only its consequences are shown in the cuts. "
+          + "One exception: OTHER DOGS may appear only as paws, tails, backs or distant silhouettes, never a dog face and never a dog looking at the camera. These shots are drawn without the model that knows this pet, so a dog face here would be a STRANGER'S dog in this customer's film. Every other creature may show its face freely. "
+          + "Omit this field entirely if nothing fits naturally; never invent weak filler just to populate it. These must advance or evidence the story (system rule 6f) — the alarm, the flooding, the wreckage, the thing in the water — not generic pretty scenery.",
         items: { type: "string" },
         minItems: 3,
         maxItems: 3,
@@ -523,7 +551,10 @@ export function parseToolInput(raw: unknown): TreatmentResult {
     !Array.isArray(cuts) ||
     cuts.length !== 6 ||
     !cuts.every(
-      (c): c is { scene: string; action?: string } =>
+      // `scene` だけが必須。action / crew は「あれば使う」— この述語は
+      // 「6本そろっていて scene が空でない」ことだけを保証し、任意項目の
+      // 有無や型は下の正規化側で個別に見る（そちらで false/未設定に潰れる）。
+      (c): c is { scene: string; action?: string; crew?: boolean } =>
         !!c && typeof (c as { scene?: unknown }).scene === "string" && (c as { scene: string }).scene.trim().length > 0
     )
   ) {
@@ -608,9 +639,18 @@ export function parseToolInput(raw: unknown): TreatmentResult {
     // 動画モデルにだけ渡る「その絵の直後に起きること」（film-script.ts の
     // WorldBundle 参照）。空文字は undefined に潰して、持たない旧レコードと
     // 同じ「無い」として扱わせる。
+    // `crew` も同じ理由で持ち越す（2026-08-17 追加）。true のときだけ載せ、
+    // false/未設定は「仲間なし」— crew を知らない旧レコードと同じ扱いになる。
+    //
+    // **本数の上限はここでは切らない。** film-script.ts の capCrewCuts が
+    // resolveWorld の中で MAX_CREW_CUTS 本に切る。切る場所を2つに分けると、
+    // 「保存されている bundle は3本 true なのに映画は2本」という状態が生まれ、
+    // どちらが正なのか後から読めなくなる。保存は Claude が書いたまま、切るのは
+    // 使う瞬間に一度だけ。
     cuts: cuts.map((c) => ({
       scene: c.scene.trim(),
       ...(typeof c.action === "string" && c.action.trim() ? { action: c.action.trim() } : {}),
+      ...(c.crew === true ? { crew: true } : {}),
     })),
     loglines: {
       ...(premise ? { premise } : {}),

@@ -109,7 +109,7 @@ const KLING_MODEL = process.env.KLING_MODEL ?? "fal-ai/kling-video/v3/pro/image-
 // ad-studio's KLING_MODEL call above). Env-overridable in the same spirit
 // KLING_MODEL always was, so the endpoint can be reverted to Kling (or
 // pointed at a different Seedance build) without a deploy.
-const SEEDANCE_MODEL = process.env.SEEDANCE_MODEL ?? "bytedance/seedance-2.0/image-to-video";
+export const SEEDANCE_MODEL = process.env.SEEDANCE_MODEL ?? "bytedance/seedance-2.0/image-to-video";
 const MUSIC_MODEL = "fal-ai/stable-audio-25/text-to-audio";
 // Text-to-image (NOT /edit) — insert B-roll has no pet in it at all, so there
 // is nothing to anchor an edit model to (spec §4.2).
@@ -400,7 +400,33 @@ export async function generateStandaloneClip(
  * 同じ日に "ears changing" を CLIP_NEGATIVE から外したのは、それが尻尾を振る
  * 動きまで潰していたからで、同じ轍を踏まないため。
  */
-const IDENTITY_CLAUSE =
+// IDENTITY_CLAUSE / SEEDANCE_MODEL を export しているのは、使い捨ての検証
+// スクリプトが**この文字列そのもの**を読めるようにするため。テスト側にコピーを
+// 置くと、本番を直したときに黙ってズレて、「本番と同じ条件で測った」という
+// 前提が嘘になる。
+/**
+ * 背景の仲間の犬に関する節。`crew` が立ったカットにだけ付く。
+ *
+ * IDENTITY_CLAUSE は全文が「**the pet** は同じ個体のままであれ」で、画面内の
+ * 他の犬について一言も言っていない。そして Seedance には negative_prompt が
+ * 無い（API に存在しない）ので、この節が背景の犬に効く**唯一の防御**になる。
+ *
+ * **全部 affirmative で書いてある。** negative_prompt が使えない以上 "never 〜"
+ * は positive prompt の中の否定でしかなく、映像モデルはそれを苦手にする。
+ * 「〜しない」ではなく「〜のままでいる」で通すこと。書き足すときも同じ。
+ *
+ * 2026-08-17 に4秒クリップで実測: 数・毛色・四つ足・向き・距離とも保った。
+ * **8秒（本番の長さ）では未検証。**変形は時間とともに悪化するので、最初の実注文で
+ * 崩れが出たらここを疑う。
+ */
+const CREW_CLAUSE =
+  " Other dogs are visible further back in the scene. They are the pet's crew, and they stay crew:" +
+  " they remain at their own distance in the background for the whole clip, the same number of them throughout," +
+  " each keeping the coat, colouring, clothing and four-legged body it has in the first frame," +
+  " each continuing what it is already doing and staying turned away from the camera." +
+  " The foreground belongs to the pet alone.";
+
+export const IDENTITY_CLAUSE =
   "The pet must stay exactly the same individual throughout this clip — identical face, mouth/tongue color, coat markings, costume and tail length — " +
   "lively and moving, but never morphing into a different dog and never changing costume. " +
   "A wagging tail and ears that move with the body are expected here, not a flaw. " +
@@ -480,7 +506,12 @@ async function generateShotClip(
   // cannot contradict the frame, because it is what the frame was drawn from.
   // Optional: an order predating this, or a caller without the arc to hand,
   // falls back to SHOT_MOTIONS alone, which is the pre-v2 behaviour.
-  action?: string
+  action?: string,
+  // このカットの背景に仲間の犬が写っているか（Director's Cut のみ、最大2カット
+  // — film-script.ts の capCrewCuts が切る）。true のときだけ CREW_CLAUSE を
+  // 足す。**全カットに足してはいけない** — 仲間のいないカットに「奥に他の犬が
+  // いる」と教えると、モデルはいない犬を描き足す。
+  crew?: boolean
 ): Promise<string> {
   // getShotMotion resolves index 5 (the climax) to one of several variants,
   // picked deterministically from orderId — see film-script.ts for why this
@@ -516,7 +547,7 @@ async function generateShotClip(
   // 単価差は 8 倍あり、1注文あたり $32.8 対 $4.0。Preset を $159 で売る前提の
   // 粗利はこの選択に乗っている（MOTION-V2-SPEC.md §4.1）。
   const useSeedance = !!action?.trim();
-  const prompt = `${camera}, ${atmosphere}.${actionNote}${note} This is live-action footage, not a photograph with a moving camera: the animal is in continuous visible motion from the first frame to the last, and its body travels within the frame. ${IDENTITY_CLAUSE}${interpolationNote}`;
+  const prompt = `${camera}, ${atmosphere}.${actionNote}${note} This is live-action footage, not a photograph with a moving camera: the animal is in continuous visible motion from the first frame to the last, and its body travels within the frame. ${IDENTITY_CLAUSE}${crew ? CREW_CLAUSE : ""}${interpolationNote}`;
 
   const input: Record<string, unknown> = useSeedance
     ? {
@@ -557,7 +588,18 @@ async function generateShotClip(
 // explicitly calls this constant out for the "same treatment". Now a
 // catastrophe floor (wrong species / clearly different animal), not a
 // likeness bar.
+//
+// Nothing branches on this value any more — generateGatedClip scores but no
+// longer retries — yet it is NOT dead. app/admin/[orderId]/page.tsx keeps its
+// own copy of the number (see the "Mirror of lib/film-pipeline
+// CLIP_IDENTITY_THRESHOLD" comment there) to colour the Gate-2 drift table,
+// so this stays the one place the number is explained. Delete it and the
+// admin's traffic light loses its rationale.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const CLIP_IDENTITY_THRESHOLD = 50;
+// Same: the re-roll it bounded is gone. Kept as the record of what the old
+// behaviour was, and as the switch to turn it back on.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const MAX_CLIP_REROLLS = 1;
 
 /** Grab a single frame using ffmpeg seek args (placed before -i for fast seek). */
@@ -618,8 +660,14 @@ async function scoreClip(clipUrl: string, identityRefUrl: string): Promise<numbe
 }
 
 /**
- * Animate a shot and gate it on identity: re-roll a drifting clip once, keep
- * the best attempt regardless so a film never stalls. Returns the clip URL and
+ * Animate a shot and score it on identity: ONE generation, no re-roll.
+ * Retried re-rolls used to run to MAX_CLIP_REROLLS, but across every order
+ * that has reached delivery no clip has ever scored below
+ * CLIP_IDENTITY_THRESHOLD (36 clips across 6 delivered orders, lowest 50), so
+ * the retry was paying for an event that has never happened — and on a
+ * Director's Cut shot it pays in Seedance clips at a measured $5.47 each. The
+ * owner reviews every finished film at Gate 2 and can re-render a single shot
+ * by hand there. Returns the clip URL and
  * its identity score (persisted for the admin drift view at Gate 2).
  */
 async function generateGatedClip(
@@ -630,20 +678,13 @@ async function generateGatedClip(
   identityRefUrl?: string,
   directorNote?: string,
   endFrameUrl?: string,
-  action?: string // this cut's one action — see generateShotClip's `action`
+  action?: string, // this cut's one action — see generateShotClip's `action`
+  crew?: boolean // 背景に仲間の犬がいるカットか — see generateShotClip's `crew`
 ): Promise<{ url: string; score: number }> {
-  let best = { url: "", score: -1 };
-  for (let attempt = 0; attempt <= MAX_CLIP_REROLLS; attempt++) {
-    const url = await generateShotClip(stillUrl, world, shotIndex, orderId, SHOT_SECONDS, directorNote, endFrameUrl, action);
-    const score = identityRefUrl ? await scoreClip(url, identityRefUrl) : 100;
-    console.log(`[film] shot ${shotIndex} clip attempt ${attempt}: identity ${score}`);
-    if (score > best.score) best = { url, score };
-    if (score >= CLIP_IDENTITY_THRESHOLD) return { url, score };
-  }
-  console.warn(
-    `[film] shot ${shotIndex}: best clip identity ${best.score} (< ${CLIP_IDENTITY_THRESHOLD}), using best attempt`
-  );
-  return best;
+  const url = await generateShotClip(stillUrl, world, shotIndex, orderId, SHOT_SECONDS, directorNote, endFrameUrl, action, crew);
+  const score = identityRefUrl ? await scoreClip(url, identityRefUrl) : 100;
+  console.log(`[film] shot ${shotIndex}: identity ${score}`);
+  return { url, score };
 }
 
 /* ------------------------------------------------------------------ */
@@ -827,7 +868,20 @@ async function generateInsertStill(subject: string): Promise<string> {
       // Text-to-image only — no negative_prompt input on this endpoint, so
       // the "no animals/people" constraint is folded directly into the
       // prompt text (also true of every WORLD_INSERTS entry, see film-script.ts).
-      prompt: `${subject}, cinematic still, absolutely no animals, no pets, no people, no humans, no text, no watermark, moody lighting, atmospheric, 16:9 film still`,
+      // 「動物一切禁止」から「**人間と犬の顔**だけ禁止」へ（2026-08-17）。
+      //
+      // なぜ緩めたか: この一行が、語れる物語の種類まで縛っていた。飼い犬と同じ
+      // 画に他の種を入れられない（LoRA が役を取り違える）ので、**敵は環境か機械
+      // にしかなれなかった** — ストーリー規則7(a) がそう書いてあるのはこの制約の
+      // 帰結。だがインサートは**飼い犬が画面にいない**うえに LoRA も通らないので、
+      // ここでなら生き物を出せる。結果として「敵は見せられるが、決して出会わない」
+      // という予告編の王道が使えるようになる（怪物は断片だけ、全貌は本編に）。
+      //
+      // なぜ**犬の顔だけ**は禁じ続けるか: ここは LoRA を通らない = 犬の顔を描けば
+      // **他人の犬の顔**になる。「あなたの犬の映画」に知らない犬の顔が正面から
+      // 入るのは、犬がいないより悪い。鳥・魚・鼠の顔にはこの問題が無いので通す。
+      // 人間は従来どおり全面禁止。
+      prompt: `${subject}, cinematic still, no people, no humans, no hands, no dog face and no dog looking at the camera, no text, no watermark, moody lighting, atmospheric, 16:9 film still`,
       num_images: 1,
       resolution: "2K",
       aspect_ratio: "16:9",
@@ -857,8 +911,12 @@ export const INSERT_CLIP_SECONDS = 3;
 // (that constant's whole job is protecting a specific dog's face/tail/ears) —
 // this is a much shorter list, just keeping the OTHER house rules an insert
 // must never break: no animal/person wandering into frame, no on-screen text.
+// 種の名前を列挙するのをやめた（2026-08-17）。generateInsertStill が生き物を
+// 許すようになった以上、ここで "animals" を否定し続けると、静止画に写っている
+// ものを動かすなと言うことになり打ち消し合う。残すのは飼い犬と取り違えられる
+// もの（犬の顔）と、そもそも出してはいけないもの（人間）だけ。
 const INSERT_CLIP_NEGATIVE =
-  "animals, pets, dogs, cats, people, humans, hands, text, watermark, cartoon, cel shading, low quality, blurry, morphing";
+  "dog face, dog looking at camera, people, humans, hands, text, watermark, cartoon, cel shading, low quality, blurry, morphing";
 
 /**
  * Animate one insert still into a short Kling clip (this task's change #2 —
@@ -2101,9 +2159,10 @@ export function generateShotClipForTest(
   orderId: string,
   durationSec: number,
   endFrameUrl?: string,
-  action?: string
+  action?: string,
+  crew?: boolean
 ): Promise<string> {
-  return generateShotClip(stillUrl, world, shotIndex, orderId, durationSec, undefined, endFrameUrl, action);
+  return generateShotClip(stillUrl, world, shotIndex, orderId, durationSec, undefined, endFrameUrl, action, crew);
 }
 
 /**
@@ -2256,7 +2315,7 @@ export async function runFilmGeneration(order: Order): Promise<void> {
     const endFrameUrls = art.endFrameUrls ?? [];
     const gated = await Promise.all(
       shotStillUrls.map((s, i) =>
-        generateGatedClip(s, world, i, order.id, identityGateRef, undefined, endFrameUrls[i] ?? undefined, resolved.actions[i] ?? undefined)
+        generateGatedClip(s, world, i, order.id, identityGateRef, undefined, endFrameUrls[i] ?? undefined, resolved.actions[i] ?? undefined, resolved.crew[i] ?? false)
       )
     );
     art = await saveArtifacts(order.id, {
@@ -2539,12 +2598,16 @@ export async function completeFilmGeneration(
 
 /**
  * Single-shot re-render — the admin's Gate-2 fix for "this one cut is off".
- * Re-animates ONE clip from its customer-approved still (identity-gated, with
- * the strengthened anti-CG negative prompt), reuses the other five clips, the
- * insert stills AND their animated clips, and the music from filmArtifacts,
+ * Re-animates ONE clip from its customer-approved still (identity-scored, not
+ * gated — see generateGatedClip), routed by `action` exactly like
+ * generateShotClip: a Preset cut (no action) goes to Kling, with the
+ * strengthened anti-CG negative prompt, at ~$0.67/8s; a Director's Cut cut
+ * (has an action) goes to Seedance — which has no negative_prompt input at
+ * all — at a MEASURED $5.47/8s. Reuses the other five clips, the insert
+ * stills AND their animated clips, and the music from filmArtifacts,
  * reassembles, and returns the order to AWAITING_ADMIN_APPROVAL. Cost ≈ one
- * clip (~$0.67 at 8s) + scoring; never re-spends on the rest of the film
- * (spec §4.4 isolation).
+ * clip (~$0.67 Kling / $5.47 Seedance, depending on the cut) + scoring; never
+ * re-spends on the rest of the film (spec §4.4 isolation).
  */
 export type ShotFixOptions = {
   /** true = regenerate the STILL first (look/style problems), then animate. */
@@ -2640,7 +2703,14 @@ export async function runShotRerender(
     order.id,
     identityGateRef,
     opts.reason,
-    endFrameUrls[shotIndex] ?? undefined
+    endFrameUrls[shotIndex] ?? undefined,
+    // **action を渡していなかったのはバグ**（2026-08-17 発見・修正）。モデルは
+    // プランではなく `action` の有無で決まる（generateShotClip の useSeedance）。
+    // 落とすと Director's Cut のカットが Seedance ではなく Kling で撮り直され、
+    // 大きく動く5本の中に微動の1本が混ざる。admin が「直した」カットが、直す前
+    // より周りから浮くという最悪の壊れ方をしていた。crew も同じ経路で渡す。
+    resolved.actions[shotIndex] ?? undefined,
+    resolved.crew[shotIndex] ?? false
   );
   clipUrls[shotIndex] = fixed.url;
   clipScores[shotIndex] = fixed.score;

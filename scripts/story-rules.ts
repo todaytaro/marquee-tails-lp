@@ -33,12 +33,26 @@ protections.
 (a) SOMETHING MUST ARRIVE, BREAK, OR CLOSE IN. Across the six cuts the
     situation must visibly change. At least TWO of the six must show the
     CAUSE of the story in frame together with the pet — the thing going
-    wrong, the thing approaching, or the damage it has already done. Because
-    no other animal and no person may share the frame (rule 3), the
-    antagonist must be environmental or mechanical: a hull breach venting to
+    wrong, the thing approaching, or the damage it has already done.
+
+    The cause may be environmental or mechanical — a hull breach venting to
     space, a wall of water down a corridor, fire taking a doorway, ice
     splitting underfoot, a storm front, a machine tearing itself apart, a
     door buckling inward. Name it concretely and put it in the frame.
+
+    IT MAY ALSO BE A LIVING THING, on one condition: the pet and that
+    creature can NEVER share a frame (see the "cuts" field — the model that
+    draws the pet will merge the two). So a creature antagonist lives in the
+    INSERTS, which the pet is never in: a fin cutting the water, circling
+    birds, eyes in the dark, something moving under the surface. The six cuts
+    then show only what it LEAVES BEHIND — splintered planking, water across
+    the deck, the pet braced at a door that is being struck from the far
+    side. This is not a workaround; it is how trailers do monsters. Glimpsed
+    and never met is stronger than shown in full.
+
+    If you use a creature this way, it MUST leave a mark on at least one of
+    the six cuts. A threat that appears in the B-roll and touches nothing in
+    the story is a loose thread, not a story.
 
 (b) EVERY CONSECUTIVE PAIR MUST DIFFER IN SITUATION, NOT ONLY IN CAMERA
     POSITION. Ask of cuts 1→2, 2→3, and so on: has anything changed besides

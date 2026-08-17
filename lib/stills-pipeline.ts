@@ -7,7 +7,7 @@ import { OrderStatus, type Order } from "@/generated/prisma/client";
 import { prisma } from "./db";
 import { transitionOrder } from "./orders";
 import { resolveWorld, SHOT_FRAMINGS } from "./film-script";
-import { VISION_MODEL, VISION_LLM, publicUrl, scoreIdentity, scoreAnatomy } from "./identity";
+import { VISION_MODEL, VISION_LLM, publicUrl, scoreIdentity } from "./identity";
 import { watermarkTakeForPreview } from "./watermark";
 import { sendAdminStoryboardReviewAlert } from "./mocks";
 // STORYBOARD-ADMIN-GATE-SPEC.md §3.3(b): pulled in purely to derive
@@ -890,35 +890,39 @@ async function generateGatedTake(
   lora: { url: string; triggerWord: string } | undefined,
   costumeSheetUrl: string | undefined
 ): Promise<string> {
-  const gateRef = realPhotoUrl ?? portraitUrl;
-  if (!realPhotoUrl) {
-    console.warn(`[stills] ${label}: no real photo available — falling back to portrait-anchor identity gate (pre-fix behavior)`);
-  }
-  let best = "";
-  let bestScore = -1;
-  let bestAnatomyOk = false;
-  for (let attempt = 0; attempt <= MAX_TAKE_REROLLS; attempt++) {
-    // 7919 (prime) keeps re-roll seeds far from other takes' base seeds.
-    const seed = baseSeed + attempt * 7919;
-    const url = await generateTakeOnce(refs, hasRealPhotoFirst, description, costume, scene, framing, expression, seed, lora, costumeSheetUrl);
-    // §4.2: identity + anatomy checked together, before this take can ever
-    // reach the customer — same reroll budget, same place, same shape.
-    const [score, anatomy] = await Promise.all([scoreIdentity(gateRef, url), scoreAnatomy(url)]);
-    console.log(
-      `[stills] ${label} attempt ${attempt}: identity ${score}${realPhotoUrl ? " (vs real photo)" : " (vs portrait, fallback)"} anatomy ${anatomy.ok ? "ok" : "BROKEN"} (${anatomy.detail})`
-    );
-    // Prefer the higher identity score; among ties, prefer the anatomy-ok one.
-    if (score > bestScore || (score === bestScore && anatomy.ok && !bestAnatomyOk)) {
-      bestScore = score;
-      best = url;
-      bestAnatomyOk = anatomy.ok;
-    }
-    if (score >= IDENTITY_THRESHOLD && anatomy.ok) return url;
-  }
-  console.warn(
-    `[stills] ${label}: best identity ${bestScore} (< ${IDENTITY_THRESHOLD}) or anatomy broken (ok=${bestAnatomyOk}) after ${MAX_TAKE_REROLLS} reroll(s), using best attempt`
-  );
-  return best;
+  // The re-roll loop AND the scoring that used to live here are both gone,
+  // because a human is already doing this job. Every storyboard sits in the
+  // admin queue (status IMAGE_GENERATING, see adminRerollCount in
+  // prisma/schema.prisma) and is reviewed BEFORE the customer ever sees it —
+  // and an admin re-roll there costs one still, the same as a retry here,
+  // spent on a cut a person actually judged instead of on a VLM's number.
+  //
+  // The scoring went with it because nothing could read it. Take scores were
+  // never persisted and no admin screen renders them — StoryboardReviewPanel,
+  // the screen where the storyboard is actually approved, has no identity or
+  // anatomy field at all. They reached the Trigger.dev log and stopped there,
+  // at 2 vision calls x 18 takes = 36 per order. (The CLIP score is a
+  // different thing and is still produced: it IS displayed, in the Gate-2
+  // drift table — see generateGatedClip in film-pipeline.ts.)
+  //
+  // For the same reason, how often the retry used to fire is NOT KNOWN and
+  // nothing here should be read as claiming otherwise — there is no record
+  // left to count. What IS known is that the bar was IDENTITY_THRESHOLD = 50
+  // out of 100, low enough that clearing it was never much of a claim.
+  //
+  // `realPhotoUrl` / `portraitUrl` are now unused. They are kept in the
+  // signature deliberately: this function takes 13 POSITIONAL arguments and
+  // has four call sites, so dropping two of them is a silent-miswiring
+  // hazard out of all proportion to the tidiness gained — and they are
+  // exactly what a future scoring pass would need back.
+  //
+  // MAX_TAKE_REROLLS stays defined in this file even though nothing loops on
+  // it now: it is not dead code, it is a RESERVED seed band.
+  // scripts/test-safety-net.ts imports it to prove that a customer's re-roll
+  // can never redraw a seed this stage already used, and this generator still
+  // only ever takes attempt 0 — so the reservation, and the proof, hold.
+  const seed = baseSeed; // baseSeed + 0 * 7919 — see MAX_TAKE_REROLLS note above.
+  return generateTakeOnce(refs, hasRealPhotoFirst, description, costume, scene, framing, expression, seed, lora, costumeSheetUrl);
 }
 
 /**
