@@ -695,27 +695,58 @@ export const TITLE_CARDS = {
  * separate array from clipUrls/shotClipUrls — see pickWorldInserts below).
  * 5 atmospheric options per world; pickWorldInserts chooses 3 deterministically.
  */
+/**
+ * Preset の B-roll。各世界5本のうち3本が選ばれる（pickWorldInserts）。
+ *
+ * **3本に生き物を入れてある**（2026-08-17）。理由は2つ:
+ *   ・顧客から「自分の犬だけだと映像が寂しい」という声が出た。60秒のうち3ビートが
+ *     無人・無生物の風景で、そこが一番効く場所だった。
+ *   ・インサートは**飼い犬が画面にいない**うえに LoRA も通らないので、ここに
+ *     生き物を出しても同一性のリスクが構造的にゼロ。生成枚数も変わらないので
+ *     追加費用もゼロ。
+ *
+ * **なぜ3本なのか（2本でも4本でもなく）**: pickWorldInserts は連続3本
+ * （base, base+1, base+2）を採るので、**どの base でも外れるのは2本だけ**。
+ * 生き物を3本に入れておけば、鳩の巣原理でどの注文にも必ず1本以上入る。
+ * 2本だと入らない注文が出る。この保証は scripts/test-inserts.ts が全 base で
+ * 確かめている — 本数を減らすならそのテストが落ちる。
+ *
+ * **犬は書かない。** ここは LoRA を通らないので、犬を頼めば**他人の犬**が描かれ、
+ * 「あなたの犬の映画」に知らない犬が出る。generateInsertStill 側も犬の顔を
+ * negative に入れて二重に止めてある。出すのは飼い犬と混同しようのない生き物だけ。
+ *
+ * Director's Cut と違い、ここの生き物は**物語の敵にはならない**。Preset の6カットは
+ * 世界×性格で固定されていて、インサート側から筋書きに痕跡を要求できないため。
+ * 敵になれるのは Claude が両方を書く DC だけ（規則7a）。ここにいるのは
+ * 「その世界に棲んでいるもの」であって、脅威ではない。
+ */
 export const WORLD_INSERTS: Record<string, string[]> = {
   deepspace: [
-    "a starship viewport streaked with drifting nebula dust and distant starlight, cinematic still, no animals, no people",
-    "a softly blinking control console in a dim ship corridor, red alert light pulsing along the walls, no animals, no people",
-    "a spacesuit glove resting on a frost-rimed airlock hatch wheel, cold blue light, no animals, no people",
-    "a star-chart hologram slowly rotating above an empty console, particles drifting through the beam, no animals, no people",
-    "the curved hull of a ship reflecting a distant nebula, tiny running lights along its length, no animals, no people",
+    // 生き物あり
+    "a tiny six-legged creature scuttling across a lit ship corridor floor and away into a vent, seen from behind, cinematic still, no people",
+    "a shoal of slow bioluminescent drifters passing outside a starship viewport, blue-green light on the glass, cinematic still, no people",
+    "a small winged thing silhouetted for a moment against a glowing hologram before it flits out of frame, cinematic still, no people",
+    // 風景のみ
+    "a softly blinking control console in a dim ship corridor, red alert light pulsing along the walls, cinematic still, no animals, no people",
+    "the curved hull of a ship reflecting a distant nebula, tiny running lights along its length, cinematic still, no animals, no people",
   ],
   storybook: [
-    "an empty castle courtyard at dawn, banners stirring in the breeze, long golden shadows, no animals, no people",
-    "a single lantern glowing at the mouth of an ancient forest, fireflies drifting past, no animals, no people",
-    "a stone bridge over a misty river gorge, autumn leaves tumbling in the wind, no animals, no people",
-    "a windowsill in the royal library, an open storybook lit by candlelight, dust motes in the beam, no animals, no people",
-    "fireworks blooming over a sleeping kingdom skyline, seen from the castle wall, no animals, no people",
+    // 生き物あり
+    "a stag standing motionless in the mist at the mouth of an ancient forest, lantern light catching its antlers, cinematic still, no people",
+    "a flock of birds lifting all at once from a stone bridge over a misty river gorge, autumn leaves in the wind, cinematic still, no people",
+    "a fox crossing an empty castle courtyard at dawn, banners stirring above it, long golden shadows, cinematic still, no people",
+    // 風景のみ
+    "a windowsill in the royal library, an open storybook lit by candlelight, dust motes in the beam, cinematic still, no animals, no people",
+    "fireworks blooming over a sleeping kingdom skyline, seen from the castle wall, cinematic still, no animals, no people",
   ],
   noir: [
-    "a neon sign flickering above a rain-slicked city street, puddles mirroring the glow, no animals, no people",
-    "a vending machine humming alone in a dim alley, its light spilling onto wet pavement, no animals, no people",
-    "a rain-soaked crosswalk gleaming under a streetlamp, empty at midnight, no animals, no people",
-    "a close-up of a whiskey glass catching lamplight on a desk, smoke curling past, no animals, no people",
-    "the taillights of a car receding down a foggy street, red streaks on wet asphalt, no animals, no people",
+    // 生き物あり
+    "a rat crossing a rain-slicked alley beneath a flickering neon sign, puddles mirroring the glow, cinematic still, no people",
+    "a single crow on a wet streetlamp above an empty midnight crosswalk, cinematic still, no people",
+    "a moth circling the light of a vending machine humming alone in a dim alley, cinematic still, no people",
+    // 風景のみ
+    "a close-up of a whiskey glass catching lamplight on a desk, smoke curling past, cinematic still, no animals, no people",
+    "the taillights of a car receding down a foggy street, red streaks on wet asphalt, cinematic still, no animals, no people",
   ],
 };
 

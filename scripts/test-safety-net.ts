@@ -120,16 +120,34 @@ function main() {
   }
 
   /* ---------------------------------------------------------------- */
-  /* Guard 4 — both refused for a Preset order                         */
+  /* Guard 4 — REFUND is Director's Cut only; the RE-ROLL is not        */
   /* ---------------------------------------------------------------- */
-  console.log("\n=== Guard 4: both refused for a Preset order ===");
+  //
+  // This block used to assert that a Preset order could not re-roll either.
+  // That stopped being true on 2026-08-16, when re-making a delivered film was
+  // withdrawn from BOTH plans: with that gone, the storyboard re-roll is the
+  // only remedy a customer has left, and taking it from Preset would leave
+  // that plan with "approve it, and that's that". See the note at the top of
+  // canReroll in lib/safety-net.ts.
+  //
+  // The assertions were left behind by that change and had been failing ever
+  // since — the CODE was right and the TEST was stale, which is the worse of
+  // the two ways round: a suite that is expected to be partly red is a suite
+  // nobody reads, and the next real breakage lands in the noise.
+  console.log("\n=== Guard 4: refund is DC-only; the re-roll is not ===");
   {
     const preset = order({ tier: "preset", storyboardRerollCount: STORYBOARD_REROLL_CAP });
     const presetNullTier = order({ tier: null, storyboardRerollCount: STORYBOARD_REROLL_CAP });
-    assertTrue("preset tier -> re-roll refused (even with 0 used)", canReroll(order({ tier: "preset" })).ok === false);
+    // The refund split is unchanged: still custom-only (Preset's own $59
+    // deduction is handled case by case, not by this guard).
     assertTrue("preset tier -> refund refused (even with CAP used)", canRequestRefund(preset).ok === false);
-    assertTrue("null tier (legacy row) -> re-roll refused", canReroll(order({ tier: null })).ok === false);
     assertTrue("null tier (legacy row) -> refund refused", canRequestRefund(presetNullTier).ok === false);
+    // ...but the re-roll is now open to every plan, and is refused only for
+    // the reasons that apply to everyone: cap spent, wrong status, refund
+    // already requested (each of those is covered by Guards 1-3 and 5 above).
+    assertTrue("preset tier -> re-roll ALLOWED with 0 used", canReroll(order({ tier: "preset" })).ok === true);
+    assertTrue("null tier (legacy row) -> re-roll ALLOWED with 0 used", canReroll(order({ tier: null })).ok === true);
+    assertTrue("preset tier -> re-roll refused once the cap is spent", canReroll(preset).ok === false);
   }
 
   /* ---------------------------------------------------------------- */
