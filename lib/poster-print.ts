@@ -17,7 +17,7 @@ import { buildBillingBlock } from "@/components/MoviePosterOverlay";
  */
 
 const PROJ = process.cwd();
-const FONTS = {
+export const FONTS = {
   bebas: readFileSync(path.join(PROJ, "public/fonts/BebasNeue-Regular.ttf")),
   inter: readFileSync(path.join(PROJ, "node_modules/@fontsource/inter/files/inter-latin-400-normal.woff")),
   oswald: readFileSync(path.join(PROJ, "node_modules/@fontsource/oswald/files/oswald-latin-400-normal.woff")),
@@ -63,7 +63,12 @@ function notoSubsets(): NotoSubset[] {
  * gets a UNIQUE family name; callers join `.names` into the fontFamily list
  * so satori's per-glyph fallback can walk through every candidate subset.
  */
-function notoFontsFor(text: string): {
+/**
+ * export しているのは lib/reveal-card.ts が**同じフォント解決**を使うため。
+ * カード側にコピーを置くと、片方だけフォントを差し替えたときに、ポスターは
+ * 日本語が出るのにカードは豆腐、という食い違いが黙って生まれる。
+ */
+export function notoFontsFor(text: string): {
   fonts: { name: string; data: Buffer; weight: 700; style: "normal" }[];
   names: string;
 } {

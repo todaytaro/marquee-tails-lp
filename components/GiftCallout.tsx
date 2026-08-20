@@ -25,8 +25,9 @@ export default function GiftCallout() {
             because you two are ridiculous together.&rdquo; You send us the
             photos in secret; we send back a premiere. Sixty seconds in, when
             their pet turns to camera and it&rsquo;s unmistakably them, you win
-            gifting forever. Gift options come with a cinematic reveal card, so
-            the surprise lands like an opening night.
+            gifting forever. Every film comes with a printable reveal card — a
+            ticket with their pet&rsquo;s name on it, and a code that opens the
+            premiere — so you can hand over an opening night instead of a link.
           </p>
         </div>
       </div>

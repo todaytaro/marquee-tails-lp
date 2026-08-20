@@ -204,6 +204,17 @@ model Order {
   // customer-facing approval links authenticate with this token, not a login
   approveToken String @unique @default(cuid())
 
+  // 贈られた人に渡すための、**別の**トークン（REVEAL-CARD-SPEC）。
+  //
+  // approveToken を渡してはいけない。あれは /approve/[token] を開く鍵で、その画面には
+  // ダウンロード・評価・SNS許諾・アドオン購入が並んでいる — 買った人の操作権そのもの。
+  // 贈られた人には映画とポスターだけを見せる /premiere/[token] を開かせる。
+  //
+  // NULLABLE なのは既存注文のため。@default(cuid()) は**既に存在する行には効かない**
+  // ので、移行SQLで埋める。埋め漏れても壊れないよう、必要になった時点で
+  // lib/share-token.ts が生成して保存する（遅延生成）。
+  shareToken String? @unique
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

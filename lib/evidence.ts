@@ -25,6 +25,9 @@ export type EvidenceKind =
   // before that still hold the string. Leave this note here so a future reader
   // finding one in the table knows what it was.
   | "download.poster"
+  // リビールカード（REVEAL-CARD-SPEC）。贈る人が「渡した」ことの記録になるので、
+  // 他の download.* と同じ扱いで残す。
+  | "download.card"
   | "download.take"
   | "email.sent"
   | "rating.submitted"

@@ -10,7 +10,7 @@ export default function robots(): MetadataRoute.Robots {
     rules: {
       userAgent: "*",
       allow: "/",
-      disallow: ["/admin", "/api/", "/approve/", "/checkout/"],
+      disallow: ["/admin", "/api/", "/approve/", "/premiere/", "/checkout/"],
     },
     sitemap: "https://www.marqueetails.com/sitemap.xml",
     host: "https://www.marqueetails.com",

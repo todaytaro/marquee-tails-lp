@@ -602,11 +602,32 @@ function PremiereView({ order, petName }: { order: Order; petName: string }) {
                 Download the poster
               </a>
             )}
+            {/*
+              リビールカード（REVEAL-CARD-SPEC）。LP のギフト欄は前から
+              "come with a cinematic reveal card" と書いていたのに、実体が無かった。
+              これがその実体で、gate は無い —— 生成AIを使わないので原価ゼロ、
+              ギフト限定にして出し惜しみする理由がない。全注文に付く。
+              毎回 satori で描くので posterPrintUrl のような列は要らず、
+              したがって「まだ描けていない」状態も存在しない。
+            */}
+            <a
+              href={`/api/download?token=${order.approveToken}&kind=card`}
+              className="inline-flex items-center rounded-[var(--radius-chip)] border border-gold/50 px-6 py-3 text-base text-gold transition-colors hover:bg-gold/10"
+            >
+              Download the reveal card
+            </a>
           </div>
           <p className="max-w-md text-sm text-muted">
             {petName} earned the big screen — share the trailer with the rest
             of the fan club. Group chats, grandparents, the vet who always
             asks for photos.
+          </p>
+          {/* カードが何なのかを一行で。ダウンロードした人が「これは何？」と
+              なると、贈り物の小道具として使われないまま終わる。 */}
+          <p className="max-w-md text-sm text-muted">
+            Giving this as a gift? The reveal card is a printable ticket — it
+            has {petName}&apos;s name on it and a code that opens the film, so
+            you can hand over the premiere instead of a link.
           </p>
         </div>
       )}

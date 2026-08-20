@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { normalizeStoryboard } from "@/lib/stills-pipeline";
 import { recordEvidence } from "@/lib/evidence";
+import { OrderStatus } from "@/generated/prisma/client";
+import { resolveWorld } from "@/lib/film-script";
+import { renderRevealCardPng } from "@/lib/reveal-card";
+import { ensureShareToken } from "@/lib/share-token";
 
 /**
  * Same-origin download proxy for the customer's deliverables.
@@ -38,7 +42,20 @@ export const dynamic = "force-dynamic";
   * before that still carry a socialVideoUrl, but their delivery page no
   * longer offers it, so nothing can ask for it and this route answers 400.
   */
-type Kind = "film" | "poster" | "take";
+type Kind = "film" | "poster" | "take" | "card";
+
+/**
+ * カードに焼く URL の起点。**本番で未設定なら落とす。** ダウンロードが1件
+ * 失敗するより、localhost を指す QR を刷った紙が人手に渡る方が悪い。
+ */
+function requireBaseUrl(): string {
+  const base = process.env.APP_BASE_URL;
+  if (base) return base;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("APP_BASE_URL is not set — refusing to print a localhost QR onto a reveal card.");
+  }
+  return "http://localhost:3100";
+}
 
 function bad(status: number, message: string) {
   return NextResponse.json({ ok: false, error: message }, { status });
@@ -58,11 +75,45 @@ export async function GET(req: NextRequest) {
       finalVideoUrl: true,
       posterPrintUrl: true,
       storyboardOptions: true,
+      // card 用。resolveWorld にはレコード全体が要るので、ここだけ広く取る。
+      tier: true,
+      world: true,
+      personality: true,
+      generatedScript: true,
+      status: true,
     },
   });
   if (!order) return bad(404, "Not found.");
 
   const slug = (order.petName ?? "your-star").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "your-star";
+
+  // card だけは URL を持たない。satori で毎回描いて、そのまま返す
+  // （REVEAL-CARD-SPEC）。保存しないのは、中身が名前・タグライン・トークンだけで
+  // いつでも同じものが出るから — 列を増やして「古いカードが残っている」状態を
+  // 作る価値がない。他の kind と違って上流への fetch も無いので、この switch の
+  // 前で完結させる。
+  if (kind === "card") {
+    if (order.status !== OrderStatus.COMPLETED) return bad(404, "Not found.");
+    const shareToken = await ensureShareToken(order.id);
+    const { loglines } = resolveWorld(order as never);
+    const png = await renderRevealCardPng({
+      petName: order.petName ?? "Your Star",
+      subtitle: loglines.tagline,
+      // 本番で APP_BASE_URL が無いなら**カードを作らない。** localhost の URL を
+      // 焼いた QR を贈り物に刷らせるのは、リンク切れのカードを配るのと同じ
+      // （lib/mocks.ts の approveUrl が同じ理由で throw している）。
+      watchUrl: new URL(`/premiere/${shareToken}`, requireBaseUrl()).toString(),
+    });
+    await recordEvidence(order.id, "download.card", { filename: `${slug}-reveal-card.png` }, req);
+    return new NextResponse(new Uint8Array(png), {
+      headers: {
+        "Content-Type": "image/png",
+        "Content-Disposition": `attachment; filename="${slug}-reveal-card.png"`,
+        "Content-Length": String(png.length),
+        "Cache-Control": "private, no-store",
+      },
+    });
+  }
 
   let url: string | null = null;
   let filename = "";
