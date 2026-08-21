@@ -66,6 +66,7 @@ export default async function PremierePage({
   }
 
   const petName = (order.petName ?? "Your Star").toUpperCase();
+  const shareToken = order.shareToken!; // findUnique の条件そのもの。null ではありえない
 
   return (
     <Shell>
@@ -90,6 +91,30 @@ export default async function PremierePage({
             </a>
             .
           </video>
+        </div>
+
+        {/*
+          贈られた人も持ち帰れる。最初はボタンを1つも置かなかったが、それは
+          やりすぎだった —— 映画とポスターは受け取った人のものだ。
+          渡すのはこの2つだけで、評価・SNS許諾・アドオン購入・カードは出さない。
+          あれらは買った人の権限（approveToken）で、shareToken では
+          /api/download が 404 を返す。
+        */}
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+          <a
+            href={`/api/download?token=${shareToken}&kind=film`}
+            className="btn-marquee px-6 py-3 text-base"
+          >
+            Download the film
+          </a>
+          {order.posterPrintUrl && (
+            <a
+              href={`/api/download?token=${shareToken}&kind=poster`}
+              className="inline-flex items-center rounded-[var(--radius-chip)] border border-gold/50 px-6 py-3 text-base text-gold transition-colors hover:bg-gold/10"
+            >
+              Download the poster
+            </a>
+          )}
         </div>
 
         {order.posterUrl && (

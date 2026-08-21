@@ -67,9 +67,21 @@ export async function GET(req: NextRequest) {
   const kind = params.get("kind") as Kind | null;
   if (!token || !kind) return bad(400, "Missing token or kind.");
 
-  const order = await prisma.order.findUnique({
-    where: { approveToken: token },
+  // トークンは2種類ある。**どちらで来たかで、渡せるものが変わる。**
+  //   approveToken … 買った人。全部渡す
+  //   shareToken   … 贈られた人（/premiere から)。**映画とポスターだけ**
+  //
+  // 贈られた人に渡してはいけないもの:
+  //   card — 買った人が「渡す」ための道具。受け取った側が刷る物ではない
+  //   take — 絵コンテの候補。承認前の作りかけで、贈り物の中身ではない
+  //
+  // 1回のクエリで両方見る（OR）。どちらで一致したかは後で判定する — 2回引くと、
+  // 「approveToken では無いが shareToken では有る」注文で二度目を忘れる余地が残る。
+  const order = await prisma.order.findFirst({
+    where: { OR: [{ approveToken: token }, { shareToken: token }] },
     select: {
+      approveToken: true,
+      shareToken: true,
       id: true,
       petName: true,
       finalVideoUrl: true,
@@ -84,6 +96,14 @@ export async function GET(req: NextRequest) {
     },
   });
   if (!order) return bad(404, "Not found.");
+
+  // shareToken で来たか。approveToken を優先する（同じ値が両方に入ることは
+  // UNIQUE 制約上ありえないが、優先順位を明示しておく）。
+  const viaShareLink = order.approveToken !== token && order.shareToken === token;
+  if (viaShareLink && kind !== "film" && kind !== "poster") {
+    // 404 にする。403 だと「その kind は存在するが権限が無い」と教えてしまう。
+    return bad(404, "Not found.");
+  }
 
   const slug = (order.petName ?? "your-star").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "your-star";
 
@@ -163,10 +183,19 @@ export async function GET(req: NextRequest) {
   // digital-goods dispute can produce (§0 point 3) — recording a download
   // that didn't actually happen would be worse than not recording at all.
   // Never throws (lib/evidence.ts).
+  // via を残す。「顧客が受け取った」ことがチャージバック対応の最強の証拠
+  // （CHARGEBACK-DEFENSE-SPEC.md §0 point 3）だが、**贈られた人のダウンロードは
+  // 買った人が受け取った証拠にはならない。** 同じ kind に混ぜてしまうと、後から
+  // 見分けられなくなる。
   await recordEvidence(
     order.id,
     `download.${kind}` as const,
-    kind === "take" ? { cut: Number(params.get("cut")), take: Number(params.get("take")) } : { filename },
+    {
+      ...(kind === "take"
+        ? { cut: Number(params.get("cut")), take: Number(params.get("take")) }
+        : { filename }),
+      via: viaShareLink ? "share-link" : "buyer",
+    },
     req
   );
 
