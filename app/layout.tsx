@@ -118,6 +118,27 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
         {children}
+        {/*
+          Cloudflare Web Analytics（social/ANALYTICS-SPEC.md ①）。
+          無料・無制限・cookieless。Cookie を使わないので同意バナーは足していない
+          —— ただしこれは法的な整理であって確定ではないので、
+          LAWYER-REVIEW-QUESTIONS.md に項目を足してある。
+
+          **トークン未設定なら何も出力しない。** 未取得の間に空の beacon を
+          読み込ませても、リクエストが1つ増えるだけで何も記録されない。
+
+          そして**これはサーバー側計測の代わりにはならない。** このスクリプトも
+          広告ブロッカーに落とされる。判定ゲートが乗っている数（着地・決済試行）は
+          SiteEvent 側で数えており、こちらは補助（回遊・滞在・参照元の傾向）。
+          両方あることで「クライアント計測がどれだけ落ちているか」も分かる。
+        */}
+        {process.env.NEXT_PUBLIC_CF_BEACON_TOKEN && (
+          <script
+            defer
+            src="https://static.cloudflareinsights.com/beacon.min.js"
+            data-cf-beacon={JSON.stringify({ token: process.env.NEXT_PUBLIC_CF_BEACON_TOKEN })}
+          />
+        )}
       </body>
     </html>
   );
