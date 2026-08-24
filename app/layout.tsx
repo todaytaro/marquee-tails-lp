@@ -137,15 +137,28 @@ export default function RootLayout({
           「451で断った件数」は決済経路にしか無く、Vercelのログ保持期限で消えている。
           何が測れて何が測れないかは lp/ANALYTICS-READOUT.md に書いてある。
 
-          置き場所は Cloudflare の公式スニペットに合わせて body の末尾。defer を
-          付けているので head でも描画は妨げないが、公式の位置から動かす理由が無い。
+          置き場所は Cloudflare の公式スニペットに合わせて body の末尾。module は
+          既定で defer 相当なので head でも描画は妨げないが、公式の位置から動かす
+          理由が無い。
         */}
         {process.env.NEXT_PUBLIC_CF_BEACON_TOKEN && (
-          <script
-            defer
-            src="https://static.cloudflareinsights.com/beacon.min.js"
-            data-cf-beacon={JSON.stringify({ token: process.env.NEXT_PUBLIC_CF_BEACON_TOKEN })}
-          />
+          <>
+            {/* eslint-disable-next-line @next/next/no-sync-scripts --
+                no-sync-scripts は async / defer 属性の有無だけを見ており
+                type="module" を認識しない。**モジュールスクリプトは HTML 仕様上
+                つねに defer 相当**（module では defer 属性の方が無視される）なので
+                これは誤検知で、ルールが防ごうとしている「描画をブロックする
+                スクリプト」には当たらない。 */}
+            <script
+              // Cloudflare が現在配っているスニペットに合わせて type="module"。
+              // 以前は defer だった。beacon.min.js が ES モジュールとして
+              // 配信されている場合、classic script として読むと動かないので、
+              // 公式の形から外れる理由が無い。
+              type="module"
+              src="https://static.cloudflareinsights.com/beacon.min.js"
+              data-cf-beacon={JSON.stringify({ token: process.env.NEXT_PUBLIC_CF_BEACON_TOKEN })}
+            />
+          </>
         )}
       </body>
     </html>
